@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.38] - 2026-02-14
+- Bundle the Python runtime DLL explicitly in Windows builds to prevent missing DLL errors.
+
 ## [0.2.37] - 2026-02-14
 - Send log uploads as SES email attachments instead of storing in S3.
 - Drop S3 dependencies from the log upload infrastructure.

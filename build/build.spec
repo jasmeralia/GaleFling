@@ -1,11 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import sys
+from pathlib import Path
+
+py_dll_name = f'python{sys.version_info.major}{sys.version_info.minor}.dll'
+py_dll_path = Path(sys.base_prefix) / py_dll_name
+binaries = []
+if py_dll_path.exists():
+    binaries.append((str(py_dll_path), '.'))
+
 block_cipher = None
 
 a = Analysis(
     ['../src/main.py'],
     pathex=[],
-    binaries=[],
+    binaries=binaries,
     datas=[
         ('../resources/default_config.json', 'resources'),
         ('../resources/icon.ico', 'resources'),

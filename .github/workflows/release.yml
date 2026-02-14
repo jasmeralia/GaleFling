@@ -141,10 +141,19 @@ jobs:
           # Extract version from tag
           VERSION="${CURRENT_TAG#v}"
 
-          # Extract changelog section for this version if it exists
+          # Extract changelog sections since last published release
           CHANGELOG_SECTION=""
           if [ -f CHANGELOG.md ]; then
-            CHANGELOG_SECTION=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
+            if [ -n "$PREV_TAG" ]; then
+              PREV_VERSION="${PREV_TAG#v}"
+              CHANGELOG_SECTION=$(awk -v stop="^## \\[${PREV_VERSION}\\]" '
+                /^## \[/{in_section=1}
+                $0 ~ stop {exit}
+                in_section {print}
+              ' CHANGELOG.md)
+            else
+              CHANGELOG_SECTION=$(awk '/^## \[/{in_section=1} in_section {print}' CHANGELOG.md)
+            fi
           fi
 
           # Build the body

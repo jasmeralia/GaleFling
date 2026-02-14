@@ -1,6 +1,8 @@
 """Upload logs and screenshots to the remote endpoint."""
 
 import base64
+import getpass
+import socket
 from datetime import UTC, datetime
 
 import requests
@@ -30,6 +32,8 @@ class LogUploader:
         logger = get_logger()
         endpoint = self._config.log_upload_endpoint
         installation_id = get_installation_id()
+        hostname = socket.gethostname()
+        username = getpass.getuser()
         platform_name = platform or 'Unknown'
 
         if not self._config.log_upload_enabled:
@@ -42,7 +46,8 @@ class LogUploader:
                     'Log upload disabled in settings.',
                     platform_name=platform_name,
                     installation_id=installation_id,
-                    user_notes=user_notes,
+                    hostname=hostname,
+                    username=username,
                 ),
             )
         if not user_notes.strip():
@@ -55,7 +60,8 @@ class LogUploader:
                     'User notes are required before uploading logs.',
                     platform_name=platform_name,
                     installation_id=installation_id,
-                    user_notes=user_notes,
+                    hostname=hostname,
+                    username=username,
                 ),
             )
 
@@ -96,7 +102,8 @@ class LogUploader:
                     f'HTTP {response.status_code} response.',
                     platform_name=platform_name,
                     installation_id=installation_id,
-                    user_notes=user_notes,
+                    hostname=hostname,
+                    username=username,
                     response_text=response.text,
                 ),
             )
@@ -112,7 +119,8 @@ class LogUploader:
                     'Request timed out while uploading logs.',
                     platform_name=platform_name,
                     installation_id=installation_id,
-                    user_notes=user_notes,
+                    hostname=hostname,
+                    username=username,
                     exception=exc,
                 ),
             )
@@ -127,7 +135,8 @@ class LogUploader:
                     'Connection error while uploading logs.',
                     platform_name=platform_name,
                     installation_id=installation_id,
-                    user_notes=user_notes,
+                    hostname=hostname,
+                    username=username,
                     exception=exc,
                 ),
             )
@@ -142,7 +151,8 @@ class LogUploader:
                     str(e),
                     platform_name=platform_name,
                     installation_id=installation_id,
-                    user_notes=user_notes,
+                    hostname=hostname,
+                    username=username,
                     exception=e,
                 ),
             )
@@ -154,7 +164,8 @@ class LogUploader:
         message: str,
         platform_name: str,
         installation_id: str,
-        user_notes: str,
+        hostname: str,
+        username: str,
         response_text: str | None = None,
         exception: Exception | None = None,
     ) -> str:
@@ -165,14 +176,13 @@ class LogUploader:
             f'Endpoint: {endpoint}',
             f'Platform: {platform_name}',
             f'Installation ID: {installation_id}',
+            f'Hostname: {hostname}',
+            f'Username: {username}',
             f'Message: {message}',
         ]
         if exception is not None:
             lines.append(f'Exception Type: {type(exception).__name__}')
             lines.append(f'Exception: {exception}')
-        if user_notes.strip():
-            lines.append('User Notes:')
-            lines.append(user_notes.strip())
         if response_text:
             lines.append('Response:')
             lines.append(response_text)

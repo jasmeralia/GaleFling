@@ -25,7 +25,7 @@ Parameters:
 
   SenderEmail:
     Type: String
-    Default: noreply@jasmer.tools
+    Default: morgan@windsofstorm.net
     Description: Email address used as the SES sender (must be verified)
 
 Resources:

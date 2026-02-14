@@ -16,6 +16,7 @@ install-dev: install ## Install runtime + dev dependencies
 lint: ## Run ruff linter and formatter check
 	ruff check src/ tests/ infrastructure/
 	ruff format --check src/ tests/ infrastructure/
+	shellcheck infrastructure/deploy.sh
 
 lint-fix: ## Auto-fix lint issues and format code
 	ruff check --fix src/ tests/ infrastructure/

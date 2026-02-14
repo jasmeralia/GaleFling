@@ -32,8 +32,7 @@ fi
 CERTIFICATE_ARN="$1"
 AWS_PROFILE="${2:-}"
 
-# shellcheck disable=SC2005
-AWS_REGION="$(echo "$CERTIFICATE_ARN" | cut -d: -f4)"
+AWS_REGION="$(cut -d: -f4 <<<"$CERTIFICATE_ARN")"
 if [ -z "$AWS_REGION" ]; then
     echo "Could not parse region from certificate ARN."
     exit 1
@@ -93,7 +92,7 @@ echo ""
 echo "DNS CNAME to create:"
 "${AWS_CLI[@]}" cloudformation describe-stacks \
     --stack-name "${STACK_NAME}" \
-    --query 'Stacks[0].Outputs[?OutputKey==`CustomDomainTarget`].OutputValue' \
+    --query "Stacks[0].Outputs[?OutputKey==\`CustomDomainTarget\`].OutputValue" \
     --output text
 
 echo ""
@@ -102,7 +101,7 @@ echo "  1. Package and deploy the Lambda code:"
 echo "     cd infrastructure"
 echo "     zip lambda.zip lambda_function.py"
 echo "     aws lambda update-function-code \\"
-echo "       --function-name \$(${AWS_CLI[@]} cloudformation describe-stacks \\"
+echo "       --function-name \$(aws cloudformation describe-stacks \\"
 echo "         --stack-name ${STACK_NAME} \\"
 echo "         --query 'Stacks[0].Outputs[?OutputKey==\`LambdaFunctionArn\`].OutputValue' \\"
 echo "         --output text) \\"

@@ -32,13 +32,21 @@ fi
 CERTIFICATE_ARN="$1"
 AWS_PROFILE="${2:-}"
 
+AWS_REGION="$(echo "$CERTIFICATE_ARN" | cut -d: -f4)"
+if [ -z "$AWS_REGION" ]; then
+    echo "Could not parse region from certificate ARN."
+    exit 1
+fi
+
 AWS_CLI=(aws)
+AWS_CLI+=(--region "$AWS_REGION")
 if [ -n "$AWS_PROFILE" ]; then
     AWS_CLI+=(--profile "$AWS_PROFILE")
 fi
 
 echo "Deploying stack: ${STACK_NAME}"
 echo "  Certificate: ${CERTIFICATE_ARN}"
+echo "  Region: ${AWS_REGION}"
 if [ -n "$AWS_PROFILE" ]; then
     echo "  Profile: ${AWS_PROFILE}"
 fi

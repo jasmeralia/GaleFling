@@ -3,7 +3,7 @@
 !include "MUI2.nsh"
 
 Name "GalePost"
-OutFile "GalePost-Setup-v0.2.17.exe"
+OutFile "GalePost-Setup-v0.2.18.exe"
 InstallDir "$PROGRAMFILES\GalePost"
 InstallDirRegKey HKLM "Software\GalePost" "InstallDir"
 RequestExecutionLevel admin
@@ -12,9 +12,13 @@ RequestExecutionLevel admin
 !define MUI_ABORTWARNING
 !define MUI_ICON "..\resources\icon.ico"
 !define MUI_UNICON "..\resources\icon.ico"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\GalePost.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "Launch GalePost"
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_LICENSE "..\LICENSE.md"
+!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -24,7 +28,8 @@ RequestExecutionLevel admin
 
 !insertmacro MUI_LANGUAGE "English"
 
-Section "Install"
+Section "GalePost (required)" SecMain
+  SectionIn RO
   CreateDirectory "$INSTDIR"
   SetOutPath "$INSTDIR"
   File "..\dist\GalePost.exe"
@@ -37,12 +42,9 @@ Section "Install"
   CreateShortCut "$SMPROGRAMS\GalePost\GalePost.lnk" "$INSTDIR\GalePost.exe"
   CreateShortCut "$SMPROGRAMS\GalePost\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
 
-  ; Desktop shortcut
-  CreateShortCut "$DESKTOP\GalePost.lnk" "$INSTDIR\GalePost.exe"
-
   ; Registry
   WriteRegStr HKLM "Software\GalePost" "InstallDir" "$INSTDIR"
-  WriteRegStr HKLM "Software\GalePost" "Version" "0.2.17"
+  WriteRegStr HKLM "Software\GalePost" "Version" "0.2.18"
 
   ; Add/Remove Programs entry
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GalePost" \
@@ -50,9 +52,13 @@ Section "Install"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GalePost" \
     "UninstallString" "$\"$INSTDIR\Uninstall.exe$\""
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GalePost" \
-    "DisplayVersion" "0.2.17"
+    "DisplayVersion" "0.2.18"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GalePost" \
     "Publisher" "GalePost"
+SectionEnd
+
+Section /o "Desktop Shortcut" SecDesktop
+  CreateShortCut "$DESKTOP\GalePost.lnk" "$INSTDIR\GalePost.exe"
 SectionEnd
 
 Section "Uninstall"

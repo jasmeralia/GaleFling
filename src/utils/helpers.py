@@ -33,11 +33,7 @@ def get_drafts_dir() -> Path:
 
 def get_logs_dir() -> Path:
     """Return the logs directory, creating it if needed."""
-    if getattr(sys, 'frozen', False):
-        base = Path(sys.executable).parent
-    else:
-        base = Path(__file__).resolve().parent.parent.parent
-    logs_dir = base / 'logs'
+    logs_dir = get_app_data_dir() / 'logs'
     logs_dir.mkdir(parents=True, exist_ok=True)
     (logs_dir / 'screenshots').mkdir(exist_ok=True)
     return logs_dir

@@ -104,7 +104,7 @@ def lambda_handler(event, context):
             )
             ses.send_raw_email(
                 Source=SENDER_EMAIL,
-                Destination={'ToAddresses': [NOTIFY_EMAIL]},
+                Destinations=[NOTIFY_EMAIL],
                 RawMessage={'Data': raw_message},
             )
         else:

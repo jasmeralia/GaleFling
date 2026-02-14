@@ -143,60 +143,7 @@ jobs:
           # Extract changelog sections between current tag and last published release
           CHANGELOG_SECTION=""
           if [ -f CHANGELOG.md ]; then
-            CHANGELOG_SECTION=$(python - <<'PY'
-          import os
-          import re
-
-          current_tag = os.environ.get("CURRENT_TAG", "")
-          prev_tag = os.environ.get("PREV_TAG", "")
-          current_version = current_tag[1:] if current_tag.startswith("v") else current_tag
-          prev_version = prev_tag[1:] if prev_tag.startswith("v") else prev_tag
-
-          with open("CHANGELOG.md", "r", encoding="utf-8") as fh:
-              lines = fh.readlines()
-
-          def is_header(line: str) -> bool:
-              return line.startswith("## [")
-
-          sections = []
-          current_lines = []
-          in_section = False
-
-          for line in lines:
-              if is_header(line):
-                  if in_section:
-                      sections.append("".join(current_lines).rstrip())
-                      current_lines = []
-                  in_section = True
-              if in_section:
-                  current_lines.append(line)
-          if current_lines:
-              sections.append("".join(current_lines).rstrip())
-
-          def section_version(section: str) -> str:
-              match = re.match(r"^## \\[([^\\]]+)\\]", section)
-              return match.group(1) if match else ""
-
-          output_sections = []
-          for section in sections:
-              version = section_version(section)
-              if not version:
-                  continue
-              if version == prev_version:
-                  break
-              output_sections.append(section)
-              if version == current_version:
-                  continue
-
-          if current_version and current_version not in [section_version(s) for s in output_sections]:
-              for section in sections:
-                  if section_version(section) == current_version:
-                      output_sections = [section]
-                      break
-
-          print("\n\n".join(output_sections).strip())
-          PY
-          )
+            CHANGELOG_SECTION=$(python scripts/release_notes.py)
           fi
 
           # Build the body

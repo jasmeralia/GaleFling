@@ -21,11 +21,11 @@ VSVersionInfo(
           [
             StringStruct(u'CompanyName', u'GalePost'),
             StringStruct(u'FileDescription', u'GalePost'),
-            StringStruct(u'FileVersion', u'0.2.22.0'),
+            StringStruct(u'FileVersion', u'0.2.24.0'),
             StringStruct(u'InternalName', u'GalePost'),
             StringStruct(u'OriginalFilename', u'GalePost.exe'),
             StringStruct(u'ProductName', u'GalePost'),
-            StringStruct(u'ProductVersion', u'0.2.22.0'),
+            StringStruct(u'ProductVersion', u'0.2.24.0'),
           ]
         )
       ]

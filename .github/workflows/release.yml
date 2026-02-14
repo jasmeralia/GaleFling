@@ -140,18 +140,21 @@ jobs:
           # Extract version from tag
           VERSION="${CURRENT_TAG#v}"
 
-          # Extract changelog sections since last published release
+          # Extract changelog sections between current tag and last published release
           CHANGELOG_SECTION=""
           if [ -f CHANGELOG.md ]; then
             if [ -n "$PREV_TAG" ]; then
               PREV_VERSION="${PREV_TAG#v}"
-              CHANGELOG_SECTION=$(awk -v stop="^## \\[${PREV_VERSION}\\]" '
-                /^## \[/{in_section=1}
-                $0 ~ stop {exit}
+              CHANGELOG_SECTION=$(awk -v start="^## \\[${VERSION}\\]" -v stop="^## \\[${PREV_VERSION}\\]" '
+                $0 ~ start {in_section=1}
+                $0 ~ stop {if (in_section) exit}
                 in_section {print}
               ' CHANGELOG.md)
             else
-              CHANGELOG_SECTION=$(awk '/^## \[/{in_section=1} in_section {print}' CHANGELOG.md)
+              CHANGELOG_SECTION=$(awk -v start="^## \\[${VERSION}\\]" '
+                $0 ~ start {in_section=1}
+                in_section {print}
+              ' CHANGELOG.md)
             fi
           fi
 
@@ -164,10 +167,6 @@ jobs:
               echo "$CHANGELOG_SECTION"
               echo ""
             fi
-            echo "## Commits"
-            echo ""
-            echo "$COMMITS"
-            echo ""
             echo "---"
             echo ""
             echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${CURRENT_TAG}"

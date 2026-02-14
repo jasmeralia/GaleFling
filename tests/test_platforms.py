@@ -18,6 +18,15 @@ class TestDetectUrls:
         facets = detect_urls(text)
         assert len(facets) == 2
 
+    def test_url_with_path(self):
+        text = 'Test https://rin-city.com/envira/orinnixi/'
+        facets = detect_urls(text)
+        assert facets[0]['features'][0]['uri'] == 'https://rin-city.com/envira/orinnixi/'
+        start = text.index('https://rin-city.com/envira/orinnixi/')
+        end = start + len('https://rin-city.com/envira/orinnixi/')
+        assert facets[0]['index']['byteStart'] == start
+        assert facets[0]['index']['byteEnd'] == end
+
     def test_byte_offsets_ascii(self):
         text = 'Go to https://example.com now'
         facets = detect_urls(text)

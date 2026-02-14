@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 APP_NAME = 'GalePost'
-APP_VERSION = '0.2.7'
+APP_VERSION = '0.2.8'
 APP_ORG = 'GalePost'
 LOG_UPLOAD_ENDPOINT = 'https://galepost.jasmer.tools/logs/upload'
 

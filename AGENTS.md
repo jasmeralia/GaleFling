@@ -1111,7 +1111,13 @@ Every change that modifies functionality, fixes bugs, or alters configuration **
 4. **Run lint + format checks using the venv**: `source venv/bin/activate && make lint`
 5. **Git workflow**: commit the changes, create a version tag, and push both commit and tag to GitHub
 
-Use semantic versioning: patch (0.1.x) for fixes/config, minor (0.x.0) for features, major (x.0.0) for breaking changes.
+Use semantic versioning in `major.minor.build` format. **Only increment the build number** unless explicitly told otherwise.
+
+Phase versioning:
+1. **Phase 0:** `0.x.y`
+2. **Phase 1:** `1.x.y`
+3. **Phase 2:** `2.x.y`
+4. **Phase N:** `N.x.y`
 
 ## Tooling
 

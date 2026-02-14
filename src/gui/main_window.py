@@ -26,7 +26,7 @@ from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
 from src.core.image_processor import process_image, validate_image
 from src.core.log_uploader import LogUploader
-from src.core.logger import get_logger
+from src.core.logger import get_current_log_path, get_logger
 from src.core.update_checker import check_for_updates
 from src.gui.image_preview_tabs import ImagePreviewDialog
 from src.gui.log_submit_dialog import LogSubmitDialog
@@ -38,7 +38,7 @@ from src.gui.setup_wizard import SetupWizard
 from src.platforms.bluesky import BlueskyPlatform
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import APP_NAME, APP_VERSION, PostResult
-from src.utils.helpers import get_drafts_dir
+from src.utils.helpers import get_drafts_dir, get_logs_dir
 
 
 class PostWorker(QThread):
@@ -199,6 +199,10 @@ class MainWindow(QMainWindow):
         send_logs = QAction('Send Logs to Jas', self)
         send_logs.triggered.connect(self._send_logs)
         help_menu.addAction(send_logs)
+
+        clear_logs = QAction('Clear Logs', self)
+        clear_logs.triggered.connect(self._clear_logs)
+        help_menu.addAction(clear_logs)
 
     def _restore_geometry(self):
         geo = self._config.window_geometry
@@ -412,6 +416,35 @@ class MainWindow(QMainWindow):
             f'Packaging \u2013 Version parsing<br><br>'
             f'Built for Rin with love.',
         )
+
+    def _clear_logs(self):
+        reply = QMessageBox.question(
+            self,
+            'Clear Logs',
+            'This will delete saved logs and screenshots. Continue?',
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        logs_dir = get_logs_dir()
+        current_log = get_current_log_path()
+        deleted = 0
+
+        for log_path in logs_dir.glob('app_*.log'):
+            if current_log and log_path == current_log:
+                continue
+            with contextlib.suppress(OSError):
+                log_path.unlink()
+                deleted += 1
+
+        screenshots_dir = logs_dir / 'screenshots'
+        for ss_path in screenshots_dir.glob('*.png'):
+            with contextlib.suppress(OSError):
+                ss_path.unlink()
+                deleted += 1
+
+        QMessageBox.information(self, 'Logs Cleared', f'Deleted {deleted} log file(s).')
 
     def _manual_update_check(self):
         self._status_bar.showMessage('Checking for updates...')

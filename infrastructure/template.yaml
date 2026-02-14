@@ -2,8 +2,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   GalePost - Log Upload Backend.
   Deploys Lambda, API Gateway (HTTP API) with custom domain
-  galepost.jasmer.tools, S3 bucket for log storage, and SES
-  email notifications.
+  galepost.jasmer.tools, and SES email notifications.
 
 Parameters:
   DomainName:
@@ -29,22 +28,6 @@ Parameters:
     Description: Email address used as the SES sender (must be verified)
 
 Resources:
-  # ── S3 Bucket for log storage ──────────────────────────────────────
-  LogBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub galepost-logs-${AWS::AccountId}
-      LifecycleConfiguration:
-        Rules:
-          - Id: ExpireOldLogs
-            Status: Enabled
-            ExpirationInDays: 90
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-
   # ── IAM Role for Lambda ────────────────────────────────────────────
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -60,15 +43,10 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: S3AndSESAccess
+        - PolicyName: SESAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Effect: Allow
-                Action:
-                  - s3:PutObject
-                  - s3:GetObject
-                Resource: !Sub ${LogBucket.Arn}/*
               - Effect: Allow
                 Action:
                   - ses:SendEmail
@@ -87,7 +65,6 @@ Resources:
       MemorySize: 256
       Environment:
         Variables:
-          LOG_BUCKET_NAME: !Ref LogBucket
           NOTIFY_EMAIL: !Ref NotifyEmail
           SENDER_EMAIL: !Ref SenderEmail
       Code:
@@ -183,10 +160,6 @@ Outputs:
   CustomDomainHostedZoneId:
     Description: API Gateway hosted zone ID (for reference)
     Value: !GetAtt ApiDomainName.RegionalHostedZoneId
-
-  LogBucketName:
-    Description: S3 bucket storing uploaded logs
-    Value: !Ref LogBucket
 
   LambdaFunctionArn:
     Description: ARN of the log upload Lambda function

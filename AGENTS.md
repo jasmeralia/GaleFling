@@ -457,8 +457,9 @@ logs/
     "app_version": "0.2.0",
     "timestamp": "2026-02-13T14:23:45",
     "error_code": "BS-AUTH-EXPIRED",
-    "platform": "Bluesky",
     "user_id": "rin_installation_uuid",
+    "user_notes": "what the user was doing",
+    "os_platform": "Windows-11-10.0.26100-SP0",
     "log_files": [
         {
             "filename": "app_20260213_142345.log",
@@ -488,21 +489,12 @@ logs/
 def lambda_handler(event, context):
     """
     1. Receive logs from app
-    2. Save to S3 bucket
-    3. Send email to morgan@windsofstorm.net via SES
-    4. Return success response
+    2. Send email to morgan@windsofstorm.net via SES (attachments preferred)
+    3. Return success response
     """
     
     body = json.loads(event['body'])
     upload_id = generate_unique_id()
-    
-    # Save to S3
-    for log_file in body['log_files']:
-        s3.put_object(
-            Bucket='galepost-logs',
-            Key=f"{upload_id}/{log_file['filename']}",
-            Body=base64.b64decode(log_file['content'])
-        )
     
     # Email via SES
     ses.send_email(
@@ -510,7 +502,7 @@ def lambda_handler(event, context):
         Destination={'ToAddresses': ['morgan@windsofstorm.net']},
         Message={
             'Subject': f"Error Report: {body['error_code']}",
-            'Body': f"Upload ID: {upload_id}\nPlatform: {body['platform']}\n..."
+            'Body': f"Upload ID: {upload_id}\nOS Platform: {body['os_platform']}\n..."
         }
     )
     

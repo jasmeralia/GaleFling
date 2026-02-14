@@ -2,7 +2,7 @@
 
 Windows desktop application for posting to multiple social media platforms simultaneously. Built with PyQt5 for a non-technical end user, with robust error handling and remote troubleshooting via log uploads.
 
-**Current Version:** 0.2.36 (Phase 0)
+**Current Version:** 0.2.37 (Phase 0)
 
 ## Supported Platforms
 
@@ -95,7 +95,7 @@ galepost/
 │       ├── constants.py             # Platform specs, error codes
 │       └── helpers.py               # Utility functions
 ├── infrastructure/
-│   ├── template.yaml                # CloudFormation (Lambda + API GW + S3)
+│   ├── template.yaml                # CloudFormation (Lambda + API GW + SES)
 │   ├── lambda_function.py           # Log upload Lambda handler
 │   └── deploy.sh                    # One-command CFT deployment
 ├── resources/
@@ -126,7 +126,7 @@ galepost/
 The log upload endpoint is deployed to AWS via CloudFormation:
 
 - **Endpoint:** `https://galepost.jasmer.tools/logs/upload`
-- **Stack:** Lambda (Python 3.11) + HTTP API Gateway + S3 + SES
+- **Stack:** Lambda (Python 3.11) + HTTP API Gateway + SES
 - **Notifications:** Email to `morgan@windsofstorm.net` via SES
 
 See [infrastructure/](infrastructure/) for the CFT and deployment script.
@@ -138,8 +138,8 @@ See [infrastructure/](infrastructure/) for the CFT and deployment script.
 3. Update this README if features changed
 4. Commit, tag, and push:
    ```bash
-   git tag v0.2.36
-   git push origin v0.2.36
+   git tag v0.2.37
+   git push origin v0.2.37
    ```
 5. The GitHub Action builds a Windows executable and creates a **draft release** with commit history
 6. Review the draft on GitHub and publish when ready

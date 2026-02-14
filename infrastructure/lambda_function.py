@@ -1,6 +1,6 @@
 """AWS Lambda function for receiving log uploads from GalePost.
 
-Receives log bundles via API Gateway, stores them in S3, and sends
+Receives log bundles via API Gateway and sends
 a notification email via SES.
 """
 
@@ -12,10 +12,8 @@ from datetime import datetime
 
 import boto3
 
-s3 = boto3.client('s3')
 ses = boto3.client('ses')
 
-BUCKET_NAME = os.environ.get('LOG_BUCKET_NAME', 'galepost-logs')
 NOTIFY_EMAIL = os.environ.get('NOTIFY_EMAIL', 'morgan@windsofstorm.net')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'morgan@windsofstorm.net')
 
@@ -69,8 +67,6 @@ def lambda_handler(event, context):
 
     upload_id = str(uuid.uuid4())[:12]
     timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-    prefix = f'{timestamp}_{upload_id}'
-
     app_version = body.get('app_version', 'unknown')
     error_code = body.get('error_code', 'MANUAL')
     user_id = body.get('user_id', 'unknown')
@@ -78,63 +74,13 @@ def lambda_handler(event, context):
     os_platform = body.get('os_platform', '')
     os_display = os_platform or 'Unknown OS'
 
-    uploaded_files = []
-
-    # Save log files to S3
-    for log_file in body.get('log_files', []):
-        filename = log_file.get('filename', 'unknown.log')
-        content = log_file.get('content', '')
-        try:
-            decoded = base64.b64decode(content)
-            key = f'{prefix}/logs/{filename}'
-            s3.put_object(
-                Bucket=BUCKET_NAME,
-                Key=key,
-                Body=decoded,
-                ContentType='text/plain',
-            )
-            uploaded_files.append(key)
-        except Exception as e:
-            print(f'Failed to upload log {filename}: {e}')
-
-    # Save screenshots to S3
-    for screenshot in body.get('screenshots', []):
-        filename = screenshot.get('filename', 'unknown.png')
-        content = screenshot.get('content', '')
-        try:
-            decoded = base64.b64decode(content)
-            key = f'{prefix}/screenshots/{filename}'
-            s3.put_object(
-                Bucket=BUCKET_NAME,
-                Key=key,
-                Body=decoded,
-                ContentType='image/png',
-            )
-            uploaded_files.append(key)
-        except Exception as e:
-            print(f'Failed to upload screenshot {filename}: {e}')
-
-    # Save metadata
-    metadata = {
-        'upload_id': upload_id,
-        'timestamp': timestamp,
-        'app_version': app_version,
-        'error_code': error_code,
-        'user_id': user_id,
-        'user_notes': user_notes,
-        'os_platform': os_platform,
-        'files': uploaded_files,
-    }
-    s3.put_object(
-        Bucket=BUCKET_NAME,
-        Key=f'{prefix}/metadata.json',
-        Body=json.dumps(metadata, indent=2),
-        ContentType='application/json',
-    )
-
-    # Send notification email via SES
+    # Send notification email via SES (attachments preferred)
     try:
-        file_list = '\n'.join(f'  - {f}' for f in uploaded_files)
+        attachments, skipped = _collect_attachments(body)
+        file_list = '\n'.join(
+            f'  - {item["filename"]} ({item["size"]} bytes)' for item in attachments
+        )
+        skipped_list = '\n'.join(f'  - {item}' for item in skipped)
         email_body = (
             f'New error report received from GalePost.\n\n'
             f'Upload ID: {upload_id}\n'
@@ -144,27 +90,40 @@ def lambda_handler(event, context):
             f'User ID: {user_id}\n\n'
             f'User Notes:\n{user_notes}\n\n'
             f'OS Platform: {os_platform}\n\n'
-            f'Files uploaded:\n{file_list}\n\n'
-            f'S3 Bucket: {BUCKET_NAME}\n'
-            f'S3 Prefix: {prefix}/\n'
+            f'Files attached:\n{file_list or "  (none)"}\n\n'
+            f'Files skipped due to size limits:\n{skipped_list or "  (none)"}\n'
         )
 
-        ses.send_email(
-            Source=SENDER_EMAIL,
-            Destination={'ToAddresses': [NOTIFY_EMAIL]},
-            Message={
-                'Subject': {
-                    'Data': f'[GalePost] Error Report: {error_code} on {os_display}',
-                    'Charset': 'UTF-8',
-                },
-                'Body': {
-                    'Text': {
-                        'Data': email_body,
+        if attachments:
+            raw_message = _build_raw_email(
+                subject=f'[GalePost] Error Report: {error_code} on {os_display}',
+                body=email_body,
+                sender=SENDER_EMAIL,
+                recipient=NOTIFY_EMAIL,
+                attachments=attachments,
+            )
+            ses.send_raw_email(
+                Source=SENDER_EMAIL,
+                Destination={'ToAddresses': [NOTIFY_EMAIL]},
+                RawMessage={'Data': raw_message},
+            )
+        else:
+            ses.send_email(
+                Source=SENDER_EMAIL,
+                Destination={'ToAddresses': [NOTIFY_EMAIL]},
+                Message={
+                    'Subject': {
+                        'Data': f'[GalePost] Error Report: {error_code} on {os_display}',
                         'Charset': 'UTF-8',
                     },
+                    'Body': {
+                        'Text': {
+                            'Data': email_body,
+                            'Charset': 'UTF-8',
+                        },
+                    },
                 },
-            },
-        )
+            )
     except Exception as e:
         # Don't fail the request if email fails
         print(f'SES email failed: {e}')
@@ -191,3 +150,88 @@ def _cors_response(status_code: int, body: dict) -> dict:
         },
         'body': json.dumps(body),
     }
+
+
+def _collect_attachments(body: dict) -> tuple[list[dict], list[str]]:
+    """Decode log files and screenshots into attachments within size limits."""
+    max_total_bytes = 8 * 1024 * 1024
+    attachments: list[dict] = []
+    skipped: list[str] = []
+    total_bytes = 0
+
+    def add_attachment(filename: str, content_b64: str, content_type: str) -> None:
+        nonlocal total_bytes
+        if not content_b64:
+            return
+        try:
+            decoded = base64.b64decode(content_b64)
+        except Exception:
+            skipped.append(filename)
+            return
+        size = len(decoded)
+        if total_bytes + size > max_total_bytes:
+            skipped.append(filename)
+            return
+        attachments.append(
+            {
+                'filename': filename,
+                'content_type': content_type,
+                'content': decoded,
+                'size': size,
+            }
+        )
+        total_bytes += size
+
+    for log_file in body.get('log_files', []):
+        add_attachment(
+            log_file.get('filename', 'unknown.log'),
+            log_file.get('content', ''),
+            'text/plain',
+        )
+
+    for screenshot in body.get('screenshots', []):
+        add_attachment(
+            screenshot.get('filename', 'unknown.png'),
+            screenshot.get('content', ''),
+            'image/png',
+        )
+
+    return attachments, skipped
+
+
+def _build_raw_email(
+    subject: str, body: str, sender: str, recipient: str, attachments: list[dict]
+) -> bytes:
+    boundary = f'===={uuid.uuid4().hex}===='
+    lines = [
+        f'From: {sender}',
+        f'To: {recipient}',
+        f'Subject: {subject}',
+        'MIME-Version: 1.0',
+        f'Content-Type: multipart/mixed; boundary="{boundary}"',
+        '',
+        f'--{boundary}',
+        'Content-Type: text/plain; charset="UTF-8"',
+        'Content-Transfer-Encoding: 7bit',
+        '',
+        body,
+        '',
+    ]
+
+    for attachment in attachments:
+        encoded = base64.b64encode(attachment['content']).decode('ascii')
+        lines.extend(
+            [
+                f'--{boundary}',
+                f'Content-Type: {attachment["content_type"]}; name="{attachment["filename"]}"',
+                'Content-Transfer-Encoding: base64',
+                f'Content-Disposition: attachment; filename="{attachment["filename"]}"',
+                '',
+                encoded,
+                '',
+            ]
+        )
+
+    lines.append(f'--{boundary}--')
+    lines.append('')
+    return '\r\n'.join(lines).encode('utf-8')

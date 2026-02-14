@@ -10,12 +10,14 @@ from src.utils.helpers import get_logs_dir
 
 _logger: logging.Logger | None = None
 _log_file_path: Path | None = None
+_debug_mode: bool = False
 
 
 def setup_logging(debug_mode: bool = False) -> logging.Logger:
     """Initialize logging for the current session."""
-    global _logger, _log_file_path
+    global _logger, _log_file_path, _debug_mode
 
+    _debug_mode = debug_mode
     logs_dir = get_logs_dir()
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     _log_file_path = logs_dir / f'app_{timestamp}.log'
@@ -50,6 +52,18 @@ def get_logger() -> logging.Logger:
 def get_current_log_path() -> Path | None:
     """Return the path to the current session's log file."""
     return _log_file_path
+
+
+def reset_log_file() -> logging.Logger:
+    """Close current log handlers and start a fresh log file."""
+    global _logger, _log_file_path
+    if _logger is not None:
+        for handler in list(_logger.handlers):
+            handler.close()
+            _logger.removeHandler(handler)
+    _logger = None
+    _log_file_path = None
+    return setup_logging(_debug_mode)
 
 
 def log_error(

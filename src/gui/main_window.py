@@ -26,7 +26,7 @@ from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
 from src.core.image_processor import process_image, validate_image
 from src.core.log_uploader import LogUploader
-from src.core.logger import get_current_log_path, get_logger
+from src.core.logger import get_current_log_path, get_logger, reset_log_file
 from src.core.update_checker import check_for_updates
 from src.gui.image_preview_tabs import ImagePreviewDialog
 from src.gui.log_submit_dialog import LogSubmitDialog
@@ -429,13 +429,19 @@ class MainWindow(QMainWindow):
 
         logs_dir = get_logs_dir()
         current_log = get_current_log_path()
+        reset_log_file()
+        new_log = get_current_log_path()
         deleted = 0
 
         for log_path in logs_dir.glob('app_*.log'):
-            if current_log and log_path == current_log:
+            if new_log and log_path == new_log:
                 continue
             with contextlib.suppress(OSError):
                 log_path.unlink()
+                deleted += 1
+        if current_log and current_log.exists():
+            with contextlib.suppress(OSError):
+                current_log.unlink()
                 deleted += 1
 
         screenshots_dir = logs_dir / 'screenshots'

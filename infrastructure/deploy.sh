@@ -32,6 +32,7 @@ fi
 CERTIFICATE_ARN="$1"
 AWS_PROFILE="${2:-}"
 
+# shellcheck disable=SC2005
 AWS_REGION="$(echo "$CERTIFICATE_ARN" | cut -d: -f4)"
 if [ -z "$AWS_REGION" ]; then
     echo "Could not parse region from certificate ARN."

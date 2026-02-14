@@ -5,7 +5,6 @@ __pycache__/
 *.so
 *.egg-info/
 dist/
-build/
 *.egg
 *.whl
 .eggs/
@@ -32,8 +31,8 @@ logs/
 *_auth.json
 app_config.json
 
-# PyInstaller
-*.spec
+# PyInstaller temp files
+build/tmp/
 *.manifest
 
 # Distribution

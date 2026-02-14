@@ -1,13 +1,12 @@
 """Platform specifications, error codes, and application constants."""
 
 from dataclasses import dataclass, field
-from typing import Tuple, List, Optional
 from datetime import datetime
 
-APP_NAME = "Social Media Poster"
-APP_VERSION = "0.1.1"
-APP_ORG = "SocialMediaPoster"
-LOG_UPLOAD_ENDPOINT = "https://social.jasmer.tools/logs/upload"
+APP_NAME = "GalePost"
+APP_VERSION = "0.2.0"
+APP_ORG = "GalePost"
+LOG_UPLOAD_ENDPOINT = "https://galepost.jasmer.tools/logs/upload"
 
 DRAFT_AUTO_SAVE_INTERVAL_SECONDS = 30
 
@@ -16,9 +15,9 @@ DRAFT_AUTO_SAVE_INTERVAL_SECONDS = 30
 class PlatformSpecs:
     """Platform-specific constraints and capabilities."""
     platform_name: str
-    max_image_dimensions: Tuple[int, int]
+    max_image_dimensions: tuple[int, int]
     max_file_size_mb: float
-    supported_formats: List[str]
+    supported_formats: list[str]
     max_text_length: int
     requires_facets: bool = False
     platform_color: str = "#000000"
@@ -56,10 +55,10 @@ class PostResult:
     """Result of a post attempt."""
     success: bool
     platform: str = ""
-    post_url: Optional[str] = None
-    error_code: Optional[str] = None
-    error_message: Optional[str] = None
-    raw_response: Optional[dict] = None
+    post_url: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    raw_response: dict | None = None
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
 

@@ -1,9 +1,8 @@
 """Platform selection checkboxes."""
 
-from typing import List
 
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QLabel, QCheckBox
 from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QWidget
 
 
 class PlatformSelector(QWidget):
@@ -47,9 +46,9 @@ class PlatformSelector(QWidget):
     def _on_changed(self, _state):
         self.selection_changed.emit(self.get_selected())
 
-    def get_selected(self) -> List[str]:
+    def get_selected(self) -> list[str]:
         return [name for name, cb in self._checkboxes.items() if cb.isChecked()]
 
-    def set_selected(self, platforms: List[str]):
+    def set_selected(self, platforms: list[str]):
         for name, cb in self._checkboxes.items():
             cb.setChecked(name in platforms)

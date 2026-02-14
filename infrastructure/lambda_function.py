@@ -1,13 +1,13 @@
-"""AWS Lambda function for receiving log uploads from Social Media Poster.
+"""AWS Lambda function for receiving log uploads from GalePost.
 
 Receives log bundles via API Gateway, stores them in S3, and sends
 a notification email via SES.
 """
 
+import base64
 import json
 import os
 import uuid
-import base64
 from datetime import datetime
 
 import boto3
@@ -15,7 +15,7 @@ import boto3
 s3 = boto3.client('s3')
 ses = boto3.client('ses')
 
-BUCKET_NAME = os.environ.get('LOG_BUCKET_NAME', 'social-media-poster-logs')
+BUCKET_NAME = os.environ.get('LOG_BUCKET_NAME', 'galepost-logs')
 NOTIFY_EMAIL = os.environ.get('NOTIFY_EMAIL', 'morgan@windsofstorm.net')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'noreply@jasmer.tools')
 
@@ -118,7 +118,7 @@ def lambda_handler(event, context):
     try:
         file_list = '\n'.join(f"  - {f}" for f in uploaded_files)
         email_body = (
-            f"New error report received from Social Media Poster.\n\n"
+            f"New error report received from GalePost.\n\n"
             f"Upload ID: {upload_id}\n"
             f"Timestamp: {timestamp}\n"
             f"App Version: {app_version}\n"
@@ -135,7 +135,7 @@ def lambda_handler(event, context):
             Destination={'ToAddresses': [NOTIFY_EMAIL]},
             Message={
                 'Subject': {
-                    'Data': f"[SMP] Error Report: {error_code} on {platform}",
+                    'Data': f"[GalePost] Error Report: {error_code} on {platform}",
                     'Charset': 'UTF-8',
                 },
                 'Body': {

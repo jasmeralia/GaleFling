@@ -7,10 +7,10 @@ for secure storage. Falls back to file-based auth in dev or on non-Windows.
 import json
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 
-from src.utils.helpers import get_auth_dir
 from src.core.logger import get_logger
+from src.utils.helpers import get_auth_dir
 
 
 class AuthManager:
@@ -20,7 +20,7 @@ class AuthManager:
         self._auth_dir = get_auth_dir()
         self._dev_auth_dir = self._find_dev_auth_dir()
 
-    def _find_dev_auth_dir(self) -> Optional[Path]:
+    def _find_dev_auth_dir(self) -> Path | None:
         """Find auth files next to the executable / source for dev mode."""
         if getattr(sys, 'frozen', False):
             candidate = Path(sys.executable).parent
@@ -31,26 +31,26 @@ class AuthManager:
             return candidate
         return None
 
-    def _load_json(self, filename: str) -> Optional[Dict[str, Any]]:
+    def _load_json(self, filename: str) -> dict[str, Any] | None:
         """Load an auth JSON file, checking dev dir first, then appdata."""
         for directory in filter(None, [self._dev_auth_dir, self._auth_dir]):
             path = directory / filename
             if path.exists():
                 try:
-                    with open(path, 'r') as f:
+                    with open(path) as f:
                         return json.load(f)
-                except (json.JSONDecodeError, IOError) as e:
+                except (OSError, json.JSONDecodeError) as e:
                     get_logger().warning(f"Failed to load {path}: {e}")
         return None
 
-    def _save_json(self, filename: str, data: Dict[str, Any]):
+    def _save_json(self, filename: str, data: dict[str, Any]):
         """Save auth data to appdata directory."""
         path = self._auth_dir / filename
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, 'w') as f:
             json.dump(data, f, indent=4)
 
-    def get_twitter_auth(self) -> Optional[Dict[str, str]]:
+    def get_twitter_auth(self) -> dict[str, str] | None:
         """Return Twitter OAuth credentials or None."""
         data = self._load_json('twitter_auth.json')
         if data and all(k in data for k in
@@ -67,7 +67,7 @@ class AuthManager:
             'access_token_secret': access_token_secret,
         })
 
-    def get_bluesky_auth(self) -> Optional[Dict[str, str]]:
+    def get_bluesky_auth(self) -> dict[str, str] | None:
         """Return Bluesky credentials or None."""
         data = self._load_json('bluesky_auth.json')
         if data and all(k in data for k in ('identifier', 'app_password')):

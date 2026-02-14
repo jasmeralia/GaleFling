@@ -3,32 +3,36 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
+from PyQt5.QtCore import QThread, QTimer, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QMenuBar, QAction, QMessageBox, QStatusBar, QProgressDialog,
-    QApplication, QFrame,
+    QAction,
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QStatusBar,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtGui import QDesktopServices, QIcon
-from PyQt5.QtCore import QUrl
 
-from src.utils.constants import APP_NAME, APP_VERSION, PostResult
-from src.core.config_manager import ConfigManager
 from src.core.auth_manager import AuthManager
-from src.core.logger import get_logger
+from src.core.config_manager import ConfigManager
+from src.core.image_processor import process_image, validate_image
 from src.core.log_uploader import LogUploader
 from src.core.update_checker import check_for_updates
-from src.core.image_processor import validate_image, process_image
-from src.gui.post_composer import PostComposer
-from src.gui.platform_selector import PlatformSelector
 from src.gui.image_preview_tabs import ImagePreviewDialog
+from src.gui.platform_selector import PlatformSelector
+from src.gui.post_composer import PostComposer
 from src.gui.results_dialog import ResultsDialog
 from src.gui.settings_dialog import SettingsDialog
 from src.gui.setup_wizard import SetupWizard
-from src.platforms.twitter import TwitterPlatform
 from src.platforms.bluesky import BlueskyPlatform
+from src.platforms.twitter import TwitterPlatform
+from src.utils.constants import APP_NAME, APP_VERSION, PostResult
 from src.utils.helpers import get_drafts_dir
 
 
@@ -36,8 +40,8 @@ class PostWorker(QThread):
     """Background thread for posting to platforms."""
     finished = pyqtSignal(list)
 
-    def __init__(self, platforms: Dict, text: str,
-                 processed_images: Dict[str, Optional[Path]]):
+    def __init__(self, platforms: dict, text: str,
+                 processed_images: dict[str, Path | None]):
         super().__init__()
         self._platforms = platforms
         self._text = text
@@ -60,7 +64,7 @@ class MainWindow(QMainWindow):
         self._config = config
         self._auth_manager = auth_manager
         self._log_uploader = LogUploader(config)
-        self._processed_images: Dict[str, Optional[Path]] = {}
+        self._processed_images: dict[str, Path | None] = {}
 
         self._platforms = {
             'twitter': TwitterPlatform(auth_manager),
@@ -281,7 +285,7 @@ class MainWindow(QMainWindow):
         self._worker.finished.connect(self._on_post_finished)
         self._worker.start()
 
-    def _on_post_finished(self, results: List[PostResult]):
+    def _on_post_finished(self, results: list[PostResult]):
         self._post_btn.setEnabled(True)
         self._test_btn.setEnabled(True)
         self._status_bar.showMessage("Ready")
@@ -364,7 +368,7 @@ class MainWindow(QMainWindow):
         try:
             with open(draft_path, 'w') as f:
                 json.dump(draft, f, indent=2)
-        except IOError:
+        except OSError:
             pass
 
     def _clear_draft(self):
@@ -379,9 +383,9 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            with open(draft_path, 'r') as f:
+            with open(draft_path) as f:
                 draft = json.load(f)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             return
 
         text_preview = draft.get('text', '')[:50]

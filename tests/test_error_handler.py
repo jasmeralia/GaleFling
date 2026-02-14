@@ -1,10 +1,12 @@
 """Tests for the error handling system."""
 
-import pytest
-from src.utils.constants import ERROR_CODES, USER_FRIENDLY_MESSAGES, PostResult
 from src.core.error_handler import (
-    get_error_message, get_user_message, create_error_result, format_error_details,
+    create_error_result,
+    format_error_details,
+    get_error_message,
+    get_user_message,
 )
+from src.utils.constants import ERROR_CODES, USER_FRIENDLY_MESSAGES, PostResult
 
 
 class TestErrorCodes:
@@ -73,4 +75,4 @@ class TestFormatErrorDetails:
             error_message='Failed',
         )
         text = format_error_details(result)
-        assert 'Social Media Poster' in text
+        assert 'GalePost' in text

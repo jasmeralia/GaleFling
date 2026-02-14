@@ -1,17 +1,21 @@
 """Tabbed platform-specific image preview dialog."""
 
 from pathlib import Path
-from typing import Dict, List, Optional
 
-from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTabWidget,
-    QWidget, QPushButton, QSizePolicy,
-)
-from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
-from src.utils.constants import PlatformSpecs, TWITTER_SPECS, BLUESKY_SPECS
-from src.core.image_processor import process_image, ProcessedImage
+from src.core.image_processor import ProcessedImage, process_image
+from src.utils.constants import BLUESKY_SPECS, TWITTER_SPECS, PlatformSpecs
 
 
 def _format_size(size_bytes: int) -> str:
@@ -31,7 +35,7 @@ class ImagePreviewTab(QWidget):
         self._image_path = image_path
         self._specs = specs
         self._loaded = False
-        self._result: Optional[ProcessedImage] = None
+        self._result: ProcessedImage | None = None
 
         layout = QVBoxLayout(self)
         self._status_label = QLabel("Click this tab to generate preview...")
@@ -72,7 +76,7 @@ class ImagePreviewTab(QWidget):
             proc_size = _format_size(result.processed_file_size)
 
             if result.meets_requirements:
-                status = f'<span style="color: #4CAF50; font-weight: bold;">\u2713 Meets requirements</span>'
+                status = '<span style="color: #4CAF50; font-weight: bold;">\u2713 Meets requirements</span>'
             else:
                 status = f'<span style="color: #F44336; font-weight: bold;">\u26A0 {result.warning}</span>'
 
@@ -87,7 +91,7 @@ class ImagePreviewTab(QWidget):
         except Exception as e:
             self._status_label.setText(f"Error: {e}")
 
-    def get_processed_path(self) -> Optional[Path]:
+    def get_processed_path(self) -> Path | None:
         if self._result:
             return self._result.path
         return None
@@ -96,11 +100,11 @@ class ImagePreviewTab(QWidget):
 class ImagePreviewDialog(QDialog):
     """Tabbed dialog showing per-platform image previews."""
 
-    def __init__(self, image_path: Path, platforms: List[str], parent=None):
+    def __init__(self, image_path: Path, platforms: list[str], parent=None):
         super().__init__(parent)
         self._image_path = image_path
-        self._tabs: Dict[str, ImagePreviewTab] = {}
-        self._processed_paths: Dict[str, Optional[Path]] = {}
+        self._tabs: dict[str, ImagePreviewTab] = {}
+        self._processed_paths: dict[str, Path | None] = {}
 
         self.setWindowTitle("Image Resize Preview")
         self.setMinimumSize(550, 600)
@@ -159,7 +163,7 @@ class ImagePreviewDialog(QDialog):
         if isinstance(widget, ImagePreviewTab):
             widget.load_preview()
 
-    def get_processed_paths(self) -> Dict[str, Optional[Path]]:
+    def get_processed_paths(self) -> dict[str, Path | None]:
         """Return {platform: processed_image_path} for all loaded tabs."""
         result = {}
         for platform, tab in self._tabs.items():

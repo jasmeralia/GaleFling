@@ -4,29 +4,28 @@ import io
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
 
 from PIL import Image
 
-from src.utils.constants import PlatformSpecs
 from src.core.logger import get_logger
+from src.utils.constants import PlatformSpecs
 
 
 @dataclass
 class ProcessedImage:
     """Result of processing an image for a platform."""
     path: Path
-    original_size: Tuple[int, int]
-    processed_size: Tuple[int, int]
+    original_size: tuple[int, int]
+    processed_size: tuple[int, int]
     original_file_size: int
     processed_file_size: int
     format: str
     quality: int
     meets_requirements: bool
-    warning: Optional[str] = None
+    warning: str | None = None
 
 
-def validate_image(image_path: Path, specs: PlatformSpecs) -> Optional[str]:
+def validate_image(image_path: Path, specs: PlatformSpecs) -> str | None:
     """Check if an image is valid for a platform. Returns error code or None."""
     if not image_path.exists():
         return 'IMG-NOT-FOUND'
@@ -148,7 +147,7 @@ def process_image(image_path: Path, specs: PlatformSpecs) -> ProcessedImage:
     )
 
 
-def generate_thumbnail(image_path: Path, max_size: int = 400) -> Optional[Path]:
+def generate_thumbnail(image_path: Path, max_size: int = 400) -> Path | None:
     """Generate a thumbnail for preview display."""
     try:
         img = Image.open(image_path)

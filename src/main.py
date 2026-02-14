@@ -1,16 +1,16 @@
-"""Social Media Poster - Application entry point."""
+"""GalePost - Application entry point."""
 
-import sys
 import os
+import sys
 
 # Ensure src is importable when running from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication
 
-from src.core.config_manager import ConfigManager
 from src.core.auth_manager import AuthManager
+from src.core.config_manager import ConfigManager
 from src.core.logger import setup_logging
 from src.gui.main_window import MainWindow
 from src.utils.constants import APP_NAME

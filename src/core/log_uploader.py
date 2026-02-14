@@ -1,16 +1,13 @@
 """Upload logs and screenshots to the remote endpoint."""
 
 import base64
-import json
-from pathlib import Path
-from typing import List, Optional, Tuple
 
 import requests
 
-from src.utils.constants import APP_VERSION
-from src.utils.helpers import get_logs_dir, get_installation_id
-from src.core.logger import get_logger, get_current_log_path
 from src.core.config_manager import ConfigManager
+from src.core.logger import get_current_log_path, get_logger
+from src.utils.constants import APP_VERSION
+from src.utils.helpers import get_installation_id, get_logs_dir
 
 
 class LogUploader:
@@ -19,8 +16,8 @@ class LogUploader:
     def __init__(self, config: ConfigManager):
         self._config = config
 
-    def upload(self, error_code: Optional[str] = None,
-               platform: Optional[str] = None) -> Tuple[bool, str]:
+    def upload(self, error_code: str | None = None,
+               platform: str | None = None) -> tuple[bool, str]:
         """Upload current logs and screenshots.
 
         Returns (success, message).
@@ -70,7 +67,7 @@ class LogUploader:
             logger.error(f"Log upload error: {e}")
             return False, f"Upload failed: {e}"
 
-    def _collect_log_files(self) -> List[dict]:
+    def _collect_log_files(self) -> list[dict]:
         """Collect and base64-encode recent log files."""
         log_files = []
         current_log = get_current_log_path()
@@ -94,7 +91,7 @@ class LogUploader:
 
         return log_files
 
-    def _collect_screenshots(self) -> List[dict]:
+    def _collect_screenshots(self) -> list[dict]:
         """Collect and base64-encode recent screenshots."""
         screenshots = []
         ss_dir = get_logs_dir() / 'screenshots'

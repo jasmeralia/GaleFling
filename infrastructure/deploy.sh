@@ -1,9 +1,9 @@
 #!/bin/bash
-# Deploy the Social Media Poster log upload backend.
+# Deploy the GalePost log upload backend.
 #
 # Prerequisites:
 #   1. AWS CLI configured with credentials
-#   2. ACM certificate for social.jasmer.tools (note the ARN)
+#   2. ACM certificate for galepost.jasmer.tools (note the ARN)
 #   3. Route53 hosted zone for jasmer.tools (note the zone ID)
 #   4. SES verified sender identity for noreply@jasmer.tools
 #
@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-STACK_NAME="smp-log-upload"
+STACK_NAME="galepost-log-upload"
 TEMPLATE="template.yaml"
 
 if [ $# -lt 2 ]; then
@@ -46,7 +46,7 @@ aws cloudformation deploy \
         HostedZoneId="${HOSTED_ZONE_ID}" \
         CertificateArn="${CERTIFICATE_ARN}" \
     --tags \
-        Project=SocialMediaPoster \
+        Project=GalePost \
         Environment=Production
 
 echo ""
@@ -69,4 +69,4 @@ echo "         --output text) \\"
 echo "       --zip-file fileb://lambda.zip"
 echo ""
 echo "  2. Verify SES sender identity for noreply@jasmer.tools"
-echo "  3. Test the endpoint: curl -X POST https://social.jasmer.tools/logs/upload"
+echo "  3. Test the endpoint: curl -X POST https://galepost.jasmer.tools/logs/upload"

@@ -2,7 +2,6 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Tuple
 
 from src.utils.constants import PlatformSpecs, PostResult
 
@@ -11,11 +10,11 @@ class BasePlatform(ABC):
     """All platforms must implement this interface."""
 
     @abstractmethod
-    def authenticate(self) -> Tuple[bool, Optional[str]]:
+    def authenticate(self) -> tuple[bool, str | None]:
         """Authenticate with platform. Returns (success, error_code)."""
 
     @abstractmethod
-    def test_connection(self) -> Tuple[bool, Optional[str]]:
+    def test_connection(self) -> tuple[bool, str | None]:
         """Test if credentials are valid. Returns (success, error_code)."""
 
     @abstractmethod
@@ -23,7 +22,7 @@ class BasePlatform(ABC):
         """Return platform requirements and constraints."""
 
     @abstractmethod
-    def post(self, text: str, image_path: Optional[Path] = None) -> PostResult:
+    def post(self, text: str, image_path: Path | None = None) -> PostResult:
         """Post content. Returns detailed result with clickable URL."""
 
     @abstractmethod

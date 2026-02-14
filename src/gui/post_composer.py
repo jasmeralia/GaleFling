@@ -1,16 +1,19 @@
 """Text input widget with character counter and image selection."""
 
 from pathlib import Path
-from typing import Optional
 
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
-    QPushButton, QFileDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtGui import QColor
 
-from src.utils.constants import TWITTER_SPECS, BLUESKY_SPECS
+from src.utils.constants import BLUESKY_SPECS, TWITTER_SPECS
 
 
 class PostComposer(QWidget):
@@ -21,7 +24,7 @@ class PostComposer(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._image_path: Optional[Path] = None
+        self._image_path: Path | None = None
         self._last_image_dir = ""
         self._init_ui()
 
@@ -140,10 +143,10 @@ class PostComposer(QWidget):
     def set_text(self, text: str):
         self._text_edit.setPlainText(text)
 
-    def get_image_path(self) -> Optional[Path]:
+    def get_image_path(self) -> Path | None:
         return self._image_path
 
-    def set_image_path(self, path: Optional[Path]):
+    def set_image_path(self, path: Path | None):
         if path and path.exists():
             self._image_path = path
             self._image_label.setText(f"{path.name}")

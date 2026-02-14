@@ -1,10 +1,8 @@
 """Tests for platform implementations."""
 
-import pytest
-from unittest.mock import MagicMock, patch
 
-from src.utils.constants import TWITTER_SPECS, BLUESKY_SPECS
 from src.platforms.bluesky import detect_urls
+from src.utils.constants import BLUESKY_SPECS, TWITTER_SPECS
 
 
 class TestDetectUrls:

@@ -1,9 +1,9 @@
 {
-    "version": "0.1.1",
+    "version": "0.2.0",
     "last_selected_platforms": ["twitter", "bluesky"],
     "debug_mode": false,
     "auto_check_updates": true,
-    "log_upload_endpoint": "https://social.jasmer.tools/logs/upload",
+    "log_upload_endpoint": "https://galepost.jasmer.tools/logs/upload",
     "log_upload_enabled": true,
     "window_geometry": {
         "width": 900,

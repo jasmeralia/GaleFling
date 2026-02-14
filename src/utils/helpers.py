@@ -12,7 +12,7 @@ def get_app_data_dir() -> Path:
         base = Path(os.environ.get('APPDATA', Path.home() / 'AppData' / 'Roaming'))
     else:
         base = Path.home() / '.config'
-    app_dir = base / 'SocialMediaPoster'
+    app_dir = base / 'GalePost'
     app_dir.mkdir(parents=True, exist_ok=True)
     return app_dir
 

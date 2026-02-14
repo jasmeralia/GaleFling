@@ -1,15 +1,14 @@
 """Check GitHub releases for application updates."""
 
 from dataclasses import dataclass
-from typing import Optional
 
 import requests
 from packaging.version import parse as parse_version
 
-from src.utils.constants import APP_VERSION
 from src.core.logger import get_logger
+from src.utils.constants import APP_VERSION
 
-GITHUB_REPO = "jasmeralia/social-media-poster"
+GITHUB_REPO = "jasmeralia/galepost"
 RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 
@@ -24,7 +23,7 @@ class UpdateInfo:
     browser_url: str
 
 
-def check_for_updates() -> Optional[UpdateInfo]:
+def check_for_updates() -> UpdateInfo | None:
     """Check GitHub for a newer version. Returns UpdateInfo or None."""
     logger = get_logger()
 

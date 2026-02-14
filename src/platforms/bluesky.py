@@ -2,18 +2,17 @@
 
 import re
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict
 
 from atproto import Client as BskyClient
 
-from src.platforms.base import BasePlatform
-from src.utils.constants import BLUESKY_SPECS, PlatformSpecs, PostResult
 from src.core.auth_manager import AuthManager
 from src.core.error_handler import create_error_result
 from src.core.logger import get_logger
+from src.platforms.base import BasePlatform
+from src.utils.constants import BLUESKY_SPECS, PlatformSpecs, PostResult
 
 
-def detect_urls(text: str) -> List[Dict]:
+def detect_urls(text: str) -> list[dict]:
     """Find all HTTP(S) URLs in text and create facet objects.
 
     CRITICAL: Facets use UTF-8 byte offsets, not character positions!
@@ -47,7 +46,7 @@ class BlueskyPlatform(BasePlatform):
 
     def __init__(self, auth_manager: AuthManager):
         self._auth_manager = auth_manager
-        self._client: Optional[BskyClient] = None
+        self._client: BskyClient | None = None
 
     def get_platform_name(self) -> str:
         return "Bluesky"
@@ -55,7 +54,7 @@ class BlueskyPlatform(BasePlatform):
     def get_specs(self) -> PlatformSpecs:
         return BLUESKY_SPECS
 
-    def authenticate(self) -> Tuple[bool, Optional[str]]:
+    def authenticate(self) -> tuple[bool, str | None]:
         creds = self._auth_manager.get_bluesky_auth()
         if not creds:
             return False, 'AUTH-MISSING'
@@ -75,7 +74,7 @@ class BlueskyPlatform(BasePlatform):
                 return False, 'BS-AUTH-EXPIRED'
             return False, 'BS-AUTH-INVALID'
 
-    def test_connection(self) -> Tuple[bool, Optional[str]]:
+    def test_connection(self) -> tuple[bool, str | None]:
         success, error = self.authenticate()
         if not success:
             return False, error
@@ -88,7 +87,7 @@ class BlueskyPlatform(BasePlatform):
             get_logger().error(f"Bluesky connection test failed: {e}")
             return False, 'BS-AUTH-INVALID'
 
-    def post(self, text: str, image_path: Optional[Path] = None) -> PostResult:
+    def post(self, text: str, image_path: Path | None = None) -> PostResult:
         if not self._client:
             success, error = self.authenticate()
             if not success:

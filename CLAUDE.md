@@ -3,7 +3,7 @@
 ## Project Overview
 Windows GUI application for posting to multiple social media platforms simultaneously. Built for non-technical users with robust error handling and remote troubleshooting capabilities.
 
-**Target User:** Content creator (Rin) - non-technical, needs idiot-proof interface
+**Target User:** Content creator (Rin) - prioritizes simplicity and clear guidance
 **Developer:** Jas - will provide initial setup and remote support
 
 ## Phase 0 Scope
@@ -962,7 +962,7 @@ makensis build/installer.nsi
 
 ### GitHub Repository
 ```
-jasmeralia/social-media-poster/
+jasmeralia/GalePost/
 ├── .github/workflows/build.yml    # CI/CD
 ├── src/                           # Source code
 ├── resources/                     # Icons, configs
@@ -992,7 +992,7 @@ jasmeralia/social-media-poster/
 ### Questions to Resolve:
 
 1. **GitHub repo name:**
-   - Suggestion: `social-media-poster`
+   - Repo: `jasmeralia/GalePost`
 
 2. **Log upload endpoint:**
    - Need to set up Lambda + API Gateway

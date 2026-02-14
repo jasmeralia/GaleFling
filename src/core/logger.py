@@ -5,13 +5,11 @@ import logging
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from src.utils.helpers import get_logs_dir
 
-
-_logger: Optional[logging.Logger] = None
-_log_file_path: Optional[Path] = None
+_logger: logging.Logger | None = None
+_log_file_path: Path | None = None
 
 
 def setup_logging(debug_mode: bool = False) -> logging.Logger:
@@ -22,7 +20,7 @@ def setup_logging(debug_mode: bool = False) -> logging.Logger:
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     _log_file_path = logs_dir / f'app_{timestamp}.log'
 
-    _logger = logging.getLogger('SocialMediaPoster')
+    _logger = logging.getLogger('GalePost')
     _logger.setLevel(logging.DEBUG if debug_mode else logging.INFO)
     _logger.handlers.clear()
 
@@ -51,13 +49,13 @@ def get_logger() -> logging.Logger:
     return _logger
 
 
-def get_current_log_path() -> Optional[Path]:
+def get_current_log_path() -> Path | None:
     """Return the path to the current session's log file."""
     return _log_file_path
 
 
-def log_error(error_code: str, platform: str, details: Optional[dict] = None,
-              exception: Optional[Exception] = None):
+def log_error(error_code: str, platform: str, details: dict | None = None,
+              exception: Exception | None = None):
     """Log a structured error entry."""
     logger = get_logger()
 
@@ -84,7 +82,6 @@ def capture_screenshot(error_code: str):
     """Capture a screenshot of the current application state."""
     try:
         from PyQt5.QtWidgets import QApplication
-        from PyQt5.QtCore import QBuffer, QIODevice
 
         app = QApplication.instance()
         if app is None:

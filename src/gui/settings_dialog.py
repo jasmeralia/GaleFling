@@ -1,14 +1,21 @@
 """Settings dialog for debug mode, updates, and log configuration."""
 
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QCheckBox,
-    QPushButton, QGroupBox, QLineEdit, QFormLayout, QTabWidget,
-    QWidget, QMessageBox,
+    QCheckBox,
+    QDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt5.QtCore import Qt
 
-from src.core.config_manager import ConfigManager
 from src.core.auth_manager import AuthManager
+from src.core.config_manager import ConfigManager
 
 
 class SettingsDialog(QDialog):

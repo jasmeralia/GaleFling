@@ -1,22 +1,25 @@
 """Post results dialog with clickable links and copy buttons."""
 
-from typing import List
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QWidget, QApplication, QFrame,
+    QApplication,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
 )
-from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtGui import QDesktopServices
 
-from src.utils.constants import PostResult
 from src.core.error_handler import format_error_details
+from src.utils.constants import PostResult
 
 
 class ResultsDialog(QDialog):
     """Display posting results with clickable URLs and copy buttons."""
 
-    def __init__(self, results: List[PostResult], parent=None):
+    def __init__(self, results: list[PostResult], parent=None):
         super().__init__(parent)
         self._results = results
         self._send_logs_requested = False
@@ -118,7 +121,7 @@ class ResultsDialog(QDialog):
     def _copy_text(self, text: str):
         QApplication.clipboard().setText(text)
 
-    def _copy_all_links(self, results: List[PostResult]):
+    def _copy_all_links(self, results: list[PostResult]):
         lines = [f"{r.platform}: {r.post_url}" for r in results if r.post_url]
         QApplication.clipboard().setText("\n".join(lines))
 

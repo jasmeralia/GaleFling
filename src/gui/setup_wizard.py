@@ -1,14 +1,19 @@
 """First-run setup wizard for credential configuration."""
 
 from PyQt5.QtWidgets import (
-    QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QFormLayout, QMessageBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWizard,
+    QWizardPage,
 )
-from PyQt5.QtCore import Qt
 
 from src.core.auth_manager import AuthManager
-from src.platforms.twitter import TwitterPlatform
 from src.platforms.bluesky import BlueskyPlatform
+from src.platforms.twitter import TwitterPlatform
 
 
 class WelcomePage(QWizardPage):
@@ -16,7 +21,7 @@ class WelcomePage(QWizardPage):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setTitle("Welcome to Social Media Poster!")
+        self.setTitle("Welcome to GalePost!")
 
         layout = QVBoxLayout(self)
         layout.addSpacing(20)
@@ -197,7 +202,7 @@ class SetupWizard(QWizard):
 
     def __init__(self, auth_manager: AuthManager, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Social Media Poster - Setup")
+        self.setWindowTitle("GalePost - Setup")
         self.setMinimumSize(550, 450)
 
         self.addPage(WelcomePage())

@@ -1,15 +1,15 @@
 """Tests for image processing."""
 
-import tempfile
-from pathlib import Path
 
 import pytest
 from PIL import Image
 
-from src.utils.constants import TWITTER_SPECS, BLUESKY_SPECS
 from src.core.image_processor import (
-    validate_image, process_image, generate_thumbnail, ProcessedImage,
+    generate_thumbnail,
+    process_image,
+    validate_image,
 )
+from src.utils.constants import BLUESKY_SPECS, TWITTER_SPECS
 
 
 @pytest.fixture

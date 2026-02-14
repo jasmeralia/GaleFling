@@ -1,15 +1,14 @@
 """Twitter platform implementation using Tweepy."""
 
 from pathlib import Path
-from typing import Optional, Tuple
 
 import tweepy
 
-from src.platforms.base import BasePlatform
-from src.utils.constants import TWITTER_SPECS, PlatformSpecs, PostResult
 from src.core.auth_manager import AuthManager
 from src.core.error_handler import create_error_result
 from src.core.logger import get_logger
+from src.platforms.base import BasePlatform
+from src.utils.constants import TWITTER_SPECS, PlatformSpecs, PostResult
 
 
 class TwitterPlatform(BasePlatform):
@@ -17,8 +16,8 @@ class TwitterPlatform(BasePlatform):
 
     def __init__(self, auth_manager: AuthManager):
         self._auth_manager = auth_manager
-        self._client: Optional[tweepy.Client] = None
-        self._api_v1: Optional[tweepy.API] = None
+        self._client: tweepy.Client | None = None
+        self._api_v1: tweepy.API | None = None
 
     def get_platform_name(self) -> str:
         return "Twitter"
@@ -26,7 +25,7 @@ class TwitterPlatform(BasePlatform):
     def get_specs(self) -> PlatformSpecs:
         return TWITTER_SPECS
 
-    def authenticate(self) -> Tuple[bool, Optional[str]]:
+    def authenticate(self) -> tuple[bool, str | None]:
         creds = self._auth_manager.get_twitter_auth()
         if not creds:
             return False, 'AUTH-MISSING'
@@ -51,7 +50,7 @@ class TwitterPlatform(BasePlatform):
             get_logger().error(f"Twitter auth failed: {e}")
             return False, 'TW-AUTH-INVALID'
 
-    def test_connection(self) -> Tuple[bool, Optional[str]]:
+    def test_connection(self) -> tuple[bool, str | None]:
         success, error = self.authenticate()
         if not success:
             return False, error
@@ -70,7 +69,7 @@ class TwitterPlatform(BasePlatform):
             get_logger().error(f"Twitter connection test failed: {e}")
             return False, 'TW-AUTH-INVALID'
 
-    def post(self, text: str, image_path: Optional[Path] = None) -> PostResult:
+    def post(self, text: str, image_path: Path | None = None) -> PostResult:
         if not self._client:
             success, error = self.authenticate()
             if not success:

@@ -1,12 +1,10 @@
 """Application settings persistence."""
 
 import json
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
-from src.utils.helpers import get_app_data_dir
 from src.utils.constants import APP_VERSION, LOG_UPLOAD_ENDPOINT
-
+from src.utils.helpers import get_app_data_dir
 
 DEFAULT_CONFIG = {
     "version": APP_VERSION,
@@ -32,16 +30,16 @@ class ConfigManager:
 
     def __init__(self):
         self._config_path = get_app_data_dir() / 'app_config.json'
-        self._config: Dict[str, Any] = {}
+        self._config: dict[str, Any] = {}
         self.load()
 
     def load(self):
         """Load config from disk, falling back to defaults."""
         if self._config_path.exists():
             try:
-                with open(self._config_path, 'r') as f:
+                with open(self._config_path) as f:
                     self._config = json.load(f)
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 self._config = {}
 
         # Merge defaults for any missing keys

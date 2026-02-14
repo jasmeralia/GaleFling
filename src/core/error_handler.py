@@ -1,8 +1,8 @@
 """Error code system with user-friendly messages."""
 
-from src.utils.constants import ERROR_CODES, USER_FRIENDLY_MESSAGES, PostResult
+
 from src.core.logger import log_error
-from typing import Optional
+from src.utils.constants import ERROR_CODES, USER_FRIENDLY_MESSAGES, PostResult
 
 
 def get_error_message(error_code: str) -> str:
@@ -19,8 +19,8 @@ def get_user_message(error_code: str) -> str:
 
 
 def create_error_result(error_code: str, platform: str,
-                        exception: Optional[Exception] = None,
-                        details: Optional[dict] = None) -> PostResult:
+                        exception: Exception | None = None,
+                        details: dict | None = None) -> PostResult:
     """Create a PostResult for a failed operation, logging the error."""
     log_error(error_code, platform, details=details, exception=exception)
 
@@ -35,8 +35,8 @@ def create_error_result(error_code: str, platform: str,
 
 def format_error_details(result: PostResult) -> str:
     """Format error details for clipboard copy."""
-    from src.utils.constants import APP_VERSION
     from src.core.logger import get_current_log_path
+    from src.utils.constants import APP_VERSION
 
     lines = [
         f"Platform: {result.platform}",
@@ -52,7 +52,7 @@ def format_error_details(result: PostResult) -> str:
             lines.append(f"  {k}: {v}")
         lines.append("")
 
-    lines.append(f"Application: Social Media Poster v{APP_VERSION}")
+    lines.append(f"Application: GalePost v{APP_VERSION}")
     log_path = get_current_log_path()
     if log_path:
         lines.append(f"Log File: {log_path.name}")

@@ -1110,7 +1110,7 @@ Every change that modifies functionality, fixes bugs, or alters configuration **
 3. **Update README.md** if the change affects features, project structure, or usage instructions
 4. **Run lint + format checks using the venv**: `source venv/bin/activate && make lint`
 5. **Run tests using the venv (after lint, before commit)**: `source venv/bin/activate && make test`
-6. **Git workflow:** Use a verbose commit message (short header line, blank line, then the same bullet notes used in `CHANGELOG.md`). Commit the changes, create a version tag, and push both commit and tag to GitHub.
+6. **Git workflow:** Use a verbose commit message (short header line, blank line, then the same bullet notes used in `CHANGELOG.md`). Prefer `scripts/commit_with_changelog_notes.sh "Header"` to avoid shell interpolation issues. Commit the changes, create a version tag, and push both commit and tag to GitHub.
 
 Use semantic versioning in `major.minor.build` format. **Only increment the build number** unless explicitly told otherwise.
 

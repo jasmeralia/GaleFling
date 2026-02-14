@@ -157,6 +157,7 @@ class ImagePreviewDialog(QDialog):
         self._tabs: dict[str, ImagePreviewTab] = {}
         self._processed_paths: dict[str, Path | None] = {}
         self._had_errors = False
+        self._pending_tabs = 0
 
         self.setWindowTitle('Image Resize Preview')
         self.setMinimumSize(550, 600)
@@ -212,7 +213,7 @@ class ImagePreviewDialog(QDialog):
         layout.addLayout(btn_layout)
 
         # Load all tabs and enable OK when complete
-        self._completed_tabs = 0
+        self._pending_tabs = len(self._tabs)
         for tab in self._tabs.values():
             tab.preview_done.connect(self._on_tab_done)
             tab.load_preview()
@@ -225,11 +226,20 @@ class ImagePreviewDialog(QDialog):
             widget.load_preview()
 
     def _on_tab_done(self, _success: bool):
-        self._completed_tabs += 1
+        self._pending_tabs = max(0, self._pending_tabs - 1)
         if not _success:
             self._had_errors = True
-        if self._completed_tabs >= len(self._tabs):
-            self._ok_btn.setEnabled(True)
+        self._refresh_ok_state()
+
+    def _refresh_ok_state(self):
+        if self._pending_tabs > 0:
+            self._ok_btn.setEnabled(False)
+            return
+        if self._had_errors:
+            self._ok_btn.setEnabled(False)
+            return
+        all_ready = all(tab.get_processed_path() for tab in self._tabs.values())
+        self._ok_btn.setEnabled(all_ready)
 
     def get_processed_paths(self) -> dict[str, Path | None]:
         """Return {platform: processed_image_path} for all loaded tabs."""

@@ -69,6 +69,25 @@ class OsInfo(TypedDict):
 
 def get_os_info() -> OsInfo:
     """Return OS name/version details."""
+    if sys.platform == 'win32':
+        win_release, win_version, win_csd, _ = platform.win32_ver()
+        release = win_release or platform.release()
+        version = win_version or platform.version()
+        build = None
+        if version:
+            parts = version.split('.')
+            if len(parts) >= 3 and parts[2].isdigit():
+                build = int(parts[2])
+        if release == '10' and build and build >= 22000:
+            release = '11'
+        csd = win_csd or 'SP0'
+        return {
+            'name': 'Windows',
+            'release': release,
+            'version': version,
+            'platform': f'Windows-{release}-{version}-{csd}',
+        }
+
     return {
         'name': platform.system(),
         'release': platform.release(),

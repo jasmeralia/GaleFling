@@ -35,7 +35,6 @@ class LogUploader:
         hostname = socket.gethostname()
         username = getpass.getuser()
         os_info = get_os_info()
-        platform_name = platform or os_info.get('name', 'Unknown')
 
         if not self._config.log_upload_enabled:
             return (
@@ -45,7 +44,6 @@ class LogUploader:
                     'LOG-DISABLED',
                     endpoint,
                     'Log upload disabled in settings.',
-                    platform_name=platform_name,
                     installation_id=installation_id,
                     hostname=hostname,
                     username=username,
@@ -60,7 +58,6 @@ class LogUploader:
                     'LOG-NOTES-MISSING',
                     endpoint,
                     'User notes are required before uploading logs.',
-                    platform_name=platform_name,
                     installation_id=installation_id,
                     hostname=hostname,
                     username=username,
@@ -75,12 +72,8 @@ class LogUploader:
             payload = {
                 'app_version': APP_VERSION,
                 'error_code': error_code or 'MANUAL',
-                'platform': platform_name,
                 'user_id': installation_id,
                 'user_notes': user_notes.strip(),
-                'os_name': os_info.get('name', ''),
-                'os_release': os_info.get('release', ''),
-                'os_version': os_info.get('version', ''),
                 'os_platform': os_info.get('platform', ''),
                 'log_files': log_files,
                 'screenshots': screenshots,
@@ -107,7 +100,6 @@ class LogUploader:
                     error_code,
                     endpoint,
                     f'HTTP {response.status_code} response.',
-                    platform_name=platform_name,
                     installation_id=installation_id,
                     hostname=hostname,
                     username=username,
@@ -125,7 +117,6 @@ class LogUploader:
                     'LOG-TIMEOUT',
                     endpoint,
                     'Request timed out while uploading logs.',
-                    platform_name=platform_name,
                     installation_id=installation_id,
                     hostname=hostname,
                     username=username,
@@ -142,7 +133,6 @@ class LogUploader:
                     'LOG-CONNECTION',
                     endpoint,
                     'Connection error while uploading logs.',
-                    platform_name=platform_name,
                     installation_id=installation_id,
                     hostname=hostname,
                     username=username,
@@ -159,7 +149,6 @@ class LogUploader:
                     'LOG-EXCEPTION',
                     endpoint,
                     str(e),
-                    platform_name=platform_name,
                     installation_id=installation_id,
                     hostname=hostname,
                     username=username,
@@ -173,7 +162,6 @@ class LogUploader:
         error_code: str,
         endpoint: str,
         message: str,
-        platform_name: str,
         installation_id: str,
         hostname: str,
         username: str,
@@ -186,12 +174,9 @@ class LogUploader:
             f'App Version: {APP_VERSION}',
             f'Timestamp (UTC): {datetime.now(UTC).isoformat()}',
             f'Endpoint: {endpoint}',
-            f'Platform: {platform_name}',
             f'Installation ID: {installation_id}',
             f'Hostname: {hostname}',
             f'Username: {username}',
-            f'OS: {os_info.get("name", "")} {os_info.get("release", "")}',
-            f'OS Version: {os_info.get("version", "")}',
             f'OS Platform: {os_info.get("platform", "")}',
             f'Message: {message}',
         ]

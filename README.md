@@ -2,7 +2,7 @@
 
 Windows desktop application for posting to multiple social media platforms simultaneously. Built with PyQt5 for a non-technical end user, with robust error handling and remote troubleshooting via log uploads.
 
-**Current Version:** 0.2.50 (Phase 0)
+**Current Version:** 0.2.51 (Phase 0)
 
 ## Supported Platforms
 
@@ -26,6 +26,7 @@ Windows desktop application for posting to multiple social media platforms simul
 - Draft auto-save with restore on restart
 - Screenshot capture on errors
 - Help > About with credits and license info
+- View menu theme toggle (Light/Dark) with persistent setting
 
 ## Quick Start
 
@@ -138,8 +139,8 @@ See [infrastructure/](infrastructure/) for the CFT and deployment script.
 3. Update this README if features changed
 4. Commit, tag, and push:
    ```bash
-   git tag v0.2.50
-   git push origin v0.2.50
+   git tag v0.2.51
+   git push origin v0.2.51
    ```
 5. The GitHub Action builds a Windows executable and creates a **draft release** with commit history
 6. Review the draft on GitHub and publish when ready

@@ -10,6 +10,7 @@ from PyQt5.QtCore import Qt, QThread, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QAction,
+    QActionGroup,
     QApplication,
     QFrame,
     QHBoxLayout,
@@ -39,6 +40,7 @@ from src.platforms.bluesky import BlueskyPlatform
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import APP_NAME, APP_VERSION, PostResult
 from src.utils.helpers import get_drafts_dir, get_logs_dir
+from src.utils.theme import apply_theme, resolve_theme_mode
 
 
 class PostWorker(QThread):
@@ -212,6 +214,27 @@ class MainWindow(QMainWindow):
         open_settings.triggered.connect(self._open_settings)
         settings_menu.addAction(open_settings)
 
+        # View menu
+        view_menu = menu_bar.addMenu('View')
+        theme_group = QActionGroup(self)
+        theme_group.setExclusive(True)
+
+        self._light_mode_action = QAction('Light Mode', self, checkable=True)
+        self._light_mode_action.triggered.connect(lambda: self._set_theme_mode('light'))
+        theme_group.addAction(self._light_mode_action)
+        view_menu.addAction(self._light_mode_action)
+
+        self._dark_mode_action = QAction('Dark Mode', self, checkable=True)
+        self._dark_mode_action.triggered.connect(lambda: self._set_theme_mode('dark'))
+        theme_group.addAction(self._dark_mode_action)
+        view_menu.addAction(self._dark_mode_action)
+
+        resolved_theme = resolve_theme_mode(self._config.theme_mode)
+        if resolved_theme == 'dark':
+            self._dark_mode_action.setChecked(True)
+        else:
+            self._light_mode_action.setChecked(True)
+
         # Help menu
         help_menu = menu_bar.addMenu('Help')
 
@@ -230,6 +253,12 @@ class MainWindow(QMainWindow):
         clear_logs = QAction('Clear Logs', self)
         clear_logs.triggered.connect(self._clear_logs)
         help_menu.addAction(clear_logs)
+
+    def _set_theme_mode(self, mode: str):
+        self._config.theme_mode = mode
+        app = QApplication.instance()
+        if app is not None:
+            apply_theme(app, self, mode)
 
     def _restore_geometry(self):
         geo = self._config.window_geometry

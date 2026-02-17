@@ -274,6 +274,7 @@ Each error code maps to conversational explanation:
     "last_selected_platforms": ["twitter", "bluesky"],
     "debug_mode": false,
     "auto_check_updates": true,
+    "theme_mode": "system",
     "log_upload_endpoint": "https://galepost.jasmer.tools/logs/upload",
     "log_upload_enabled": true,
     "window_geometry": {

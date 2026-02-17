@@ -11,6 +11,7 @@ DEFAULT_CONFIG = {
     'last_selected_platforms': ['twitter', 'bluesky'],
     'debug_mode': False,
     'auto_check_updates': True,
+    'theme_mode': 'system',
     'log_upload_endpoint': LOG_UPLOAD_ENDPOINT,
     'log_upload_enabled': True,
     'window_geometry': {
@@ -103,6 +104,14 @@ class ConfigManager:
     @property
     def auto_check_updates(self) -> bool:
         return self._config.get('auto_check_updates', True)
+
+    @property
+    def theme_mode(self) -> str:
+        return self._config.get('theme_mode', 'system')
+
+    @theme_mode.setter
+    def theme_mode(self, value: str):
+        self.set('theme_mode', value)
 
     @property
     def auto_save_draft(self) -> bool:

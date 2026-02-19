@@ -2,6 +2,8 @@
 
 import contextlib
 import json
+import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -699,9 +701,43 @@ class MainWindow(QMainWindow):
             )
             return
 
-        QProcess.startDetached(str(path))
+        self._launch_installer_after_exit(path)
         self._auto_save_draft()
         QTimer.singleShot(100, QApplication.instance().quit)
+
+    def _launch_installer_after_exit(self, path: Path):
+        logger = get_logger()
+        if os.name != 'nt':
+            QProcess.startDetached(str(path))
+            return
+
+        try:
+            pid = os.getpid()
+            script = '\n'.join(
+                [
+                    '@echo off',
+                    f'set "PID={pid}"',
+                    f'set "INSTALLER={path}"',
+                    ':wait',
+                    'tasklist /FI "PID eq %PID%" /NH | findstr /I "%PID%" >nul',
+                    'if %errorlevel%==0 (',
+                    '  timeout /t 1 /nobreak >nul',
+                    '  goto wait',
+                    ')',
+                    'start "" "%INSTALLER%"',
+                    'del "%~f0"',
+                ]
+            )
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.cmd', mode='w') as temp_file:
+                temp_file.write(script)
+                cmd_path = Path(temp_file.name)
+            QProcess.startDetached('cmd.exe', ['/C', str(cmd_path)])
+            logger.info('Launched updater helper', extra={'cmd_path': str(cmd_path)})
+        except Exception as exc:
+            logger.warning(
+                'Failed to start updater helper, launching directly', extra={'error': str(exc)}
+            )
+            QProcess.startDetached(str(path))
 
     def closeEvent(self, event):  # noqa: N802
         self._save_geometry()

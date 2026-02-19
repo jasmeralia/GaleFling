@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add coverage reporting in CI and badges in the README.
 - Move developer documentation to docs/CONTRIBUTING.md and simplify README for end users.
 
+## [0.2.79] - 2026-02-19
+- Skip Codecov upload when no token is configured to avoid CI failures.
+
 ## [0.2.77] - 2026-02-19
 - Disable attach/post buttons when no platforms are checked.
 - Add GUI tests for platform enable/disable state and counters.

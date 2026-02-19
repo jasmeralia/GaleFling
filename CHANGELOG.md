@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.57] - 2026-02-17
+- Write the NSIS installer output into the build directory so releases pick it up.
+
 ## [0.2.56] - 2026-02-17
 - Keep the portable zip build but exclude it from release artifacts.
 

@@ -96,6 +96,11 @@ jobs:
         run: |
           find . -name "*-portable.zip" -delete
 
+      - name: List release assets
+        run: |
+          echo "Installer assets found:"
+          find . -name "GaleFling-Setup-*.exe" -print
+
       - name: Get latest published release tag
         id: published_release
         run: |
@@ -175,4 +180,4 @@ jobs:
           name: "${{ github.ref_name }} - GaleFling"
           body: ${{ steps.release_notes.outputs.body }}
           files: |
-            build/GaleFling-Setup-*.exe
+            **/GaleFling-Setup-*.exe

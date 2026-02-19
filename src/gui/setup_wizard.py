@@ -3,8 +3,8 @@
 from PyQt5.QtGui import QPalette
 from PyQt5.QtWidgets import (
     QApplication,
+    QDialogButtonBox,
     QFormLayout,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -285,19 +285,21 @@ class SetupWizard(QWizard):
             return
 
         # Force theme on Qt wizard chrome (header + button row) after widgets exist.
-        for name in ('qt_wizard_header', 'qt_wizard_title', 'qt_wizard_button_box'):
-            widget = self.findChild(QFrame, name)
-            if widget is None:
-                widget = self.findChild(QWidget, name)
-            if widget is None:
-                continue
-            widget.setAutoFillBackground(True)
-            widget.setPalette(self._wizard_palette)
-            widget.setStyleSheet(
-                f'background-color: {self._window_bg}; color: {self._window_text};'
-            )
+        for widget in self.findChildren(QWidget):
+            name = widget.objectName()
+            if name.startswith('qt_wizard') or isinstance(widget, QDialogButtonBox):
+                widget.setAutoFillBackground(True)
+                widget.setPalette(self._wizard_palette)
+                widget.setStyleSheet(
+                    f'background-color: {self._window_bg}; color: {self._window_text};'
+                )
 
-        for label_name in ('qt_wizard_h1_label', 'qt_wizard_h2_label'):
+        for label_name in (
+            'qt_wizard_h1_label',
+            'qt_wizard_h2_label',
+            'qt_wizard_title_label',
+            'qt_wizard_subtitle_label',
+        ):
             label = self.findChild(QLabel, label_name)
             if label is None:
                 continue

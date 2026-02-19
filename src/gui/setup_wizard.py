@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (
 from src.core.auth_manager import AuthManager
 from src.platforms.bluesky import BlueskyPlatform
 from src.platforms.twitter import TwitterPlatform
+from src.utils.theme import resolve_theme_mode, set_windows_dark_title_bar
 
 
 class WelcomePage(QWizardPage):
@@ -206,10 +207,11 @@ class BlueskySetupPage(QWizardPage):
 class SetupWizard(QWizard):
     """First-run setup wizard."""
 
-    def __init__(self, auth_manager: AuthManager, parent=None):
+    def __init__(self, auth_manager: AuthManager, theme_mode: str = 'system', parent=None):
         super().__init__(parent)
         self.setWindowTitle('GaleFling - Setup')
         self.setMinimumSize(550, 450)
+        self._theme_mode = theme_mode
         app = QApplication.instance()
         if app is not None:
             self.setStyle(app.style())
@@ -226,6 +228,13 @@ class SetupWizard(QWizard):
                 'QLabel {'
                 f'  color: {window_text};'
                 '}'
+                'QWizard QDialogButtonBox, QWizard QFrame {'
+                f'  background-color: {window_bg};'
+                '}'
+                'QWizard QPushButton {'
+                f'  background-color: {base_bg};'
+                f'  color: {base_text};'
+                '}'
                 'QLineEdit {'
                 f'  background-color: {base_bg};'
                 f'  color: {base_text};'
@@ -235,6 +244,8 @@ class SetupWizard(QWizard):
                 '}'
             )
             self.setAutoFillBackground(True)
+            resolved = resolve_theme_mode(self._theme_mode)
+            set_windows_dark_title_bar(self, resolved == 'dark')
 
         self.addPage(WelcomePage())
         self.addPage(TwitterSetupPage(auth_manager))

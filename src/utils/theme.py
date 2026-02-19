@@ -51,7 +51,7 @@ def _apply_dark_palette(app: QApplication):
     app.setPalette(palette)
 
 
-def _set_windows_dark_title_bar(window: QMainWindow, enabled: bool) -> None:
+def set_windows_dark_title_bar(window: QMainWindow, enabled: bool) -> None:
     if sys.platform != 'win32':
         return
     try:
@@ -89,6 +89,6 @@ def apply_theme(app: QApplication, window: QMainWindow | None, mode: str) -> str
         app.setPalette(app.style().standardPalette())
 
     if window is not None:
-        _set_windows_dark_title_bar(window, use_dark)
+        set_windows_dark_title_bar(window, use_dark)
 
     return resolved

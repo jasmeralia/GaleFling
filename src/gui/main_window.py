@@ -294,7 +294,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(100, self._show_setup_wizard)
 
     def _show_setup_wizard(self):
-        wizard = SetupWizard(self._auth_manager, self)
+        wizard = SetupWizard(self._auth_manager, self._config.theme_mode, self)
         wizard.exec_()
 
     def _on_image_changed(self, image_path):

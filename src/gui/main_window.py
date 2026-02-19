@@ -3,7 +3,6 @@
 import contextlib
 import json
 import os
-import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -715,31 +714,22 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            pid = os.getpid()
-            script = '\n'.join(
-                [
-                    '@echo off',
-                    f'set "PID={pid}"',
-                    f'set "INSTALLER={path}"',
-                    ':wait',
-                    'tasklist /FI "PID eq %PID%" /NH | findstr /I "%PID%" >nul',
-                    'if %errorlevel%==0 (',
-                    '  timeout /t 1 /nobreak >nul',
-                    '  goto wait',
-                    ')',
-                    'powershell -NoProfile -ExecutionPolicy Bypass '
-                    '-Command "Start-Process -FilePath \\"%INSTALLER%\\" -Verb RunAs"',
-                    'del "%~f0"',
-                ]
+            import ctypes
+
+            result = ctypes.windll.shell32.ShellExecuteW(
+                None,
+                'runas',
+                str(path),
+                None,
+                None,
+                1,
             )
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.cmd', mode='w') as temp_file:
-                temp_file.write(script)
-                cmd_path = Path(temp_file.name)
-            QProcess.startDetached('cmd.exe', ['/C', str(cmd_path)])
-            logger.info('Launched updater helper', extra={'cmd_path': str(cmd_path)})
+            if result <= 32:
+                raise RuntimeError(f'ShellExecuteW failed: {result}')
+            logger.info('Launched installer with UAC prompt', extra={'result': int(result)})
         except Exception as exc:
             logger.warning(
-                'Failed to start updater helper, launching directly', extra={'error': str(exc)}
+                'Failed to launch installer with UAC, launching directly', extra={'error': str(exc)}
             )
             QProcess.startDetached(str(path))
 

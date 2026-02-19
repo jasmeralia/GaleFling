@@ -90,6 +90,7 @@ jobs:
         with:
           name: windows-build
           path: .
+          merge-multiple: true
 
       - name: Get latest published release tag
         id: published_release

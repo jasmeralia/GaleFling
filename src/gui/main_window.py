@@ -214,6 +214,9 @@ class MainWindow(QMainWindow):
         open_settings = QAction('Open Settings...', self)
         open_settings.triggered.connect(self._open_settings)
         settings_menu.addAction(open_settings)
+        run_setup = QAction('Run Setup Wizard...', self)
+        run_setup.triggered.connect(self._show_setup_wizard)
+        settings_menu.addAction(run_setup)
 
         # View menu
         view_menu = menu_bar.addMenu('View')

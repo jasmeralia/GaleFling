@@ -211,6 +211,26 @@ class SetupWizard(QWizard):
         if app is not None:
             self.setStyle(app.style())
             self.setPalette(app.palette())
+            window_bg = app.palette().color(QPalette.Window).name()
+            window_text = app.palette().color(QPalette.WindowText).name()
+            base_bg = app.palette().color(QPalette.Base).name()
+            base_text = app.palette().color(QPalette.Text).name()
+            self.setStyleSheet(
+                'QWizard, QWizardPage {'
+                f'  background-color: {window_bg};'
+                f'  color: {window_text};'
+                '}'
+                'QLabel {'
+                f'  color: {window_text};'
+                '}'
+                'QLineEdit {'
+                f'  background-color: {base_bg};'
+                f'  color: {base_text};'
+                '}'
+                'QGroupBox {'
+                f'  color: {window_text};'
+                '}'
+            )
 
         self.addPage(WelcomePage())
         self.addPage(TwitterSetupPage(auth_manager))

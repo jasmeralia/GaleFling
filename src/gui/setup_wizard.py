@@ -2,6 +2,7 @@
 
 from PyQt5.QtGui import QPalette
 from PyQt5.QtWidgets import (
+    QApplication,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -206,6 +207,10 @@ class SetupWizard(QWizard):
         super().__init__(parent)
         self.setWindowTitle('GaleFling - Setup')
         self.setMinimumSize(550, 450)
+        app = QApplication.instance()
+        if app is not None:
+            self.setStyle(app.style())
+            self.setPalette(app.palette())
 
         self.addPage(WelcomePage())
         self.addPage(TwitterSetupPage(auth_manager))

@@ -724,7 +724,8 @@ class MainWindow(QMainWindow):
                     '  timeout /t 1 /nobreak >nul',
                     '  goto wait',
                     ')',
-                    'start "" "%INSTALLER%"',
+                    'powershell -NoProfile -ExecutionPolicy Bypass '
+                    '-Command "Start-Process -FilePath \\"%INSTALLER%\\" -Verb RunAs"',
                     'del "%~f0"',
                 ]
             )

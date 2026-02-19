@@ -522,7 +522,7 @@ class MainWindow(QMainWindow):
         self._status_bar.showMessage('Checking for updates...')
         QApplication.processEvents()
 
-        update = check_for_updates()
+        update = check_for_updates(self._config.allow_prerelease_updates)
         if update:
             reply = QMessageBox.question(
                 self,
@@ -648,7 +648,7 @@ class MainWindow(QMainWindow):
     def check_for_updates_on_startup(self):
         """Check for updates if enabled (call after show)."""
         if self._config.auto_check_updates:
-            update = check_for_updates()
+            update = check_for_updates(self._config.allow_prerelease_updates)
             if update:
                 reply = QMessageBox.question(
                     self,

@@ -71,6 +71,9 @@ class SettingsDialog(QDialog):
         self._auto_update_cb = QCheckBox('Automatically check for updates on startup')
         self._auto_update_cb.setChecked(self._config.auto_check_updates)
         updates_layout.addWidget(self._auto_update_cb)
+        self._prerelease_update_cb = QCheckBox('Include prerelease versions')
+        self._prerelease_update_cb.setChecked(self._config.allow_prerelease_updates)
+        updates_layout.addWidget(self._prerelease_update_cb)
         layout.addWidget(updates_group)
 
         # Drafts
@@ -163,6 +166,7 @@ class SettingsDialog(QDialog):
     def _save_and_close(self):
         # General
         self._config.set('auto_check_updates', self._auto_update_cb.isChecked())
+        self._config.set('allow_prerelease_updates', self._prerelease_update_cb.isChecked())
         self._config.set('auto_save_draft', self._auto_save_cb.isChecked())
 
         # Advanced

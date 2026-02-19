@@ -11,6 +11,7 @@ DEFAULT_CONFIG = {
     'last_selected_platforms': ['twitter', 'bluesky'],
     'debug_mode': False,
     'auto_check_updates': True,
+    'allow_prerelease_updates': False,
     'theme_mode': 'system',
     'log_upload_endpoint': LOG_UPLOAD_ENDPOINT,
     'log_upload_enabled': True,
@@ -104,6 +105,14 @@ class ConfigManager:
     @property
     def auto_check_updates(self) -> bool:
         return self._config.get('auto_check_updates', True)
+
+    @property
+    def allow_prerelease_updates(self) -> bool:
+        return self._config.get('allow_prerelease_updates', False)
+
+    @allow_prerelease_updates.setter
+    def allow_prerelease_updates(self, value: bool):
+        self.set('allow_prerelease_updates', value)
 
     @property
     def theme_mode(self) -> str:

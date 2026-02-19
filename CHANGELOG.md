@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.69] - 2026-02-19
+- Add a prerelease update toggle and optionally include prereleases in update checks.
+- Publish GitHub releases as prereleases instead of drafts.
+
 ## [0.2.68] - 2026-02-19
 - Launch the app from the installer without elevation.
 - Abort with a fatal error if the app is started as administrator.

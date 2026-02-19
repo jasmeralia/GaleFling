@@ -9,7 +9,7 @@ from src.core.logger import get_logger
 from src.utils.constants import APP_VERSION
 
 GITHUB_REPO = 'jasmeralia/galefling'
-RELEASES_API = f'https://api.github.com/repos/{GITHUB_REPO}/releases/latest'
+RELEASES_API = f'https://api.github.com/repos/{GITHUB_REPO}/releases'
 
 
 @dataclass
@@ -25,7 +25,7 @@ class UpdateInfo:
     browser_url: str
 
 
-def check_for_updates() -> UpdateInfo | None:
+def check_for_updates(include_prerelease: bool = False) -> UpdateInfo | None:
     """Check GitHub for a newer version. Returns UpdateInfo or None."""
     logger = get_logger()
 
@@ -35,7 +35,22 @@ def check_for_updates() -> UpdateInfo | None:
             logger.info(f'Update check returned HTTP {response.status_code}')
             return None
 
-        data = response.json()
+        releases = response.json()
+        if not isinstance(releases, list):
+            logger.info('Update check returned unexpected payload')
+            return None
+
+        data = None
+        for release in releases:
+            if release.get('draft'):
+                continue
+            if release.get('prerelease') and not include_prerelease:
+                continue
+            data = release
+            break
+        if data is None:
+            return None
+
         tag = data.get('tag_name', '')
         latest_str = tag.lstrip('v')
 
@@ -59,7 +74,7 @@ def check_for_updates() -> UpdateInfo | None:
                 download_size = int(asset.get('size', 0) or 0)
                 break
 
-        browser_url = data.get('html_url', f'https://github.com/{GITHUB_REPO}/releases/latest')
+        browser_url = data.get('html_url', f'https://github.com/{GITHUB_REPO}/releases')
 
         logger.info(f'Update available: {APP_VERSION} -> {latest_str}')
         return UpdateInfo(

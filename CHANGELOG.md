@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Skip image processing for disabled platforms and disable posting when nothing is enabled.
 - Update About dialog copyright line to include Winds of Storm.
 
+## [0.2.77] - 2026-02-19
+- Disable attach/post buttons when no platforms are checked.
+- Add GUI tests for platform enable/disable state and counters.
+
 ## [0.2.74] - 2026-02-19
 - Force wizard header/button widgets to adopt theme colors via object names.
 

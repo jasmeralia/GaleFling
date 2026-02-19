@@ -93,7 +93,7 @@ class PostComposer(QWidget):
     def set_platform_state(self, selected: list[str], enabled: list[str]):
         self._selected_platforms = set(selected)
         self._enabled_platforms = set(enabled)
-        self._choose_btn.setEnabled(bool(self._enabled_platforms))
+        self._choose_btn.setEnabled(bool(self._enabled_platforms and self._selected_platforms))
         self._update_counters()
 
     def _on_text_changed(self):

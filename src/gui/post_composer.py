@@ -27,6 +27,8 @@ class PostComposer(QWidget):
         super().__init__(parent)
         self._image_path: Path | None = None
         self._last_image_dir = ''
+        self._selected_platforms: set[str] = set()
+        self._enabled_platforms: set[str] = set()
         self._init_ui()
 
     def set_last_image_dir(self, path: str):
@@ -88,6 +90,12 @@ class PostComposer(QWidget):
 
         self._update_counters()
 
+    def set_platform_state(self, selected: list[str], enabled: list[str]):
+        self._selected_platforms = set(selected)
+        self._enabled_platforms = set(enabled)
+        self._choose_btn.setEnabled(bool(self._enabled_platforms))
+        self._update_counters()
+
     def _on_text_changed(self):
         text = self._text_edit.toPlainText()
         self.text_changed.emit(text)
@@ -111,11 +119,22 @@ class PostComposer(QWidget):
         tw_color = '#4CAF50' if tw_ok else '#F44336'
         bs_color = '#4CAF50' if bs_ok else '#F44336'
 
-        self._tw_counter.setText(f'{tw_symbol} Twitter: {length}/{tw_max}')
-        self._tw_counter.setStyleSheet(f'color: {tw_color}; font-weight: bold;')
+        tw_active = 'twitter' in self._selected_platforms and 'twitter' in self._enabled_platforms
+        bs_active = 'bluesky' in self._selected_platforms and 'bluesky' in self._enabled_platforms
 
-        self._bs_counter.setText(f'{bs_symbol} Bluesky: {length}/{bs_max}')
-        self._bs_counter.setStyleSheet(f'color: {bs_color}; font-weight: bold;')
+        if tw_active:
+            self._tw_counter.setText(f'{tw_symbol} Twitter: {length}/{tw_max}')
+            self._tw_counter.setStyleSheet(f'color: {tw_color}; font-weight: bold;')
+            self._tw_counter.setVisible(True)
+        else:
+            self._tw_counter.setVisible(False)
+
+        if bs_active:
+            self._bs_counter.setText(f'{bs_symbol} Bluesky: {length}/{bs_max}')
+            self._bs_counter.setStyleSheet(f'color: {bs_color}; font-weight: bold;')
+            self._bs_counter.setVisible(True)
+        else:
+            self._bs_counter.setVisible(False)
 
     def _choose_image(self):
         start_dir = self._last_image_dir or ''

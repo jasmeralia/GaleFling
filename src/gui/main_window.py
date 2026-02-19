@@ -140,6 +140,7 @@ class MainWindow(QMainWindow):
         self._restore_geometry()
         self._setup_draft_timer()
         self._check_first_run()
+        self._refresh_platform_state()
 
     def _init_ui(self):
         self.setWindowTitle(f'{APP_NAME} v{APP_VERSION}')
@@ -296,6 +297,7 @@ class MainWindow(QMainWindow):
     def _show_setup_wizard(self):
         wizard = SetupWizard(self._auth_manager, self._config.theme_mode, self)
         wizard.exec_()
+        self._refresh_platform_state()
 
     def _on_image_changed(self, image_path):
         self._cleanup_processed_images()
@@ -318,6 +320,28 @@ class MainWindow(QMainWindow):
 
     def _on_platforms_changed(self, platforms):
         self._config.last_selected_platforms = platforms
+        self._refresh_platform_state()
+
+    def _refresh_platform_state(self):
+        enabled = []
+        if self._auth_manager.has_twitter_auth():
+            enabled.append('twitter')
+        if self._auth_manager.has_bluesky_auth():
+            enabled.append('bluesky')
+
+        self._platform_selector.set_platform_enabled('twitter', 'twitter' in enabled)
+        self._platform_selector.set_platform_enabled('bluesky', 'bluesky' in enabled)
+
+        selected = self._platform_selector.get_selected()
+        self._composer.set_platform_state(selected, enabled)
+
+        has_enabled = bool(enabled)
+        has_selected = bool(selected)
+        self._post_btn.setEnabled(has_selected)
+        self._test_btn.setEnabled(has_selected)
+        if not has_enabled:
+            self._post_btn.setEnabled(False)
+            self._test_btn.setEnabled(False)
 
     def _test_connections(self):
         self._status_bar.showMessage('Testing connections...')
@@ -463,6 +487,7 @@ class MainWindow(QMainWindow):
     def _open_settings(self):
         dialog = SettingsDialog(self._config, self._auth_manager, self)
         dialog.exec_()
+        self._refresh_platform_state()
 
     def _show_about(self):
         QMessageBox.about(
@@ -470,7 +495,7 @@ class MainWindow(QMainWindow):
             f'About {APP_NAME}',
             f'<b>{APP_NAME}</b> v{APP_VERSION}<br><br>'
             f'Post to Twitter and Bluesky simultaneously.<br><br>'
-            f'Copyright \u00a9 2026 Morgan Blackthorne<br>'
+            f'Copyright \u00a9 2026 Morgan Blackthorne, Winds of Storm<br>'
             f'Licensed under the MIT License<br><br>'
             f'<b>Built with:</b><br>'
             f'PyQt5 \u2013 GUI framework<br>'
@@ -636,6 +661,7 @@ class MainWindow(QMainWindow):
             platforms = draft.get('selected_platforms', [])
             if platforms:
                 self._platform_selector.set_selected(platforms)
+            self._refresh_platform_state()
         else:
             self._clear_draft()
 

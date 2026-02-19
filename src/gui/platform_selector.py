@@ -50,4 +50,15 @@ class PlatformSelector(QWidget):
 
     def set_selected(self, platforms: list[str]):
         for name, cb in self._checkboxes.items():
-            cb.setChecked(name in platforms)
+            cb.setChecked(name in platforms and cb.isEnabled())
+
+    def set_platform_enabled(self, name: str, enabled: bool):
+        cb = self._checkboxes.get(name)
+        if not cb:
+            return
+        cb.setEnabled(enabled)
+        if not enabled:
+            cb.setChecked(False)
+
+    def get_enabled(self) -> list[str]:
+        return [name for name, cb in self._checkboxes.items() if cb.isEnabled()]

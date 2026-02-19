@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Use the latest release (including prereleases) as the previous release for notes.
 - Force the setup wizard header and button panels to a mid-grey background in dark mode.
 
+## [0.2.76] - 2026-02-19
+- Disable platform options and counters when credentials are missing or unchecked.
+- Skip image processing for disabled platforms and disable posting when nothing is enabled.
+- Update About dialog copyright line to include Winds of Storm.
+
 ## [0.2.74] - 2026-02-19
 - Force wizard header/button widgets to adopt theme colors via object names.
 

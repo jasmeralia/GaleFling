@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.103] - 2026-02-20
+- Show Bluesky secondary account as “Bluesky (username)” in the composer.
+- Improve setup wizard test buttons for dark theme readability.
+- Make Test Connections report usernames with explicit success/failure text.
+- Add tests for connection messaging and Bluesky label behavior.
+
 ## [0.2.102] - 2026-02-20
 - Add About dialog icon and linkable credits.
 - Add a second Bluesky account with logout actions and duplicate-check validation.

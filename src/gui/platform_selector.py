@@ -78,8 +78,6 @@ class PlatformSelector(QWidget):
             return
         if name == 'twitter':
             base = 'Twitter'
-        elif name == 'bluesky_alt':
-            base = 'Bluesky 2'
         else:
             base = 'Bluesky'
         label = self._format_platform_label(base, username)

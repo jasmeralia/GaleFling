@@ -58,14 +58,14 @@ def test_platform_selector_usernames(qtbot):
     selector.set_platform_username('bluesky_alt', 'alt.bsky.social')
     assert selector.get_platform_label('twitter') == 'Twitter (jasmeralia)'
     assert selector.get_platform_label('bluesky') == 'Bluesky (jasmeralia)'
-    assert selector.get_platform_label('bluesky_alt') == 'Bluesky 2 (alt)'
+    assert selector.get_platform_label('bluesky_alt') == 'Bluesky (alt)'
 
     selector.set_platform_username('twitter', '')
     selector.set_platform_username('bluesky', None)
     selector.set_platform_username('bluesky_alt', '')
     assert selector.get_platform_label('twitter') == 'Twitter'
     assert selector.get_platform_label('bluesky') == 'Bluesky'
-    assert selector.get_platform_label('bluesky_alt') == 'Bluesky 2'
+    assert selector.get_platform_label('bluesky_alt') == 'Bluesky'
 
 
 def test_preview_button_enabled_when_image_present(qtbot, tmp_path):

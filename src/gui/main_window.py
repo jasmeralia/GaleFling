@@ -452,19 +452,32 @@ class MainWindow(QMainWindow):
             platform = self._platforms.get(name)
             if platform:
                 success, error = platform.test_connection()
-                results.append((platform.get_platform_name(), success, error))
+                display_name = self._get_platform_display_name(name)
+                results.append((display_name, success, error))
 
         # Show results
         msg_parts = []
         for pname, success, error in results:
             if success:
-                msg_parts.append(f'\u2713 {pname}: Connected!')
+                msg_parts.append(f'\u2714\ufe0f {pname} connected.')
             else:
-                msg_parts.append(f'\u274c {pname}: Failed ({error})')
+                msg_parts.append(f'\u274c\ufe0f {pname} failed to connect: {error}')
 
         QMessageBox.information(self, 'Connection Test', '\n'.join(msg_parts))
         self._test_btn.setEnabled(True)
         self._status_bar.showMessage('Ready')
+
+    def _get_platform_display_name(self, name: str) -> str:
+        if name == 'twitter':
+            creds = self._auth_manager.get_twitter_auth() or {}
+            return PlatformSelector._format_platform_label('Twitter', creds.get('username'))
+        if name == 'bluesky_alt':
+            creds = self._auth_manager.get_bluesky_auth_alt() or {}
+            return PlatformSelector._format_platform_label('Bluesky', creds.get('identifier'))
+        if name == 'bluesky':
+            creds = self._auth_manager.get_bluesky_auth() or {}
+            return PlatformSelector._format_platform_label('Bluesky', creds.get('identifier'))
+        return name
 
     def _do_post(self):
         text = self._composer.get_text()

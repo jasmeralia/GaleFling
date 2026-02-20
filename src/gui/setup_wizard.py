@@ -206,9 +206,23 @@ class BlueskySetupPage(QWizardPage):
 
         btn_row = QHBoxLayout()
         test_btn = QPushButton('Test Account 1')
+        test_btn.setStyleSheet(
+            'QPushButton { background-color: #4CAF50; color: white; '
+            'font-weight: bold; font-size: 12px; padding: 4px 12px; '
+            'border-radius: 4px; }'
+            'QPushButton:hover { background-color: #45a049; }'
+            'QPushButton:disabled { background-color: #ccc; color: #888; }'
+        )
         test_btn.clicked.connect(self._test_connection)
         btn_row.addWidget(test_btn)
         test_alt_btn = QPushButton('Test Account 2')
+        test_alt_btn.setStyleSheet(
+            'QPushButton { background-color: #4CAF50; color: white; '
+            'font-weight: bold; font-size: 12px; padding: 4px 12px; '
+            'border-radius: 4px; }'
+            'QPushButton:hover { background-color: #45a049; }'
+            'QPushButton:disabled { background-color: #ccc; color: #888; }'
+        )
         test_alt_btn.clicked.connect(self._test_connection_alt)
         btn_row.addWidget(test_alt_btn)
         btn_row.addStretch()

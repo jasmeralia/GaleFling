@@ -62,7 +62,7 @@ def test_main_window_no_credentials_disables_actions(qtbot):
     assert window._platform_selector.get_selected() == []
     assert window._platform_selector.get_platform_label('twitter') == 'Twitter'
     assert window._platform_selector.get_platform_label('bluesky') == 'Bluesky'
-    assert window._platform_selector.get_platform_label('bluesky_alt') == 'Bluesky 2'
+    assert window._platform_selector.get_platform_label('bluesky_alt') == 'Bluesky'
     assert not window._post_btn.isEnabled()
     assert not window._test_btn.isEnabled()
     assert not window._composer._choose_btn.isEnabled()
@@ -261,6 +261,44 @@ def test_missing_processed_platforms_dedupes_bluesky(qtbot):
     missing = window._get_missing_processed_platforms(['bluesky', 'bluesky_alt'])
 
     assert missing == ['bluesky']
+
+
+def test_test_connections_message_includes_usernames(qtbot, monkeypatch):
+    class DummyPlatform:
+        def __init__(self, success, error=None):
+            self._success = success
+            self._error = error
+
+        def test_connection(self):
+            return self._success, self._error
+
+    window = DummyMainWindow(
+        DummyConfig(selected=['twitter', 'bluesky', 'bluesky_alt']),
+        DummyAuthManager(True, True, True),
+    )
+    qtbot.addWidget(window)
+
+    window._platforms = {
+        'twitter': DummyPlatform(False, 'TW-AUTH-EXPIRED'),
+        'bluesky': DummyPlatform(True),
+        'bluesky_alt': DummyPlatform(True),
+    }
+
+    captured = {}
+
+    def fake_info(_parent, _title, message):
+        captured['message'] = message
+
+    monkeypatch.setattr('src.gui.main_window.QMessageBox.information', fake_info)
+
+    window._test_connections()
+
+    assert '\u2714\ufe0f Bluesky (jasmeralia) connected.' in captured['message']
+    assert '\u2714\ufe0f Bluesky (alt) connected.' in captured['message']
+    assert (
+        '\u274c\ufe0f Twitter (jasmeralia) failed to connect: TW-AUTH-EXPIRED'
+        in captured['message']
+    )
 
 
 def test_main_window_single_platform_enabled(qtbot):

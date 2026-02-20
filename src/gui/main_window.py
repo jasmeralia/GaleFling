@@ -332,9 +332,9 @@ class MainWindow(QMainWindow):
         tw_creds = self._auth_manager.get_twitter_auth()
         bs_creds = self._auth_manager.get_bluesky_auth()
 
-        if tw_creds:
+        if tw_creds and tw_creds.get('username'):
             enabled.append('twitter')
-        if bs_creds:
+        if bs_creds and bs_creds.get('identifier'):
             enabled.append('bluesky')
 
         self._platform_selector.set_platform_enabled('twitter', 'twitter' in enabled)

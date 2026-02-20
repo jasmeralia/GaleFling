@@ -97,7 +97,7 @@ class SettingsDialog(QDialog):
 
         tw_creds = self._auth_manager.get_twitter_auth()
         self._tw_username = QLineEdit(tw_creds.get('username', '') if tw_creds else '')
-        self._tw_username.setPlaceholderText('Optional')
+        self._tw_username.setPlaceholderText('Required for posting')
         tw_layout.addRow('Username:', self._tw_username)
 
         self._tw_api_key = QLineEdit(tw_creds.get('api_key', '') if tw_creds else '')
@@ -184,9 +184,9 @@ class SettingsDialog(QDialog):
         tw_token = self._tw_access_token.text().strip()
         tw_token_secret = self._tw_access_secret.text().strip()
         tw_username = self._tw_username.text().strip()
-        if tw_key and tw_secret and tw_token and tw_token_secret:
+        if tw_key and tw_secret and tw_token and tw_token_secret and tw_username:
             self._auth_manager.save_twitter_auth(
-                tw_key, tw_secret, tw_token, tw_token_secret, username=tw_username or None
+                tw_key, tw_secret, tw_token, tw_token_secret, username=tw_username
             )
 
         # Accounts - Bluesky

@@ -99,7 +99,13 @@ class AuthManager:
         )
 
     def has_twitter_auth(self) -> bool:
-        return self.get_twitter_auth() is not None
+        data = self.get_twitter_auth()
+        if not data:
+            return False
+        return bool(data.get('username'))
 
     def has_bluesky_auth(self) -> bool:
-        return self.get_bluesky_auth() is not None
+        data = self.get_bluesky_auth()
+        if not data:
+            return False
+        return bool(data.get('identifier'))

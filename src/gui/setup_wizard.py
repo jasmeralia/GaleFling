@@ -60,7 +60,7 @@ class TwitterSetupPage(QWizardPage):
         form = QFormLayout()
 
         self._username = QLineEdit()
-        self._username.setPlaceholderText('Optional')
+        self._username.setPlaceholderText('Required for posting')
         form.addRow('Username:', self._username)
 
         self._api_key = QLineEdit()
@@ -126,9 +126,9 @@ class TwitterSetupPage(QWizardPage):
         token = self._access_token.text().strip()
         token_secret = self._access_secret.text().strip()
         username = self._username.text().strip()
-        if key and secret and token and token_secret:
+        if key and secret and token and token_secret and username:
             self._auth_manager.save_twitter_auth(
-                key, secret, token, token_secret, username=username or None
+                key, secret, token, token_secret, username=username
             )
 
     def validatePage(self) -> bool:  # noqa: N802

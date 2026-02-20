@@ -4,7 +4,7 @@
 !include "LogicLib.nsh"
 
 Name "GaleFling"
-OutFile "GaleFling-Setup-v0.2.96.exe"
+OutFile "GaleFling-Setup-v0.2.97.exe"
 InstallDir "$PROGRAMFILES\GaleFling"
 InstallDirRegKey HKLM "Software\GaleFling" "InstallDir"
 RequestExecutionLevel admin
@@ -63,7 +63,7 @@ Section "GaleFling (required)" SecMain
 
   ; Registry
   WriteRegStr HKLM "Software\GaleFling" "InstallDir" "$INSTDIR"
-  WriteRegStr HKLM "Software\GaleFling" "Version" "0.2.96"
+  WriteRegStr HKLM "Software\GaleFling" "Version" "0.2.97"
 
   ; Add/Remove Programs entry
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GaleFling" \
@@ -71,7 +71,7 @@ Section "GaleFling (required)" SecMain
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GaleFling" \
     "UninstallString" "$\"$INSTDIR\Uninstall.exe$\""
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GaleFling" \
-    "DisplayVersion" "0.2.96"
+    "DisplayVersion" "0.2.97"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GaleFling" \
     "Publisher" "GaleFling"
 SectionEnd

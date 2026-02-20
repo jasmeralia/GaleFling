@@ -60,6 +60,26 @@ def test_main_window_no_credentials_disables_actions(qtbot):
     assert not window._composer._choose_btn.isEnabled()
 
 
+def test_main_window_missing_usernames_disables_platforms(qtbot):
+    class UsernameMissingAuth(DummyAuthManager):
+        def get_twitter_auth(self):
+            return {'api_key': 'x', 'username': ''} if self._twitter else None
+
+        def get_bluesky_auth(self):
+            return {'identifier': ''} if self._bluesky else None
+
+    window = DummyMainWindow(
+        DummyConfig(selected=['twitter', 'bluesky']), UsernameMissingAuth(True, True)
+    )
+    qtbot.addWidget(window)
+
+    assert window._platform_selector.get_enabled() == []
+    assert window._platform_selector.get_selected() == []
+    assert not window._post_btn.isEnabled()
+    assert not window._test_btn.isEnabled()
+    assert not window._composer._choose_btn.isEnabled()
+
+
 def test_main_window_single_platform_enabled(qtbot):
     window = DummyMainWindow(DummyConfig(selected=['twitter']), DummyAuthManager(True, False))
     qtbot.addWidget(window)

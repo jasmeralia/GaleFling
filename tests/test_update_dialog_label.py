@@ -14,10 +14,10 @@ class DummyAuthManager:
         return True
 
     def get_twitter_auth(self):
-        return {'api_key': 'x'}
+        return {'api_key': 'x', 'username': 'user'}
 
     def get_bluesky_auth(self):
-        return {'identifier': 'x'}
+        return {'identifier': 'user.bsky.social'}
 
 
 class DummyConfig:

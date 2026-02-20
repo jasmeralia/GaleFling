@@ -67,6 +67,7 @@ def test_main_window_single_platform_enabled(qtbot):
     assert window._post_btn.isEnabled()
     assert window._test_btn.isEnabled()
     assert window._composer._choose_btn.isEnabled()
+    assert window._test_btn.styleSheet() == window._post_btn.styleSheet()
 
 
 def test_main_window_disable_when_unchecked(qtbot):

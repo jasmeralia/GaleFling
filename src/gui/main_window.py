@@ -176,20 +176,23 @@ class MainWindow(QMainWindow):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        self._test_btn = QPushButton('Test Connections')
-        self._test_btn.clicked.connect(self._test_connections)
-        btn_layout.addWidget(self._test_btn)
-
-        btn_layout.addSpacing(10)
-
-        self._post_btn = QPushButton('Post Now')
-        self._post_btn.setStyleSheet(
+        primary_button_style = (
             'QPushButton { background-color: #4CAF50; color: white; '
             'font-weight: bold; font-size: 14px; padding: 8px 24px; '
             'border-radius: 4px; }'
             'QPushButton:hover { background-color: #45a049; }'
             'QPushButton:disabled { background-color: #ccc; color: #888; }'
         )
+
+        self._test_btn = QPushButton('Test Connections')
+        self._test_btn.setStyleSheet(primary_button_style)
+        self._test_btn.clicked.connect(self._test_connections)
+        btn_layout.addWidget(self._test_btn)
+
+        btn_layout.addSpacing(10)
+
+        self._post_btn = QPushButton('Post Now')
+        self._post_btn.setStyleSheet(primary_button_style)
         self._post_btn.clicked.connect(self._do_post)
         btn_layout.addWidget(self._post_btn)
 

@@ -13,10 +13,10 @@ class DummyAuthManager:
         return self._bluesky
 
     def get_twitter_auth(self):
-        return {'api_key': 'x'} if self._twitter else None
+        return {'api_key': 'x', 'username': 'jasmeralia'} if self._twitter else None
 
     def get_bluesky_auth(self):
-        return {'identifier': 'x'} if self._bluesky else None
+        return {'identifier': 'jasmeralia.bsky.social'} if self._bluesky else None
 
 
 class DummyConfig:
@@ -53,6 +53,8 @@ def test_main_window_no_credentials_disables_actions(qtbot):
 
     assert window._platform_selector.get_enabled() == []
     assert window._platform_selector.get_selected() == []
+    assert window._platform_selector.get_platform_label('twitter') == 'Twitter'
+    assert window._platform_selector.get_platform_label('bluesky') == 'Bluesky'
     assert not window._post_btn.isEnabled()
     assert not window._test_btn.isEnabled()
     assert not window._composer._choose_btn.isEnabled()
@@ -68,6 +70,7 @@ def test_main_window_single_platform_enabled(qtbot):
     assert window._test_btn.isEnabled()
     assert window._composer._choose_btn.isEnabled()
     assert window._test_btn.styleSheet() == window._post_btn.styleSheet()
+    assert window._platform_selector.get_platform_label('twitter') == 'Twitter (jasmeralia)'
 
 
 def test_main_window_disable_when_unchecked(qtbot):

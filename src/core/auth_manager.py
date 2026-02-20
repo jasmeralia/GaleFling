@@ -59,16 +59,24 @@ class AuthManager:
         return None
 
     def save_twitter_auth(
-        self, api_key: str, api_secret: str, access_token: str, access_token_secret: str
+        self,
+        api_key: str,
+        api_secret: str,
+        access_token: str,
+        access_token_secret: str,
+        username: str | None = None,
     ):
+        payload: dict[str, Any] = {
+            'api_key': api_key,
+            'api_secret': api_secret,
+            'access_token': access_token,
+            'access_token_secret': access_token_secret,
+        }
+        if username:
+            payload['username'] = username
         self._save_json(
             'twitter_auth.json',
-            {
-                'api_key': api_key,
-                'api_secret': api_secret,
-                'access_token': access_token,
-                'access_token_secret': access_token_secret,
-            },
+            payload,
         )
 
     def get_bluesky_auth(self) -> dict[str, str] | None:

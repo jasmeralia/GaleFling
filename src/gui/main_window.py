@@ -329,13 +329,22 @@ class MainWindow(QMainWindow):
 
     def _refresh_platform_state(self):
         enabled = []
-        if self._auth_manager.has_twitter_auth():
+        tw_creds = self._auth_manager.get_twitter_auth()
+        bs_creds = self._auth_manager.get_bluesky_auth()
+
+        if tw_creds:
             enabled.append('twitter')
-        if self._auth_manager.has_bluesky_auth():
+        if bs_creds:
             enabled.append('bluesky')
 
         self._platform_selector.set_platform_enabled('twitter', 'twitter' in enabled)
         self._platform_selector.set_platform_enabled('bluesky', 'bluesky' in enabled)
+        self._platform_selector.set_platform_username(
+            'twitter', tw_creds.get('username') if tw_creds else None
+        )
+        self._platform_selector.set_platform_username(
+            'bluesky', bs_creds.get('identifier') if bs_creds else None
+        )
 
         selected = self._platform_selector.get_selected()
         self._composer.set_platform_state(selected, enabled)

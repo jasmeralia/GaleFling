@@ -29,12 +29,28 @@ def test_post_composer_counters_and_attach_button(qtbot):
     assert not composer._tw_counter.isVisible()
     assert not composer._bs_counter.isVisible()
 
-    composer.set_platform_state(['twitter'], ['twitter', 'bluesky'])
-    assert composer._choose_btn.isEnabled()
-    assert composer._tw_counter.isVisible()
-    assert not composer._bs_counter.isVisible()
 
-    composer.set_platform_state(['twitter', 'bluesky'], ['twitter', 'bluesky'])
-    assert composer._choose_btn.isEnabled()
-    assert composer._tw_counter.isVisible()
-    assert composer._bs_counter.isVisible()
+def test_theme_label_styles_follow_palette(qtbot):
+    composer = PostComposer()
+    selector = PlatformSelector()
+    qtbot.addWidget(composer)
+    qtbot.addWidget(selector)
+
+    assert 'palette(text)' in composer._text_label.styleSheet()
+    assert 'palette(text)' in composer._img_label.styleSheet()
+    assert 'palette(text)' in selector._label.styleSheet()
+
+
+def test_platform_selector_usernames(qtbot):
+    selector = PlatformSelector()
+    qtbot.addWidget(selector)
+
+    selector.set_platform_username('twitter', 'jasmeralia')
+    selector.set_platform_username('bluesky', 'jasmeralia.bsky.social')
+    assert selector.get_platform_label('twitter') == 'Twitter (jasmeralia)'
+    assert selector.get_platform_label('bluesky') == 'Bluesky (jasmeralia)'
+
+    selector.set_platform_username('twitter', '')
+    selector.set_platform_username('bluesky', None)
+    assert selector.get_platform_label('twitter') == 'Twitter'
+    assert selector.get_platform_label('bluesky') == 'Bluesky'

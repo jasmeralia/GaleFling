@@ -39,9 +39,9 @@ class PostComposer(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Text label
-        text_label = QLabel('Post Text:')
-        text_label.setStyleSheet('font-weight: bold; font-size: 13px; color: palette(text);')
-        layout.addWidget(text_label)
+        self._text_label = QLabel('Post Text:')
+        self._text_label.setStyleSheet('font-weight: bold; font-size: 13px; color: palette(text);')
+        layout.addWidget(self._text_label)
 
         # Text edit
         self._text_edit = QTextEdit()
@@ -67,9 +67,9 @@ class PostComposer(QWidget):
         layout.addSpacing(10)
 
         # Image section
-        img_label = QLabel('Image:')
-        img_label.setStyleSheet('font-weight: bold; font-size: 13px; color: palette(text);')
-        layout.addWidget(img_label)
+        self._img_label = QLabel('Image:')
+        self._img_label.setStyleSheet('font-weight: bold; font-size: 13px; color: palette(text);')
+        layout.addWidget(self._img_label)
 
         img_row = QHBoxLayout()
         self._choose_btn = QPushButton('Choose Image...')

@@ -59,6 +59,10 @@ class TwitterSetupPage(QWizardPage):
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
+        self._username = QLineEdit()
+        self._username.setPlaceholderText('Optional')
+        form.addRow('Username:', self._username)
+
         self._api_key = QLineEdit()
         self._api_key.setPlaceholderText('Enter your API key')
         form.addRow('API Key:', self._api_key)
@@ -94,6 +98,7 @@ class TwitterSetupPage(QWizardPage):
         # Pre-fill if credentials exist
         existing = self._auth_manager.get_twitter_auth()
         if existing:
+            self._username.setText(existing.get('username', ''))
             self._api_key.setText(existing.get('api_key', ''))
             self._api_secret.setText(existing.get('api_secret', ''))
             self._access_token.setText(existing.get('access_token', ''))
@@ -120,8 +125,11 @@ class TwitterSetupPage(QWizardPage):
         secret = self._api_secret.text().strip()
         token = self._access_token.text().strip()
         token_secret = self._access_secret.text().strip()
+        username = self._username.text().strip()
         if key and secret and token and token_secret:
-            self._auth_manager.save_twitter_auth(key, secret, token, token_secret)
+            self._auth_manager.save_twitter_auth(
+                key, secret, token, token_secret, username=username or None
+            )
 
     def validatePage(self) -> bool:  # noqa: N802
         self._save_creds()

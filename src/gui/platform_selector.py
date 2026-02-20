@@ -18,9 +18,9 @@ class PlatformSelector(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        label = QLabel('Post to:')
-        label.setStyleSheet('font-weight: bold; font-size: 13px; color: palette(text);')
-        layout.addWidget(label)
+        self._label = QLabel('Post to:')
+        self._label.setStyleSheet('font-weight: bold; font-size: 13px; color: palette(text);')
+        layout.addWidget(self._label)
 
         layout.addSpacing(10)
 
@@ -62,3 +62,26 @@ class PlatformSelector(QWidget):
 
     def get_enabled(self) -> list[str]:
         return [name for name, cb in self._checkboxes.items() if cb.isEnabled()]
+
+    def set_platform_username(self, name: str, username: str | None):
+        cb = self._checkboxes.get(name)
+        if not cb:
+            return
+        base = 'Twitter' if name == 'twitter' else 'Bluesky'
+        label = self._format_platform_label(base, username)
+        cb.setText(label)
+
+    @staticmethod
+    def _format_platform_label(base: str, username: str | None) -> str:
+        if not username:
+            return base
+        trimmed = username.strip().lstrip('@')
+        if base.lower() == 'bluesky' and trimmed.endswith('.bsky.social'):
+            trimmed = trimmed[: -len('.bsky.social')]
+        if not trimmed:
+            return base
+        return f'{base} ({trimmed})'
+
+    def get_platform_label(self, name: str) -> str:
+        cb = self._checkboxes.get(name)
+        return cb.text() if cb else ''

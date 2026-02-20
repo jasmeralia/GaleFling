@@ -63,6 +63,15 @@ class CrashLogWriter:
     def flush(self):
         self._file.flush()
 
+    def fileno(self):
+        return self._file.fileno()
+
+    def writable(self):
+        return True
+
+    def isatty(self):
+        return False
+
 
 class GaleFlingApplication(QApplication):
     def notify(self, receiver, event):  # noqa: D401

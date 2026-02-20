@@ -647,7 +647,7 @@ class MainWindow(QMainWindow):
             icon_label.setPixmap(pixmap)
         else:
             get_logger().warning('About icon unavailable after fallbacks')
-        layout.addWidget(icon_label)
+        layout.addWidget(icon_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         body = QLabel(
             'Post to Twitter and Bluesky simultaneously.<br><br>'
@@ -710,9 +710,13 @@ class MainWindow(QMainWindow):
                 deleted += 1
         fatal_log = logs_dir / 'fatal_errors.log'
         if fatal_log.exists():
-            with contextlib.suppress(OSError):
+            try:
                 fatal_log.unlink()
                 deleted += 1
+            except OSError:
+                with contextlib.suppress(OSError):
+                    fatal_log.write_text('', encoding='utf-8')
+                    deleted += 1
 
         screenshots_dir = logs_dir / 'screenshots'
         for ss_path in screenshots_dir.glob('*.png'):

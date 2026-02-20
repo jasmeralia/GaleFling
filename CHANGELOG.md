@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.112] - 2026-02-20
+- Center the About icon and improve log clearing for fatal crash logs.
+- Add file-handle compatibility to fatal crash logging.
+- Update release workflow badge formatting.
+
 ## [0.2.111] - 2026-02-20
 - Fix bundled resource lookup for frozen builds (icon.png now resolves correctly).
 - Skip title bar theming on the setup wizard to avoid Win11 access violations.

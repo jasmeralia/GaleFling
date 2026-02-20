@@ -101,6 +101,38 @@ def test_menu_action_logging(qtbot, monkeypatch):
     assert 'User selected Help > About' in logged
 
 
+def test_manual_update_check_no_updates_applies_theme(qtbot, monkeypatch):
+    apply_calls = []
+
+    monkeypatch.setattr('src.gui.main_window.check_for_updates', lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        'src.gui.main_window.apply_theme',
+        lambda _app, dialog, mode: apply_calls.append((dialog, mode)),
+    )
+    monkeypatch.setattr(
+        'src.gui.main_window.QMessageBox',
+        type(
+            'DummyMessageBox',
+            (),
+            {
+                'Information': 1,
+                '__init__': lambda *_a, **_k: None,
+                'setWindowTitle': lambda *_a, **_k: None,
+                'setText': lambda *_a, **_k: None,
+                'setIcon': lambda *_a, **_k: None,
+                'exec_': lambda *_a, **_k: 0,
+            },
+        ),
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window._manual_update_check()
+
+    assert any(mode == window._config.theme_mode for _dialog, mode in apply_calls)
+
+
 def test_main_window_missing_usernames_disables_platforms(qtbot):
     class UsernameMissingAuth(DummyAuthManager):
         def get_twitter_auth(self):

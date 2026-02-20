@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.115] - 2026-02-20
+- Theme the no-updates dialog title bar.
+- Update the update dialog button to “Download and Install”.
+- Defer setup wizard opening to reduce access violations and log more markers.
+- Add tests for new update dialog button text and no-updates theming.
+
 ## [0.2.114] - 2026-02-20
 - Defer setup wizard opening, add more fatal markers, and expand wizard logging.
 - Log user actions for posting, test connections, and image attachments.

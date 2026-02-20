@@ -364,7 +364,7 @@ class MainWindow(QMainWindow):
                 'Launching setup wizard',
                 extra={'theme_mode': self._config.theme_mode},
             )
-            wizard = SetupWizard(self._auth_manager, self._config.theme_mode, self)
+            wizard = SetupWizard(self._auth_manager, self._config.theme_mode, None)
             self._append_fatal_marker('Setup wizard created')
             get_logger().info('Setup wizard created')
             self._apply_dialog_theme(wizard)
@@ -373,7 +373,9 @@ class MainWindow(QMainWindow):
             self._setup_wizard = wizard
             wizard.finished.connect(self._on_setup_wizard_finished)
             self._append_fatal_marker('Setup wizard opening')
-            wizard.open()
+            wizard.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            wizard.setWindowModality(Qt.WindowModality.ApplicationModal)
+            wizard.show()
             get_logger().info('Setup wizard opened')
         except Exception as exc:
             get_logger().exception('Failed to launch setup wizard', extra={'error': str(exc)})
@@ -801,7 +803,12 @@ class MainWindow(QMainWindow):
             if dialog.exec_() == dialog.Accepted:
                 self._download_update(update)
         else:
-            QMessageBox.information(self, 'No Updates', "You're running the latest version!")
+            msg = QMessageBox(self)
+            msg.setWindowTitle('No Updates')
+            msg.setText("You're running the latest version!")
+            msg.setIcon(QMessageBox.Information)
+            self._apply_dialog_theme(msg)
+            msg.exec_()
 
         self._status_bar.showMessage('Ready')
 

@@ -1,3 +1,5 @@
+from PyQt5.QtWidgets import QMessageBox
+
 from src.gui.main_window import MainWindow
 
 
@@ -503,6 +505,122 @@ def test_action_logging_for_post_and_connections(qtbot, monkeypatch, tmp_path):
     image_path.write_bytes(b'fake')
     window._on_image_changed(image_path)
     assert any('User attached image' in message for message in logged)
+
+
+def test_show_message_box_applies_theme(qtbot, monkeypatch):
+    apply_calls = []
+
+    monkeypatch.setattr(
+        'src.gui.main_window.apply_theme',
+        lambda _app, dialog, mode: apply_calls.append((dialog, mode)),
+    )
+    monkeypatch.setattr(
+        'src.gui.main_window.QMessageBox',
+        type(
+            'DummyMessageBox',
+            (),
+            {
+                'Ok': 0,
+                'Information': 1,
+                'Warning': 2,
+                'Question': 3,
+                'Yes': 4,
+                'No': 5,
+                'StandardButtons': int,
+                'StandardButton': int,
+                '__init__': lambda *_a, **_k: None,
+                'setWindowTitle': lambda *_a, **_k: None,
+                'setText': lambda *_a, **_k: None,
+                'setIcon': lambda *_a, **_k: None,
+                'setStandardButtons': lambda *_a, **_k: None,
+                'setDefaultButton': lambda *_a, **_k: None,
+                'exec_': lambda *_a, **_k: 0,
+            },
+        ),
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window._show_message_box('Title', 'Body', QMessageBox.Information)
+
+    assert apply_calls
+
+
+def test_manual_update_check_accepts_update(qtbot, monkeypatch):
+    update = type(
+        'Update',
+        (),
+        {
+            'latest_version': '1.0.1',
+            'current_version': '1.0.0',
+            'release_name': 'Test',
+            'release_notes': 'Notes',
+            'download_url': 'https://example.invalid/app.exe',
+            'download_size': 0,
+            'browser_url': '',
+            'is_prerelease': False,
+        },
+    )()
+
+    monkeypatch.setattr('src.gui.main_window.check_for_updates', lambda *_a, **_k: update)
+
+    class DummyDialog:
+        Accepted = 1
+
+        def __init__(self, *_a, **_k):
+            return
+
+        def exec_(self):
+            return self.Accepted
+
+    monkeypatch.setattr('src.gui.main_window.UpdateAvailableDialog', DummyDialog)
+    called = {}
+
+    def fake_download(_update):
+        called['downloaded'] = _update.latest_version
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._download_update = fake_download
+
+    window._manual_update_check()
+
+    assert called['downloaded'] == '1.0.1'
+
+
+def test_show_image_preview_logs_send_on_error(qtbot, monkeypatch, tmp_path):
+    class PreviewDialog:
+        Accepted = 1
+
+        def __init__(self, *_a, **_k):
+            self.had_errors = True
+
+        def exec_(self):
+            return 0
+
+        def get_processed_paths(self):
+            return {}
+
+    monkeypatch.setattr('src.gui.main_window.ImagePreviewDialog', PreviewDialog)
+    monkeypatch.setattr(
+        'src.gui.main_window.MainWindow._show_message_box',
+        lambda *_a, **_k: 16384,  # QMessageBox.Yes
+    )
+    called = {}
+
+    def fake_send_logs():
+        called['sent'] = True
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._send_logs = fake_send_logs
+
+    image_path = tmp_path / 'image.png'
+    image_path.write_bytes(b'fake')
+    window._show_image_preview(image_path, ['twitter'])
+
+    assert called.get('sent') is True
 
 
 def test_main_window_single_platform_enabled(qtbot):

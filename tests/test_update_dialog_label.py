@@ -49,9 +49,9 @@ class DummyMainWindow(MainWindow):
 def test_update_dialog_labels_beta(qtbot, monkeypatch):
     captured = {}
 
-    def fake_question(_parent, _title, text, *_args, **_kwargs):
+    def fake_set_text(self, text):
         captured['text'] = text
-        return QMessageBox.No
+        return original_set_text(self, text)
 
     update = SimpleNamespace(
         latest_version='0.2.99',
@@ -64,8 +64,10 @@ def test_update_dialog_labels_beta(qtbot, monkeypatch):
         is_prerelease=True,
     )
 
+    original_set_text = QMessageBox.setText
     monkeypatch.setattr(main_window, 'check_for_updates', lambda *_args, **_kwargs: update)
-    monkeypatch.setattr(QMessageBox, 'question', fake_question)
+    monkeypatch.setattr(QMessageBox, 'setText', fake_set_text)
+    monkeypatch.setattr(QMessageBox, 'exec_', lambda self: QMessageBox.No)
 
     window = DummyMainWindow(DummyConfig(), DummyAuthManager())
     qtbot.addWidget(window)
@@ -77,9 +79,9 @@ def test_update_dialog_labels_beta(qtbot, monkeypatch):
 def test_update_dialog_labels_stable(qtbot, monkeypatch):
     captured = {}
 
-    def fake_question(_parent, _title, text, *_args, **_kwargs):
+    def fake_set_text(self, text):
         captured['text'] = text
-        return QMessageBox.No
+        return original_set_text(self, text)
 
     update = SimpleNamespace(
         latest_version='0.2.99',
@@ -92,8 +94,10 @@ def test_update_dialog_labels_stable(qtbot, monkeypatch):
         is_prerelease=False,
     )
 
+    original_set_text = QMessageBox.setText
     monkeypatch.setattr(main_window, 'check_for_updates', lambda *_args, **_kwargs: update)
-    monkeypatch.setattr(QMessageBox, 'question', fake_question)
+    monkeypatch.setattr(QMessageBox, 'setText', fake_set_text)
+    monkeypatch.setattr(QMessageBox, 'exec_', lambda self: QMessageBox.No)
 
     window = DummyMainWindow(DummyConfig(), DummyAuthManager())
     qtbot.addWidget(window)

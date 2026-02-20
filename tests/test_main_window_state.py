@@ -80,6 +80,53 @@ def test_main_window_missing_usernames_disables_platforms(qtbot):
     assert not window._composer._choose_btn.isEnabled()
 
 
+def test_image_preview_opens_for_newly_enabled_platform(qtbot, tmp_path, monkeypatch):
+    calls = []
+
+    class PreviewDialog:
+        Accepted = 1
+
+        def __init__(self, image_path, platforms, _parent=None):
+            self._image_path = image_path
+            self._platforms = list(platforms)
+            self.had_errors = False
+            calls.append(self._platforms)
+
+        def exec_(self):
+            return self.Accepted
+
+        def get_processed_paths(self):
+            return {platform: self._image_path for platform in self._platforms}
+
+    monkeypatch.setattr(
+        'src.gui.main_window.ImagePreviewDialog',
+        PreviewDialog,
+    )
+
+    class ToggleAuth(DummyAuthManager):
+        def __init__(self):
+            super().__init__(twitter=True, bluesky=False)
+
+        def enable_bluesky(self):
+            self._bluesky = True
+
+    auth = ToggleAuth()
+    window = DummyMainWindow(DummyConfig(selected=['twitter']), auth)
+    qtbot.addWidget(window)
+
+    image_path = tmp_path / 'image.png'
+    image_path.write_bytes(b'fake')
+    window._composer.set_image_path(image_path)
+
+    assert calls == [['twitter']]
+
+    auth.enable_bluesky()
+    window._refresh_platform_state()
+    window._platform_selector.set_selected(['twitter', 'bluesky'])
+
+    assert calls[-1] == ['bluesky']
+
+
 def test_main_window_single_platform_enabled(qtbot):
     window = DummyMainWindow(DummyConfig(selected=['twitter']), DummyAuthManager(True, False))
     qtbot.addWidget(window)

@@ -307,20 +307,9 @@ class MainWindow(QMainWindow):
     def _on_image_changed(self, image_path):
         self._cleanup_processed_images()
         if image_path:
-            selected = self._platform_selector.get_selected()
-            dialog = ImagePreviewDialog(image_path, selected, self)
-            if dialog.exec_() == dialog.Accepted:
-                self._processed_images = dialog.get_processed_paths()
-            elif dialog.had_errors:
-                reply = QMessageBox.question(
-                    self,
-                    'Image Processing Failed',
-                    'One or more image previews failed to process.\n\n'
-                    'Would you like to send logs to Jas?',
-                    QMessageBox.Yes | QMessageBox.No,
-                )
-                if reply == QMessageBox.Yes:
-                    self._send_logs()
+            selected = self._get_selected_enabled_platforms()
+            if selected:
+                self._show_image_preview(image_path, selected)
             self._config.last_image_directory = str(image_path.parent)
 
     def _on_platforms_changed(self, platforms):
@@ -356,6 +345,35 @@ class MainWindow(QMainWindow):
         if not has_enabled:
             self._post_btn.setEnabled(False)
             self._test_btn.setEnabled(False)
+
+        image_path = self._composer.get_image_path()
+        if image_path:
+            selected_enabled = self._get_selected_enabled_platforms()
+            missing = [
+                platform for platform in selected_enabled if platform not in self._processed_images
+            ]
+            if missing:
+                self._show_image_preview(image_path, missing)
+
+    def _get_selected_enabled_platforms(self) -> list[str]:
+        enabled = set(self._platform_selector.get_enabled())
+        selected = self._platform_selector.get_selected()
+        return [platform for platform in selected if platform in enabled]
+
+    def _show_image_preview(self, image_path: Path, platforms: list[str]):
+        dialog = ImagePreviewDialog(image_path, platforms, self)
+        if dialog.exec_() == dialog.Accepted:
+            self._processed_images.update(dialog.get_processed_paths())
+        elif dialog.had_errors:
+            reply = QMessageBox.question(
+                self,
+                'Image Processing Failed',
+                'One or more image previews failed to process.\n\n'
+                'Would you like to send logs to Jas?',
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                self._send_logs()
 
     def _test_connections(self):
         self._status_bar.showMessage('Testing connections...')

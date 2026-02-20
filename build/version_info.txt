@@ -21,11 +21,11 @@ VSVersionInfo(
           [
             StringStruct(u'CompanyName', u'GaleFling'),
             StringStruct(u'FileDescription', u'GaleFling'),
-            StringStruct(u'FileVersion', u'0.2.105.0'),
+            StringStruct(u'FileVersion', u'0.2.106.0'),
             StringStruct(u'InternalName', u'GaleFling'),
             StringStruct(u'OriginalFilename', u'GaleFling.exe'),
             StringStruct(u'ProductName', u'GaleFling'),
-            StringStruct(u'ProductVersion', u'0.2.105.0'),
+            StringStruct(u'ProductVersion', u'0.2.106.0'),
           ]
         )
       ]

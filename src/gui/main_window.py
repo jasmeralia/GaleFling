@@ -584,20 +584,27 @@ class MainWindow(QMainWindow):
         title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(title)
 
+        icon_label = QLabel()
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        icon_label.setFixedSize(96, 96)
+        icon_label.setScaledContents(True)
+        pixmap = QPixmap()
         icon_path = get_resource_path('icon.png')
         if icon_path.exists():
             pixmap = QPixmap(str(icon_path))
-            if not pixmap.isNull():
-                pixmap = pixmap.scaled(
-                    96,
-                    96,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-                icon_label = QLabel()
-                icon_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-                icon_label.setPixmap(pixmap)
-                layout.addWidget(icon_label)
+        if pixmap.isNull():
+            fallback_path = get_resource_path('icon.ico')
+            if fallback_path.exists():
+                pixmap = QPixmap(str(fallback_path))
+        if not pixmap.isNull():
+            pixmap = pixmap.scaled(
+                96,
+                96,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            icon_label.setPixmap(pixmap)
+            layout.addWidget(icon_label)
 
         body = QLabel(
             'Post to Twitter and Bluesky simultaneously.<br><br>'

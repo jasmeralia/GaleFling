@@ -155,8 +155,11 @@ class BlueskySetupPage(QWizardPage):
             'Bluesky uses <b>app passwords</b> so you do not share your main password. '
             'Create one at '
             '<a href="https://bsky.app/settings/app-passwords">bsky.app/settings/app-passwords</a> '
-            'and copy the generated token here.<br>'
-            'Your username (handle) is shown on your Bluesky profile and looks like '
+            'and copy the generated token here. '
+            'Do <b>not</b> enable the checkbox for access to DMs. '
+            'App passwords cannot delete your account or change your main login password.<br><br>'
+            'Your username (handle) is shown on your Bluesky settings page '
+            '(<a href="https://bsky.app/settings">bsky.app/settings</a>) and looks like '
             '<i>name.bsky.social</i>.'
         )
         info.setOpenExternalLinks(True)

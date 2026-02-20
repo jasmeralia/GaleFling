@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g., v0.2.81). Leave empty to use the triggering ref.'
+        required: false
+        default: ''
+
+env:
+  TAG_NAME: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -14,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG_NAME }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -46,6 +57,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG_NAME }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -93,6 +106,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: refs/tags/${{ env.TAG_NAME }}
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -180,7 +194,7 @@ jobs:
             echo "RELEASE_EOF"
           } >> "$GITHUB_OUTPUT"
         env:
-          CURRENT_TAG: ${{ github.ref_name }}
+          CURRENT_TAG: ${{ env.TAG_NAME }}
 
       - name: Create draft release
         uses: softprops/action-gh-release@v2

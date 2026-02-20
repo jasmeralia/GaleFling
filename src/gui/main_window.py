@@ -550,15 +550,19 @@ class MainWindow(QMainWindow):
         update = check_for_updates(self._config.allow_prerelease_updates)
         if update:
             release_label = 'beta' if update.is_prerelease else 'stable'
-            reply = QMessageBox.question(
-                self,
-                'Update Available',
+            msg = QMessageBox(self)
+            msg.setWindowTitle('Update Available')
+            msg.setIcon(QMessageBox.Question)
+            msg.setText(
                 f'Version {update.latest_version} ({release_label}) is available.\n'
-                f"You're currently using {update.current_version}.\n\n"
-                f'{update.release_name}\n\n'
-                f'Would you like to download it?',
-                QMessageBox.Yes | QMessageBox.No,
+                f"You're currently using {update.current_version}."
             )
+            msg.setInformativeText(update.release_name)
+            if update.release_notes:
+                msg.setDetailedText(update.release_notes)
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg.setDefaultButton(QMessageBox.Yes)
+            reply = msg.exec_()
             if reply == QMessageBox.Yes:
                 self._download_update(update)
         else:
@@ -678,14 +682,19 @@ class MainWindow(QMainWindow):
             update = check_for_updates(self._config.allow_prerelease_updates)
             if update:
                 release_label = 'beta' if update.is_prerelease else 'stable'
-                reply = QMessageBox.question(
-                    self,
-                    'Update Available!',
+                msg = QMessageBox(self)
+                msg.setWindowTitle('Update Available!')
+                msg.setIcon(QMessageBox.Question)
+                msg.setText(
                     f'Version {update.latest_version} ({release_label}) is now available.\n'
-                    f"You're currently using {update.current_version}.\n\n"
-                    f'Would you like to download it?',
-                    QMessageBox.Yes | QMessageBox.No | QMessageBox.Ignore,
+                    f"You're currently using {update.current_version}."
                 )
+                msg.setInformativeText(update.release_name)
+                if update.release_notes:
+                    msg.setDetailedText(update.release_notes)
+                msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No | QMessageBox.Ignore)
+                msg.setDefaultButton(QMessageBox.Yes)
+                reply = msg.exec_()
                 if reply == QMessageBox.Yes:
                     self._download_update(update)
 

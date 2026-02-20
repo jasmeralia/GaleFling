@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.82] - 2026-02-20
+- Bump version for release workflow rerun.
+- Allow manually dispatching the release workflow against a specific tag.
+
 ## [0.2.75] - 2026-02-19
 - Use the latest release (including prereleases) as the previous release for notes.
 - Force the setup wizard header and button panels to a mid-grey background in dark mode.
@@ -18,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add additional GUI and updater tests for platform gating, updates, and dialogs.
 - Add coverage reporting in CI and badges in the README.
 - Move developer documentation to docs/CONTRIBUTING.md and simplify README for end users.
+
+## [0.2.81] - 2026-02-19
+- Show release notes in update prompts for more context.
 
 ## [0.2.80] - 2026-02-19
 - Add roadmap documentation and link docs from the README.

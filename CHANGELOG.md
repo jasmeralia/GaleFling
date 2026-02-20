@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.90] - 2026-02-20
+- Generate JUnit XML alongside coverage in `make test-cov`.
+- Enable verbose Codecov upload logging to aid troubleshooting.
+
 ## [0.2.89] - 2026-02-20
 - Add dev dependency stubs and fix mypy errors in core, GUI, and platform code.
 - Run `make lint` using the project virtualenv.

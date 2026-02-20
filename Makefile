@@ -29,7 +29,7 @@ test: ## Run test suite
 	$(PYTHON) -m pytest tests/ -v
 
 test-cov: ## Run tests with coverage report
-	$(PYTHON) -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml
+	$(PYTHON) -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml:coverage.xml --junitxml=junit.xml -o junit_family=legacy
 
 build: ## Build standalone executable with PyInstaller
 	pyinstaller build/build.spec --distpath dist/ --workpath build/tmp --clean

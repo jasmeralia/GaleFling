@@ -49,6 +49,8 @@ jobs:
         if: ${{ env.CODECOV_TOKEN != '' }}
         with:
           files: coverage.xml
+          flags: unittests
+          verbose: true
           fail_ci_if_error: false
 
   build:

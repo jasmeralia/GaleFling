@@ -2,9 +2,10 @@ from src.gui.main_window import MainWindow
 
 
 class DummyAuthManager:
-    def __init__(self, twitter: bool, bluesky: bool):
+    def __init__(self, twitter: bool, bluesky: bool, bluesky_alt: bool = False):
         self._twitter = twitter
         self._bluesky = bluesky
+        self._bluesky_alt = bluesky_alt
 
     def has_twitter_auth(self) -> bool:
         return self._twitter
@@ -12,11 +13,17 @@ class DummyAuthManager:
     def has_bluesky_auth(self) -> bool:
         return self._bluesky
 
+    def has_bluesky_auth_alt(self) -> bool:
+        return self._bluesky_alt
+
     def get_twitter_auth(self):
         return {'api_key': 'x', 'username': 'jasmeralia'} if self._twitter else None
 
     def get_bluesky_auth(self):
         return {'identifier': 'jasmeralia.bsky.social'} if self._bluesky else None
+
+    def get_bluesky_auth_alt(self):
+        return {'identifier': 'alt.bsky.social'} if self._bluesky_alt else None
 
 
 class DummyConfig:
@@ -55,6 +62,7 @@ def test_main_window_no_credentials_disables_actions(qtbot):
     assert window._platform_selector.get_selected() == []
     assert window._platform_selector.get_platform_label('twitter') == 'Twitter'
     assert window._platform_selector.get_platform_label('bluesky') == 'Bluesky'
+    assert window._platform_selector.get_platform_label('bluesky_alt') == 'Bluesky 2'
     assert not window._post_btn.isEnabled()
     assert not window._test_btn.isEnabled()
     assert not window._composer._choose_btn.isEnabled()
@@ -67,6 +75,9 @@ def test_main_window_missing_usernames_disables_platforms(qtbot):
 
         def get_bluesky_auth(self):
             return {'identifier': ''} if self._bluesky else None
+
+        def get_bluesky_auth_alt(self):
+            return {'identifier': ''} if self._bluesky_alt else None
 
     window = DummyMainWindow(
         DummyConfig(selected=['twitter', 'bluesky']), UsernameMissingAuth(True, True)
@@ -238,6 +249,18 @@ def test_successful_post_clears_draft_and_processed_images(qtbot, tmp_path, monk
     assert window._composer.get_image_path() is None
     assert not processed_path.exists()
     assert not draft_path.exists()
+
+
+def test_missing_processed_platforms_dedupes_bluesky(qtbot):
+    window = DummyMainWindow(
+        DummyConfig(selected=['bluesky', 'bluesky_alt']),
+        DummyAuthManager(False, True, True),
+    )
+    qtbot.addWidget(window)
+
+    missing = window._get_missing_processed_platforms(['bluesky', 'bluesky_alt'])
+
+    assert missing == ['bluesky']
 
 
 def test_main_window_single_platform_enabled(qtbot):

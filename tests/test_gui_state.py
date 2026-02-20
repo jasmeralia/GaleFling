@@ -8,14 +8,17 @@ def test_platform_selector_disables_checkboxes(qtbot):
 
     selector.set_platform_enabled('twitter', False)
     selector.set_platform_enabled('bluesky', True)
+    selector.set_platform_enabled('bluesky_alt', True)
 
     assert 'twitter' not in selector.get_enabled()
     assert 'bluesky' in selector.get_enabled()
+    assert 'bluesky_alt' in selector.get_enabled()
     assert 'twitter' not in selector.get_selected()
 
-    selector.set_selected(['twitter', 'bluesky'])
+    selector.set_selected(['twitter', 'bluesky', 'bluesky_alt'])
     assert 'twitter' not in selector.get_selected()
     assert 'bluesky' in selector.get_selected()
+    assert 'bluesky_alt' in selector.get_selected()
 
 
 def test_post_composer_counters_and_attach_button(qtbot):
@@ -52,13 +55,17 @@ def test_platform_selector_usernames(qtbot):
 
     selector.set_platform_username('twitter', 'jasmeralia')
     selector.set_platform_username('bluesky', 'jasmeralia.bsky.social')
+    selector.set_platform_username('bluesky_alt', 'alt.bsky.social')
     assert selector.get_platform_label('twitter') == 'Twitter (jasmeralia)'
     assert selector.get_platform_label('bluesky') == 'Bluesky (jasmeralia)'
+    assert selector.get_platform_label('bluesky_alt') == 'Bluesky 2 (alt)'
 
     selector.set_platform_username('twitter', '')
     selector.set_platform_username('bluesky', None)
+    selector.set_platform_username('bluesky_alt', '')
     assert selector.get_platform_label('twitter') == 'Twitter'
     assert selector.get_platform_label('bluesky') == 'Bluesky'
+    assert selector.get_platform_label('bluesky_alt') == 'Bluesky 2'
 
 
 def test_preview_button_enabled_when_image_present(qtbot, tmp_path):

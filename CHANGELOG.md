@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.102] - 2026-02-20
+- Add About dialog icon and linkable credits.
+- Add a second Bluesky account with logout actions and duplicate-check validation.
+- Share Bluesky image previews between accounts.
+- Improve setup wizard guidance for Bluesky app passwords.
+- Expand test coverage for multi-account Bluesky and new UI behaviors.
+
 ## [0.2.101] - 2026-02-20
 - Show update release notes inline with Markdown rendering and external links.
 - Remove the update dialog “details” button.

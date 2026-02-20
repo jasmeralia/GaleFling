@@ -11,11 +11,17 @@ class DummyAuthManager:
     def has_bluesky_auth(self):
         return True
 
+    def has_bluesky_auth_alt(self):
+        return False
+
     def get_twitter_auth(self):
         return {'api_key': 'x', 'username': 'user'}
 
     def get_bluesky_auth(self):
         return {'identifier': 'user.bsky.social'}
+
+    def get_bluesky_auth_alt(self):
+        return None
 
 
 class DummyConfig:

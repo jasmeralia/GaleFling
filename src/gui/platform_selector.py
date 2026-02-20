@@ -40,6 +40,15 @@ class PlatformSelector(QWidget):
         layout.addWidget(self._bs_cb)
         self._checkboxes['bluesky'] = self._bs_cb
 
+        layout.addSpacing(20)
+
+        self._bs_alt_cb = QCheckBox('Bluesky 2')
+        self._bs_alt_cb.setChecked(False)
+        self._bs_alt_cb.setStyleSheet('font-size: 13px; color: #0085FF;')
+        self._bs_alt_cb.stateChanged.connect(self._on_changed)
+        layout.addWidget(self._bs_alt_cb)
+        self._checkboxes['bluesky_alt'] = self._bs_alt_cb
+
         layout.addStretch()
 
     def _on_changed(self, _state):
@@ -67,7 +76,12 @@ class PlatformSelector(QWidget):
         cb = self._checkboxes.get(name)
         if not cb:
             return
-        base = 'Twitter' if name == 'twitter' else 'Bluesky'
+        if name == 'twitter':
+            base = 'Twitter'
+        elif name == 'bluesky_alt':
+            base = 'Bluesky 2'
+        else:
+            base = 'Bluesky'
         label = self._format_platform_label(base, username)
         cb.setText(label)
 
@@ -76,7 +90,7 @@ class PlatformSelector(QWidget):
         if not username:
             return base
         trimmed = username.strip().lstrip('@')
-        if base.lower() == 'bluesky' and trimmed.endswith('.bsky.social'):
+        if base.lower().startswith('bluesky') and trimmed.endswith('.bsky.social'):
             trimmed = trimmed[: -len('.bsky.social')]
         if not trimmed:
             return base

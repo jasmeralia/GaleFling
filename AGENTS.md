@@ -20,6 +20,7 @@ Windows GUI application for posting to multiple social media platforms simultane
 - Update `CHANGELOG.md` with a new version entry at the top.
 - Commit with message `Release vX.Y.Z`.
 - Tag with `vX.Y.Z` and push tag and `master`.
+- Always run the full checklist after making any changes unless explicitly instructed otherwise.
 
 ---
 

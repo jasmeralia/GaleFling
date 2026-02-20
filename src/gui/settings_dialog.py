@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -118,6 +119,10 @@ class SettingsDialog(QDialog):
         self._tw_access_secret.setEchoMode(QLineEdit.Password)
         tw_layout.addRow('Access Token Secret:', self._tw_access_secret)
 
+        tw_logout = QPushButton('Logout')
+        tw_logout.clicked.connect(self._logout_twitter)
+        tw_layout.addRow('', tw_logout)
+
         layout.addWidget(tw_group)
 
         # Bluesky
@@ -132,7 +137,33 @@ class SettingsDialog(QDialog):
         self._bs_app_password.setEchoMode(QLineEdit.Password)
         bs_layout.addRow('App Password:', self._bs_app_password)
 
+        bs_logout = QPushButton('Logout')
+        bs_logout.clicked.connect(self._logout_bluesky)
+        bs_layout.addRow('', bs_logout)
+
         layout.addWidget(bs_group)
+
+        # Bluesky Account 2
+        bs_alt_group = QGroupBox('Bluesky (Account 2)')
+        bs_alt_layout = QFormLayout(bs_alt_group)
+
+        bs_alt_creds = self._auth_manager.get_bluesky_auth_alt()
+        self._bs_alt_identifier = QLineEdit(
+            bs_alt_creds.get('identifier', '') if bs_alt_creds else ''
+        )
+        bs_alt_layout.addRow('Username (handle):', self._bs_alt_identifier)
+
+        self._bs_alt_app_password = QLineEdit(
+            bs_alt_creds.get('app_password', '') if bs_alt_creds else ''
+        )
+        self._bs_alt_app_password.setEchoMode(QLineEdit.Password)
+        bs_alt_layout.addRow('App Password:', self._bs_alt_app_password)
+
+        bs_alt_logout = QPushButton('Logout')
+        bs_alt_logout.clicked.connect(self._logout_bluesky_alt)
+        bs_alt_layout.addRow('', bs_alt_logout)
+
+        layout.addWidget(bs_alt_group)
 
         layout.addStretch()
         return widget
@@ -168,6 +199,8 @@ class SettingsDialog(QDialog):
         return widget
 
     def _save_and_close(self):
+        if not self._validate_bluesky_accounts():
+            return
         # General
         self._config.set('auto_check_updates', self._auto_update_cb.isChecked())
         self._config.set('allow_prerelease_updates', self._prerelease_update_cb.isChecked())
@@ -195,5 +228,49 @@ class SettingsDialog(QDialog):
         if bs_id and bs_pw:
             self._auth_manager.save_bluesky_auth(bs_id, bs_pw)
 
+        # Accounts - Bluesky (Account 2)
+        bs_alt_id = self._bs_alt_identifier.text().strip()
+        bs_alt_pw = self._bs_alt_app_password.text().strip()
+        if bs_alt_id and bs_alt_pw:
+            self._auth_manager.save_bluesky_auth_alt(bs_alt_id, bs_alt_pw)
+
         self._config.save()
         self.accept()
+
+    def _validate_bluesky_accounts(self) -> bool:
+        bs_id = self._bs_identifier.text().strip()
+        bs_pw = self._bs_app_password.text().strip()
+        bs_alt_id = self._bs_alt_identifier.text().strip()
+        bs_alt_pw = self._bs_alt_app_password.text().strip()
+
+        if not bs_alt_id and not bs_alt_pw:
+            return True
+        if not bs_id or not bs_pw:
+            return True
+        if bs_id.lower() == bs_alt_id.lower() or bs_pw == bs_alt_pw:
+            QMessageBox.warning(
+                self,
+                'Duplicate Account',
+                'Bluesky accounts must be different. Please use a different username '
+                'and app password for the second account.',
+            )
+            return False
+        return True
+
+    def _logout_twitter(self):
+        self._auth_manager.clear_twitter_auth()
+        self._tw_username.clear()
+        self._tw_api_key.clear()
+        self._tw_api_secret.clear()
+        self._tw_access_token.clear()
+        self._tw_access_secret.clear()
+
+    def _logout_bluesky(self):
+        self._auth_manager.clear_bluesky_auth()
+        self._bs_identifier.clear()
+        self._bs_app_password.clear()
+
+    def _logout_bluesky_alt(self):
+        self._auth_manager.clear_bluesky_auth_alt()
+        self._bs_alt_identifier.clear()
+        self._bs_alt_app_password.clear()

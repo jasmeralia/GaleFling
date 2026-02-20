@@ -128,7 +128,10 @@ class PostComposer(QWidget):
         bs_color = '#4CAF50' if bs_ok else '#F44336'
 
         tw_active = 'twitter' in self._selected_platforms and 'twitter' in self._enabled_platforms
-        bs_active = 'bluesky' in self._selected_platforms and 'bluesky' in self._enabled_platforms
+        bs_active = any(
+            platform in self._selected_platforms and platform in self._enabled_platforms
+            for platform in ('bluesky', 'bluesky_alt')
+        )
 
         if tw_active:
             self._tw_counter.setText(f'{tw_symbol} Twitter: {length}/{tw_max}')

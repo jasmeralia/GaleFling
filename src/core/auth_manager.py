@@ -79,9 +79,21 @@ class AuthManager:
             payload,
         )
 
+    def clear_twitter_auth(self):
+        path = self._auth_dir / 'twitter_auth.json'
+        if path.exists():
+            path.unlink()
+
     def get_bluesky_auth(self) -> dict[str, str] | None:
         """Return Bluesky credentials or None."""
         data = self._load_json('bluesky_auth.json')
+        if data and all(k in data for k in ('identifier', 'app_password')):
+            return data
+        return None
+
+    def get_bluesky_auth_alt(self) -> dict[str, str] | None:
+        """Return secondary Bluesky credentials or None."""
+        data = self._load_json('bluesky_auth_alt.json')
         if data and all(k in data for k in ('identifier', 'app_password')):
             return data
         return None
@@ -98,6 +110,28 @@ class AuthManager:
             },
         )
 
+    def save_bluesky_auth_alt(
+        self, identifier: str, app_password: str, service: str = 'https://bsky.social'
+    ):
+        self._save_json(
+            'bluesky_auth_alt.json',
+            {
+                'identifier': identifier,
+                'app_password': app_password,
+                'service': service,
+            },
+        )
+
+    def clear_bluesky_auth(self):
+        path = self._auth_dir / 'bluesky_auth.json'
+        if path.exists():
+            path.unlink()
+
+    def clear_bluesky_auth_alt(self):
+        path = self._auth_dir / 'bluesky_auth_alt.json'
+        if path.exists():
+            path.unlink()
+
     def has_twitter_auth(self) -> bool:
         data = self.get_twitter_auth()
         if not data:
@@ -106,6 +140,12 @@ class AuthManager:
 
     def has_bluesky_auth(self) -> bool:
         data = self.get_bluesky_auth()
+        if not data:
+            return False
+        return bool(data.get('identifier'))
+
+    def has_bluesky_auth_alt(self) -> bool:
+        data = self.get_bluesky_auth_alt()
         if not data:
             return False
         return bool(data.get('identifier'))

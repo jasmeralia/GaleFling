@@ -8,12 +8,15 @@ from pathlib import Path
 
 import requests
 from PyQt5.QtCore import QProcess, Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QActionGroup,
     QApplication,
+    QDialog,
     QFrame,
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QProgressDialog,
@@ -39,7 +42,7 @@ from src.gui.update_dialog import UpdateAvailableDialog
 from src.platforms.bluesky import BlueskyPlatform
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import APP_NAME, APP_VERSION, PostResult
-from src.utils.helpers import get_drafts_dir, get_logs_dir
+from src.utils.helpers import get_drafts_dir, get_logs_dir, get_resource_path
 from src.utils.theme import apply_theme, resolve_theme_mode
 
 
@@ -48,16 +51,24 @@ class PostWorker(QThread):
 
     finished = pyqtSignal(list)
 
-    def __init__(self, platforms: dict, text: str, processed_images: dict[str, Path | None]):
+    def __init__(
+        self,
+        platforms: dict,
+        text: str,
+        processed_images: dict[str, Path | None],
+        platform_groups: dict[str, str],
+    ):
         super().__init__()
         self._platforms = platforms
         self._text = text
         self._processed_images = processed_images
+        self._platform_groups = platform_groups
 
     def run(self):
         results = []
         for name, platform in self._platforms.items():
-            image_path = self._processed_images.get(name)
+            group = self._platform_groups.get(name, name)
+            image_path = self._processed_images.get(group)
             result = platform.post(self._text, image_path)
             results.append(result)
         self.finished.emit(results)
@@ -134,6 +145,12 @@ class MainWindow(QMainWindow):
         self._platforms = {
             'twitter': TwitterPlatform(auth_manager),
             'bluesky': BlueskyPlatform(auth_manager),
+            'bluesky_alt': BlueskyPlatform(auth_manager, account_key='alt'),
+        }
+        self._platform_groups = {
+            'twitter': 'twitter',
+            'bluesky': 'bluesky',
+            'bluesky_alt': 'bluesky',
         }
 
         self._init_ui()
@@ -297,7 +314,11 @@ class MainWindow(QMainWindow):
             self._draft_timer.start(self._config.draft_interval * 1000)
 
     def _check_first_run(self):
-        if not self._auth_manager.has_twitter_auth() and not self._auth_manager.has_bluesky_auth():
+        if (
+            not self._auth_manager.has_twitter_auth()
+            and not self._auth_manager.has_bluesky_auth()
+            and not self._auth_manager.has_bluesky_auth_alt()
+        ):
             QTimer.singleShot(100, self._show_setup_wizard)
 
     def _show_setup_wizard(self):
@@ -332,19 +353,26 @@ class MainWindow(QMainWindow):
         enabled = []
         tw_creds = self._auth_manager.get_twitter_auth()
         bs_creds = self._auth_manager.get_bluesky_auth()
+        bs_alt_creds = self._auth_manager.get_bluesky_auth_alt()
 
         if tw_creds and tw_creds.get('username'):
             enabled.append('twitter')
         if bs_creds and bs_creds.get('identifier'):
             enabled.append('bluesky')
+        if bs_alt_creds and bs_alt_creds.get('identifier'):
+            enabled.append('bluesky_alt')
 
         self._platform_selector.set_platform_enabled('twitter', 'twitter' in enabled)
         self._platform_selector.set_platform_enabled('bluesky', 'bluesky' in enabled)
+        self._platform_selector.set_platform_enabled('bluesky_alt', 'bluesky_alt' in enabled)
         self._platform_selector.set_platform_username(
             'twitter', tw_creds.get('username') if tw_creds else None
         )
         self._platform_selector.set_platform_username(
             'bluesky', bs_creds.get('identifier') if bs_creds else None
+        )
+        self._platform_selector.set_platform_username(
+            'bluesky_alt', bs_alt_creds.get('identifier') if bs_alt_creds else None
         )
 
         selected = self._platform_selector.get_selected()
@@ -371,18 +399,32 @@ class MainWindow(QMainWindow):
         selected = self._platform_selector.get_selected()
         return [platform for platform in selected if platform in enabled]
 
+    def _get_platform_group(self, platform: str) -> str:
+        return self._platform_groups.get(platform, platform)
+
     def _get_missing_processed_platforms(self, platforms: list[str]) -> list[str]:
         missing = []
+        seen = set()
         for platform in platforms:
-            path = self._processed_images.get(platform)
+            group = self._get_platform_group(platform)
+            if group in seen:
+                continue
+            seen.add(group)
+            path = self._processed_images.get(group)
             if not path or not path.exists():
-                missing.append(platform)
+                missing.append(group)
         return missing
 
     def _show_image_preview(self, image_path: Path, platforms: list[str]):
-        dialog = ImagePreviewDialog(
-            image_path, platforms, self, existing_paths=self._processed_images
-        )
+        groups = []
+        seen = set()
+        for platform in platforms:
+            group = self._get_platform_group(platform)
+            if group in seen:
+                continue
+            seen.add(group)
+            groups.append(group)
+        dialog = ImagePreviewDialog(image_path, groups, self, existing_paths=self._processed_images)
         if dialog.exec_() == dialog.Accepted:
             for platform, path in dialog.get_processed_paths().items():
                 if path and path.exists():
@@ -404,7 +446,7 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
 
         results = []
-        selected = self._platform_selector.get_selected()
+        selected = self._get_selected_enabled_platforms()
 
         for name in selected:
             platform = self._platforms.get(name)
@@ -474,7 +516,12 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
 
         # Post in background thread
-        self._worker = PostWorker(post_platforms, text, self._processed_images)
+        self._worker = PostWorker(
+            post_platforms,
+            text,
+            self._processed_images,
+            self._platform_groups,
+        )
         self._worker.finished.connect(self._on_post_finished)
         self._worker.start()
 
@@ -503,23 +550,59 @@ class MainWindow(QMainWindow):
         self._refresh_platform_state()
 
     def _show_about(self):
-        QMessageBox.about(
-            self,
-            f'About {APP_NAME}',
-            f'<b>{APP_NAME}</b> v{APP_VERSION}<br><br>'
-            f'Post to Twitter and Bluesky simultaneously.<br><br>'
-            f'Copyright \u00a9 2026 Morgan Blackthorne, Winds of Storm<br>'
-            f'Licensed under the MIT License<br><br>'
-            f'<b>Built with:</b><br>'
-            f'PyQt5 \u2013 GUI framework<br>'
-            f'Tweepy \u2013 Twitter API client<br>'
-            f'atproto \u2013 Bluesky AT Protocol SDK<br>'
-            f'Pillow \u2013 Image processing<br>'
-            f'keyring \u2013 Credential storage<br>'
-            f'Requests \u2013 HTTP client<br>'
-            f'Packaging \u2013 Version parsing<br><br>'
-            f'Built for Rin with love.',
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f'About {APP_NAME}')
+        dialog.setMinimumWidth(420)
+
+        layout = QVBoxLayout(dialog)
+
+        title = QLabel(f'<b>{APP_NAME}</b> v{APP_VERSION}')
+        title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(title)
+
+        icon_path = get_resource_path('icon.png')
+        if icon_path.exists():
+            pixmap = QPixmap(str(icon_path))
+            if not pixmap.isNull():
+                pixmap = pixmap.scaled(
+                    96,
+                    96,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                icon_label = QLabel()
+                icon_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+                icon_label.setPixmap(pixmap)
+                layout.addWidget(icon_label)
+
+        body = QLabel(
+            'Post to Twitter and Bluesky simultaneously.<br><br>'
+            'Copyright \u00a9 2026 '
+            '<a href="https://x.com/jasmeralia">Morgan Blackthorne</a>, '
+            '<a href="https://discord.gg/Seyngsh5MF">Winds of Storm</a><br>'
+            'Licensed under the MIT License<br><br>'
+            '<b>Built with:</b><br>'
+            'PyQt5 \u2013 GUI framework<br>'
+            'Tweepy \u2013 Twitter API client<br>'
+            'atproto \u2013 Bluesky AT Protocol SDK<br>'
+            'Pillow \u2013 Image processing<br>'
+            'keyring \u2013 Credential storage<br>'
+            'Requests \u2013 HTTP client<br>'
+            'Packaging \u2013 Version parsing<br><br>'
+            'Built for Rin with love.'
         )
+        body.setOpenExternalLinks(True)
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        close_btn = QPushButton('Close')
+        close_btn.clicked.connect(dialog.accept)
+        close_row = QHBoxLayout()
+        close_row.addStretch()
+        close_row.addWidget(close_btn)
+        layout.addLayout(close_row)
+
+        dialog.exec_()
 
     def _clear_logs(self):
         reply = QMessageBox.question(

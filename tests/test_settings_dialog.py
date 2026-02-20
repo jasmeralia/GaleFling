@@ -45,6 +45,8 @@ def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
 
     dialog._bs_identifier.setText('user.bsky.social')
     dialog._bs_app_password.setText('app-pass')
+    dialog._bs_alt_identifier.setText('alt.bsky.social')
+    dialog._bs_alt_app_password.setText('alt-pass')
 
     dialog._save_and_close()
 
@@ -60,6 +62,8 @@ def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
 
     bluesky_auth = json.loads((tmp_path / 'auth' / 'bluesky_auth.json').read_text())
     assert bluesky_auth['identifier'] == 'user.bsky.social'
+    bluesky_alt = json.loads((tmp_path / 'auth' / 'bluesky_auth_alt.json').read_text())
+    assert bluesky_alt['identifier'] == 'alt.bsky.social'
 
 
 def test_settings_dialog_does_not_save_incomplete_twitter(qtbot, tmp_path, monkeypatch):
@@ -78,3 +82,43 @@ def test_settings_dialog_does_not_save_incomplete_twitter(qtbot, tmp_path, monke
     dialog._save_and_close()
 
     assert not (tmp_path / 'auth' / 'twitter_auth.json').exists()
+
+
+def test_settings_dialog_blocks_duplicate_bluesky(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    dialog._bs_identifier.setText('same.bsky.social')
+    dialog._bs_app_password.setText('pw')
+    dialog._bs_alt_identifier.setText('same.bsky.social')
+    dialog._bs_alt_app_password.setText('pw')
+
+    warnings = []
+
+    def fake_warning(*_args, **_kwargs):
+        warnings.append(True)
+
+    monkeypatch.setattr('src.gui.settings_dialog.QMessageBox.warning', fake_warning)
+
+    dialog._save_and_close()
+
+    assert warnings
+    assert not (tmp_path / 'auth' / 'bluesky_auth_alt.json').exists()
+
+
+def test_settings_dialog_logout_clears_auth(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    auth.save_bluesky_auth_alt('alt.bsky.social', 'pw')
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    assert (tmp_path / 'auth' / 'bluesky_auth_alt.json').exists()
+
+    dialog._logout_bluesky_alt()
+
+    assert not (tmp_path / 'auth' / 'bluesky_auth_alt.json').exists()

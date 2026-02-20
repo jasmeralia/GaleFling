@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -150,6 +151,19 @@ class BlueskySetupPage(QWizardPage):
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
+        info = QLabel(
+            'Bluesky uses <b>app passwords</b> so you do not share your main password. '
+            'Create one at '
+            '<a href="https://bsky.app/settings/app-passwords">bsky.app/settings/app-passwords</a> '
+            'and copy the generated token here.<br>'
+            'Your username (handle) is shown on your Bluesky profile and looks like '
+            '<i>name.bsky.social</i>.'
+        )
+        info.setOpenExternalLinks(True)
+        info.setWordWrap(True)
+        layout.addWidget(info)
+        layout.addSpacing(8)
+
         self._identifier = QLineEdit()
         self._identifier.setPlaceholderText('yourname.bsky.social')
         form.addRow('Username (handle):', self._identifier)
@@ -168,18 +182,42 @@ class BlueskySetupPage(QWizardPage):
         pw_hint.setStyleSheet(f'color: {muted}; font-size: 11px;')
         form.addRow('', pw_hint)
 
+        form.addRow(QLabel('<b>Second Bluesky account (optional)</b>'), QLabel(''))
+
+        self._identifier_alt = QLineEdit()
+        self._identifier_alt.setPlaceholderText('secondname.bsky.social')
+        form.addRow('Username (handle):', self._identifier_alt)
+
+        hint_alt = QLabel('Example: secondname.bsky.social')
+        hint_alt.setStyleSheet(f'color: {muted}; font-size: 11px;')
+        form.addRow('', hint_alt)
+
+        self._app_password_alt = QLineEdit()
+        self._app_password_alt.setEchoMode(QLineEdit.Password)
+        self._app_password_alt.setPlaceholderText('xxxx-xxxx-xxxx-xxxx')
+        form.addRow('App Password:', self._app_password_alt)
+
+        pw_hint_alt = QLabel('Format: xxxx-xxxx-xxxx-xxxx')
+        pw_hint_alt.setStyleSheet(f'color: {muted}; font-size: 11px;')
+        form.addRow('', pw_hint_alt)
+
         layout.addLayout(form)
         layout.addSpacing(10)
 
         btn_row = QHBoxLayout()
-        test_btn = QPushButton('Test Connection')
+        test_btn = QPushButton('Test Account 1')
         test_btn.clicked.connect(self._test_connection)
         btn_row.addWidget(test_btn)
+        test_alt_btn = QPushButton('Test Account 2')
+        test_alt_btn.clicked.connect(self._test_connection_alt)
+        btn_row.addWidget(test_alt_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
         self._status_label = QLabel()
         layout.addWidget(self._status_label)
+        self._status_label_alt = QLabel()
+        layout.addWidget(self._status_label_alt)
         layout.addStretch()
 
         # Pre-fill
@@ -187,6 +225,10 @@ class BlueskySetupPage(QWizardPage):
         if existing:
             self._identifier.setText(existing.get('identifier', ''))
             self._app_password.setText(existing.get('app_password', ''))
+        existing_alt = self._auth_manager.get_bluesky_auth_alt()
+        if existing_alt:
+            self._identifier_alt.setText(existing_alt.get('identifier', ''))
+            self._app_password_alt.setText(existing_alt.get('app_password', ''))
 
     def _test_connection(self):
         self._save_creds()
@@ -203,13 +245,53 @@ class BlueskySetupPage(QWizardPage):
                 f'<span style="color: #F44336;">\u274c Connection failed: {error}</span>'
             )
 
+    def _test_connection_alt(self):
+        self._save_creds()
+        platform = BlueskyPlatform(self._auth_manager, account_key='alt')
+        success, error = platform.test_connection()
+
+        if success:
+            self._status_label_alt.setText(
+                '<span style="color: #4CAF50; font-weight: bold;">'
+                '\u2713 Connected successfully!</span>'
+            )
+        else:
+            self._status_label_alt.setText(
+                f'<span style="color: #F44336;">\u274c Connection failed: {error}</span>'
+            )
+
     def _save_creds(self):
         identifier = self._identifier.text().strip()
         password = self._app_password.text().strip()
         if identifier and password:
             self._auth_manager.save_bluesky_auth(identifier, password)
+        identifier_alt = self._identifier_alt.text().strip()
+        password_alt = self._app_password_alt.text().strip()
+        if identifier_alt and password_alt:
+            self._auth_manager.save_bluesky_auth_alt(identifier_alt, password_alt)
+
+    def _validate_unique_accounts(self) -> bool:
+        identifier = self._identifier.text().strip()
+        password = self._app_password.text().strip()
+        identifier_alt = self._identifier_alt.text().strip()
+        password_alt = self._app_password_alt.text().strip()
+        if not identifier_alt and not password_alt:
+            return True
+        if not identifier or not password:
+            return True
+        if identifier.lower() == identifier_alt.lower() or password == password_alt:
+            QMessageBox.warning(
+                self,
+                'Duplicate Account',
+                'Bluesky accounts must be different. Please use a different username '
+                'and app password for the second account.',
+            )
+            return False
+        return True
 
     def validatePage(self) -> bool:  # noqa: N802
+        if not self._validate_unique_accounts():
+            return False
         self._save_creds()
         return True
 

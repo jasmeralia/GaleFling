@@ -18,6 +18,12 @@ def test_auth_manager_requires_username(tmp_path, monkeypatch):
     manager.save_bluesky_auth('user.bsky.social', 'pw')
     assert manager.has_bluesky_auth() is True
 
+    manager.save_bluesky_auth_alt('alt.bsky.social', 'pw2')
+    assert manager.has_bluesky_auth_alt() is True
+
+    manager.clear_bluesky_auth_alt()
+    assert manager.has_bluesky_auth_alt() is False
+
 
 def test_auth_manager_reads_dev_auth(tmp_path, monkeypatch):
     twitter_path = tmp_path / 'twitter_auth.json'

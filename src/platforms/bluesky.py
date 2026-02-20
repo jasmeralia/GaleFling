@@ -50,18 +50,23 @@ def detect_urls(text: str) -> list[dict]:
 class BlueskyPlatform(BasePlatform):
     """Bluesky posting via AT Protocol."""
 
-    def __init__(self, auth_manager: AuthManager):
+    def __init__(self, auth_manager: AuthManager, account_key: str = 'primary'):
         self._auth_manager = auth_manager
+        self._account_key = account_key
         self._client: Any | None = None
 
     def get_platform_name(self) -> str:
-        return 'Bluesky'
+        return 'Bluesky (Alt)' if self._account_key == 'alt' else 'Bluesky'
 
     def get_specs(self) -> PlatformSpecs:
         return BLUESKY_SPECS
 
     def authenticate(self) -> tuple[bool, str | None]:
-        creds = self._auth_manager.get_bluesky_auth()
+        creds = (
+            self._auth_manager.get_bluesky_auth_alt()
+            if self._account_key == 'alt'
+            else self._auth_manager.get_bluesky_auth()
+        )
         if not creds:
             return False, 'AUTH-MISSING'
 

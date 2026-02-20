@@ -8,6 +8,9 @@ class DummyAuthManager:
     def get_bluesky_auth(self):
         return None
 
+    def get_bluesky_auth_alt(self):
+        return None
+
 
 def test_setup_wizard_applies_style(qtbot):
     wizard = SetupWizard(DummyAuthManager(), theme_mode='dark')

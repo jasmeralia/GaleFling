@@ -47,3 +47,6 @@ build/tmp/
 # Python caches
 .pytest_cache/
 .ruff_cache/
+.coverage
+coverage.xml
+junit.xml

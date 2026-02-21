@@ -34,8 +34,8 @@ class WelcomePage(QWizardPage):
         intro = QLabel(
             "Let's get you set up to post to your social media accounts!\n\n"
             "We'll walk through each platform step by step.\n"
-            "Credentials are stored securely on your computer.\n\n"
-            'You can skip any platform you don\'t use.'
+            'Credentials are stored securely on your computer.\n\n'
+            "You can skip any platform you don't use."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet('font-size: 13px; line-height: 1.5;')
@@ -332,7 +332,7 @@ class InstagramSetupPage(QWizardPage):
             '<li>Your Instagram User ID</li>'
             '<li>Your linked Facebook Page ID</li>'
             '</ul>'
-            '<i>Skip this step if you don\'t have an Instagram Business account.</i>'
+            "<i>Skip this step if you don't have an Instagram Business account.</i>"
         )
         info.setOpenExternalLinks(True)
         info.setWordWrap(True)
@@ -376,17 +376,22 @@ class InstagramSetupPage(QWizardPage):
         name = self._profile_name.text().strip()
 
         if token and uid:
-            self._auth_manager.save_account_credentials('instagram_1', {
-                'access_token': token,
-                'ig_user_id': uid,
-                'page_id': page_id,
-                'profile_name': name,
-            })
-            self._auth_manager.add_account(AccountConfig(
-                platform_id='instagram',
-                account_id='instagram_1',
-                profile_name=name,
-            ))
+            self._auth_manager.save_account_credentials(
+                'instagram_1',
+                {
+                    'access_token': token,
+                    'ig_user_id': uid,
+                    'page_id': page_id,
+                    'profile_name': name,
+                },
+            )
+            self._auth_manager.add_account(
+                AccountConfig(
+                    platform_id='instagram',
+                    account_id='instagram_1',
+                    profile_name=name,
+                )
+            )
         return True
 
 
@@ -441,11 +446,13 @@ class WebViewPlatformSetupPage(QWizardPage):
     def validatePage(self) -> bool:  # noqa: N802
         name = self._profile_name.text().strip()
         if name:
-            self._auth_manager.add_account(AccountConfig(
-                platform_id=self._platform_id,
-                account_id=self._account_id,
-                profile_name=name,
-            ))
+            self._auth_manager.add_account(
+                AccountConfig(
+                    platform_id=self._platform_id,
+                    account_id=self._account_id,
+                    profile_name=name,
+                )
+            )
         return True
 
 
@@ -475,9 +482,14 @@ class SetupWizard(QWizard):
             ('fansly', 'Fansly', 'fansly_1'),
             ('fetlife', 'FetLife', 'fetlife_1'),
         ]:
-            self.addPage(WebViewPlatformSetupPage(
-                auth_manager, platform_id, platform_name, account_id,
-            ))
+            self.addPage(
+                WebViewPlatformSetupPage(
+                    auth_manager,
+                    platform_id,
+                    platform_name,
+                    account_id,
+                )
+            )
 
         self.setButtonText(QWizard.WizardButton.FinishButton, 'Finish')
         logger.info('Setup wizard init complete')

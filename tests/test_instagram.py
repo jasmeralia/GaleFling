@@ -92,9 +92,7 @@ def test_instagram_post_success(mock_requests, tmp_path):
     # Mock the get image URL call
     url_resp = MagicMock()
     url_resp.status_code = 200
-    url_resp.json.return_value = {
-        'images': [{'source': 'https://scontent.example.com/photo.jpg'}]
-    }
+    url_resp.json.return_value = {'images': [{'source': 'https://scontent.example.com/photo.jpg'}]}
 
     # Mock the create container call
     container_resp = MagicMock()
@@ -138,9 +136,7 @@ def test_instagram_post_rate_limited(mock_requests, tmp_path):
 
     url_resp = MagicMock()
     url_resp.status_code = 200
-    url_resp.json.return_value = {
-        'images': [{'source': 'https://scontent.example.com/photo.jpg'}]
-    }
+    url_resp.json.return_value = {'images': [{'source': 'https://scontent.example.com/photo.jpg'}]}
 
     # Container creation rate limited
     container_resp = MagicMock()

@@ -554,7 +554,7 @@ class MainWindow(QMainWindow):
             seen.add(group)
             groups.append(group)
         dialog = ImagePreviewDialog(image_path, groups, self, existing_paths=self._processed_images)
-        if dialog.exec() == dialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             for platform, path in dialog.get_processed_paths().items():
                 if path and path.exists():
                     self._processed_images[platform] = path

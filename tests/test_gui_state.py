@@ -7,7 +7,9 @@ def _sample_accounts():
     """Create sample accounts for testing."""
     return [
         AccountConfig(platform_id='twitter', account_id='twitter_1', profile_name='jasmeralia'),
-        AccountConfig(platform_id='bluesky', account_id='bluesky_1', profile_name='jas.bsky.social'),
+        AccountConfig(
+            platform_id='bluesky', account_id='bluesky_1', profile_name='jas.bsky.social'
+        ),
         AccountConfig(
             platform_id='bluesky', account_id='bluesky_alt', profile_name='alt.bsky.social'
         ),
@@ -40,10 +42,12 @@ def test_post_composer_counters_and_attach_button(qtbot):
     composer.show()
     qtbot.waitExposed(composer)
 
-    composer.set_account_platform_map({
-        'twitter_1': 'twitter',
-        'bluesky_1': 'bluesky',
-    })
+    composer.set_account_platform_map(
+        {
+            'twitter_1': 'twitter',
+            'bluesky_1': 'bluesky',
+        }
+    )
 
     composer.set_platform_state([], ['twitter_1', 'bluesky_1'])
     assert not composer._choose_btn.isEnabled()

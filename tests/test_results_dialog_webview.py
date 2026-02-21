@@ -61,7 +61,9 @@ def test_webview_not_confirmed(qtbot):
     qtbot.addWidget(dialog)
 
     labels = dialog.findChildren(QLabel)
-    assert any('Not confirmed' in label.text() or 'failed' in label.text().lower() for label in labels)
+    assert any(
+        'Not confirmed' in label.text() or 'failed' in label.text().lower() for label in labels
+    )
 
 
 def test_mixed_api_and_webview_results(qtbot):

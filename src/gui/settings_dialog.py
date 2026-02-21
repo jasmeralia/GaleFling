@@ -173,9 +173,10 @@ class SettingsDialog(QDialog):
         # Instagram
         ig_group = QGroupBox('Instagram')
         ig_layout = QFormLayout(ig_group)
-        ig_layout.addRow(QLabel(
-            '<i>Requires a Business/Creator account linked to a Facebook Page.</i>'
-        ), QLabel())
+        ig_layout.addRow(
+            QLabel('<i>Requires a Business/Creator account linked to a Facebook Page.</i>'),
+            QLabel(),
+        )
 
         ig_creds = self._auth_manager.get_account_credentials('instagram_1')
         self._ig_access_token = QLineEdit(ig_creds.get('access_token', '') if ig_creds else '')
@@ -206,9 +207,12 @@ class SettingsDialog(QDialog):
             group = QGroupBox(specs.platform_name)
             form = QFormLayout(group)
 
-            form.addRow(QLabel(
-                '<i>Log in via the embedded browser. Your session cookies are stored locally.</i>'
-            ), QLabel())
+            form.addRow(
+                QLabel(
+                    '<i>Log in via the embedded browser. Your session cookies are stored locally.</i>'
+                ),
+                QLabel(),
+            )
 
             for n in range(1, specs.max_accounts + 1):
                 account_id = f'{platform_id}_{n}'
@@ -299,17 +303,22 @@ class SettingsDialog(QDialog):
         ig_pid = self._ig_page_id.text().strip()
         ig_name = self._ig_profile_name.text().strip()
         if ig_token and ig_uid:
-            self._auth_manager.save_account_credentials('instagram_1', {
-                'access_token': ig_token,
-                'ig_user_id': ig_uid,
-                'page_id': ig_pid,
-                'profile_name': ig_name,
-            })
-            self._auth_manager.add_account(AccountConfig(
-                platform_id='instagram',
-                account_id='instagram_1',
-                profile_name=ig_name,
-            ))
+            self._auth_manager.save_account_credentials(
+                'instagram_1',
+                {
+                    'access_token': ig_token,
+                    'ig_user_id': ig_uid,
+                    'page_id': ig_pid,
+                    'profile_name': ig_name,
+                },
+            )
+            self._auth_manager.add_account(
+                AccountConfig(
+                    platform_id='instagram',
+                    account_id='instagram_1',
+                    profile_name=ig_name,
+                )
+            )
 
         # Accounts - WebView platforms (save profile names)
         for account_id, name_edit in self._webview_profile_edits.items():
@@ -317,11 +326,13 @@ class SettingsDialog(QDialog):
             if profile_name:
                 # Determine platform_id from account_id (e.g. "snapchat_1" -> "snapchat")
                 platform_id = account_id.rsplit('_', 1)[0]
-                self._auth_manager.add_account(AccountConfig(
-                    platform_id=platform_id,
-                    account_id=account_id,
-                    profile_name=profile_name,
-                ))
+                self._auth_manager.add_account(
+                    AccountConfig(
+                        platform_id=platform_id,
+                        account_id=account_id,
+                        profile_name=profile_name,
+                    )
+                )
 
         self._config.save()
         self.accept()

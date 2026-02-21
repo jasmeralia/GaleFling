@@ -102,18 +102,30 @@ class BaseWebViewPlatform(BasePlatform):
             get_logger().error(f'{self.get_platform_name()}: No COMPOSER_URL defined')
             return
 
-        self._view.page().loadFinished.connect(self._on_load_finished)
-        self._view.load(QUrl(self.COMPOSER_URL))
+        view = self._view
+        page = view.page()
+        if not page:
+            get_logger().error(f'{self.get_platform_name()}: WebView page not available')
+            return
+        page.loadFinished.connect(self._on_load_finished)
+        view.load(QUrl(self.COMPOSER_URL))
 
     def _on_load_finished(self, ok: bool):
         """Called when the page finishes loading."""
+        if not self._view:
+            return
         if not ok:
             get_logger().warning(f'{self.get_platform_name()}: Page load failed')
             return
 
+        view = self._view
+        page = view.page()
+        if not page:
+            return
+
         # Disconnect to avoid re-triggering on SPA navigations
         with contextlib.suppress(TypeError, RuntimeError):
-            self._view.page().loadFinished.disconnect(self._on_load_finished)
+            page.loadFinished.disconnect(self._on_load_finished)
 
         # Delay pre-fill for Cloudflare-protected or heavy SPA sites
         QTimer.singleShot(self.PREFILL_DELAY_MS, self._do_prefill)
@@ -130,6 +142,10 @@ class BaseWebViewPlatform(BasePlatform):
     def _inject_text(self, text: str):
         """Inject post text into the composer via JS."""
         if not self._view or not self.TEXT_SELECTOR:
+            return
+        view = self._view
+        page = view.page()
+        if not page:
             return
         escaped = json.dumps(text)
         selector = json.dumps(self.TEXT_SELECTOR)
@@ -149,7 +165,7 @@ class BaseWebViewPlatform(BasePlatform):
             }}
         }})();
         """
-        self._view.page().runJavaScript(js)
+        page.runJavaScript(js)
 
     # ── URL capture ─────────────────────────────────────────────────
 
@@ -168,6 +184,10 @@ class BaseWebViewPlatform(BasePlatform):
     def _inject_success_observer(self):
         """Inject a MutationObserver to detect post success in SPA platforms."""
         if not self._view or not self.SUCCESS_SELECTOR:
+            return
+        view = self._view
+        page = view.page()
+        if not page:
             return
         success_sel = json.dumps(self.SUCCESS_SELECTOR)
         permalink_sel = json.dumps(self.PERMALINK_SELECTOR) if self.PERMALINK_SELECTOR else 'null'
@@ -190,7 +210,7 @@ class BaseWebViewPlatform(BasePlatform):
             observer.observe(document.body, {{ childList: true, subtree: true }});
         }})();
         """
-        self._view.page().runJavaScript(js)
+        page.runJavaScript(js)
 
     def start_success_polling(self):
         """Start polling the DOM for post success signals."""
@@ -218,8 +238,12 @@ class BaseWebViewPlatform(BasePlatform):
         if not self._view:
             self.stop_success_polling()
             return
-
-        self._view.page().runJavaScript(
+        view = self._view
+        page = view.page()
+        if not page:
+            self.stop_success_polling()
+            return
+        page.runJavaScript(
             '({success: window._galefling_post_success, url: window._galefling_post_url})',
             self._handle_poll_result,
         )

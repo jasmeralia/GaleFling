@@ -9,7 +9,9 @@ class DummyAuthManager:
     def get_accounts(self):
         return [
             AccountConfig(platform_id='twitter', account_id='twitter_1', profile_name='user'),
-            AccountConfig(platform_id='bluesky', account_id='bluesky_1', profile_name='user.bsky.social'),
+            AccountConfig(
+                platform_id='bluesky', account_id='bluesky_1', profile_name='user.bsky.social'
+            ),
         ]
 
     def get_account(self, account_id):

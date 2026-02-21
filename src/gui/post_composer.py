@@ -143,9 +143,7 @@ class PostComposer(QWidget):
                 lbl = QLabel()
                 self._counter_labels[platform_id] = lbl
                 # Insert before the stretch
-                self._counter_layout.insertWidget(
-                    self._counter_layout.count() - 1, lbl
-                )
+                self._counter_layout.insertWidget(self._counter_layout.count() - 1, lbl)
 
             lbl = self._counter_labels[platform_id]
             lbl.setText(f'{symbol} {platform_name}: {length}/{max_len}')

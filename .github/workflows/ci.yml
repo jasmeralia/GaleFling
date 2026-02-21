@@ -34,7 +34,14 @@ jobs:
         run: make lint
 
       - name: Test with coverage
-        run: make test-cov
+        run: |
+          python -m pytest tests/ -v \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=html \
+            --cov-report=xml:coverage.xml \
+            --junitxml=junit.xml \
+            -o junit_family=legacy
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5

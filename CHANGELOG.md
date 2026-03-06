@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-03-06
+
+### Added
+- Second Bluesky account support (`bluesky_alt`, max_accounts raised to 2).
+- Minimize/maximize buttons on SetupWizard, WebViewPanel, and WebViewLoginDialog.
+- WebView windows (posting panel, login dialog) default to maximized with compact headers.
+- Auto-detect login in setup wizard WebView pages (polls cookies, auto-advances on success).
+- Twitter PIN flow browser hint in setup wizard and settings dialog.
+- `docs/TWITTER.md` — full Twitter developer portal and PIN flow setup guide.
+- `docs/INSTAGRAM.md` — Instagram Graph API credential setup guide.
+- Platform-specific setup guides linked from README.
+
+### Fixed
+- Bluesky alt account now authenticates correctly via factory (account_key derived from account_id).
+- Bluesky accounts are now registered in accounts_config.json on save (setup wizard and settings).
+- Bluesky logout now removes the account from accounts_config.json.
+
 ## [1.0.4] - 2026-02-21
 - Fix posting and log uploader crashes in the main window.
 - Add Twitter PIN flow with support for a second account in setup/settings.

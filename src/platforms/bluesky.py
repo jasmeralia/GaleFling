@@ -58,8 +58,9 @@ class BlueskyPlatform(BasePlatform):
         profile_name: str = '',
     ):
         self._auth_manager = auth_manager
-        self._account_key = account_key
         self._account_id = account_id or ('bluesky_alt' if account_key == 'alt' else 'bluesky_1')
+        # Derive account_key from account_id so the factory path works correctly
+        self._account_key = 'alt' if self._account_id == 'bluesky_alt' else 'primary'
         self._profile_name = profile_name
         self._client: Any | None = None
 

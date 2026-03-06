@@ -51,7 +51,7 @@ APIs:
   - requests + facebook-sdk (Instagram Graph API)
 Packaging: PyInstaller + NSIS installer
 Auth Storage: keyring (Windows Credential Manager) + accounts_config.json
-Current Version: 1.0.0 (Phase 1 complete)
+Current Version: 1.1.0 (Phase 1 complete)
 ```
 
 ### PyQt6 Notes
@@ -155,7 +155,7 @@ class AccountConfig:
 | Platform | Max Accounts | Auth Method | API Type | Status |
 |---|---|---|---|---|
 | Twitter | 2 | OAuth 1.0a PIN flow | tweepy | ✅ Implemented |
-| Bluesky | 1 | App password | atproto | ✅ Implemented |
+| Bluesky | 2 | App password | atproto | ✅ Implemented |
 | Instagram | 2 | OAuth 2.0 / Graph API | graph_api | ✅ Implemented |
 | Snapchat | 2 | WebView session cookies | webview | ✅ Implemented |
 | OnlyFans | 1 | WebView session cookies | webview | ✅ Implemented |

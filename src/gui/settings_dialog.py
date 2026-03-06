@@ -122,6 +122,15 @@ class SettingsDialog(QDialog):
         layout.addWidget(tw_app_group)
 
         # Twitter - Accounts
+        tw_hint = QLabel(
+            '<i>Each account is authorized separately. Before clicking '
+            '"Start PIN Flow", make sure you are logged into the correct '
+            'Twitter account in your web browser. To add a second account, '
+            'log out of the first account in your browser first.</i>'
+        )
+        tw_hint.setWordWrap(True)
+        layout.addWidget(tw_hint)
+
         self._twitter_accounts: dict[str, dict[str, QLineEdit | QLabel]] = {}
         for account_id, label in [
             ('twitter_1', 'Twitter Account 1'),
@@ -341,12 +350,26 @@ class SettingsDialog(QDialog):
         bs_pw = self._bs_app_password.text().strip()
         if bs_id and bs_pw:
             self._auth_manager.save_bluesky_auth(bs_id, bs_pw)
+            self._auth_manager.add_account(
+                AccountConfig(
+                    platform_id='bluesky',
+                    account_id='bluesky_1',
+                    profile_name=bs_id,
+                )
+            )
 
         # Accounts - Bluesky (Account 2)
         bs_alt_id = self._bs_alt_identifier.text().strip()
         bs_alt_pw = self._bs_alt_app_password.text().strip()
         if bs_alt_id and bs_alt_pw:
             self._auth_manager.save_bluesky_auth_alt(bs_alt_id, bs_alt_pw)
+            self._auth_manager.add_account(
+                AccountConfig(
+                    platform_id='bluesky',
+                    account_id='bluesky_alt',
+                    profile_name=bs_alt_id,
+                )
+            )
 
         # Accounts - Instagram
         ig_token = self._ig_access_token.text().strip()
@@ -502,11 +525,13 @@ class SettingsDialog(QDialog):
 
     def _logout_bluesky(self):
         self._auth_manager.clear_bluesky_auth()
+        self._auth_manager.remove_account('bluesky_1')
         self._bs_identifier.clear()
         self._bs_app_password.clear()
 
     def _logout_bluesky_alt(self):
         self._auth_manager.clear_bluesky_auth_alt()
+        self._auth_manager.remove_account('bluesky_alt')
         self._bs_alt_identifier.clear()
         self._bs_alt_app_password.clear()
 

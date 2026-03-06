@@ -1,6 +1,6 @@
 """Tabbed WebView panel for confirm-click platforms."""
 
-from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -78,11 +78,18 @@ class WebViewPanel(QDialog):
 
     def _init_ui(self):
         self.setWindowTitle('Almost there! Confirm your posts below.')
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
         self.setMinimumSize(900, 700)
+        self.showMaximized()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
 
         # ── API results status section ──────────────────────────────
         if self._api_results:

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 APP_NAME = 'GaleFling'
-APP_VERSION = '1.0.4'
+APP_VERSION = '1.1.0'
 APP_ORG = 'Winds of Storm'
 LOG_UPLOAD_ENDPOINT = 'https://galepost.jasmer.tools/logs/upload'
 
@@ -62,7 +62,7 @@ BLUESKY_SPECS = PlatformSpecs(
     platform_color='#0085FF',
     api_type='atproto',
     auth_method='app_password',
-    max_accounts=1,
+    max_accounts=2,
 )
 
 INSTAGRAM_SPECS = PlatformSpecs(

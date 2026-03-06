@@ -4,7 +4,7 @@
 !include "LogicLib.nsh"
 
 Name "GaleFling"
-OutFile "GaleFling-Setup-v1.0.4.exe"
+OutFile "GaleFling-Setup-v1.1.0.exe"
 InstallDir "$PROGRAMFILES\GaleFling"
 InstallDirRegKey HKLM "Software\GaleFling" "InstallDir"
 RequestExecutionLevel admin

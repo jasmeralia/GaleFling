@@ -7,9 +7,9 @@
 
 GaleFling is a Windows desktop app for posting to multiple social platforms at once. It’s designed for non-technical creators, with clear guidance, robust error handling, and one-click log sharing for support.
 
-**Current Version:** 1.0.4 (Phase 1 - Multi-account & WebView platforms)
+**Current Version:** 1.1.0 (Phase 1 - Multi-account & WebView platforms)
 
-Docs: [Changelog](CHANGELOG.md) | [Roadmap](docs/ROADMAP.md) | [Contributing](docs/CONTRIBUTING.md)
+Docs: [Changelog](CHANGELOG.md) | [Roadmap](docs/ROADMAP.md) | [Contributing](docs/CONTRIBUTING.md) | [Twitter Setup](docs/TWITTER.md) | [Instagram Setup](docs/INSTAGRAM.md)
 
 ## Download & Install
 
@@ -18,6 +18,13 @@ Grab the latest installer from the GitHub Releases page and run it on Windows 10
 ## First-Time Setup
 
 On first launch, the app walks you through adding credentials for each platform. Only platforms with valid credentials are enabled.
+
+### Platform-Specific Guides
+
+- **[Twitter Setup](docs/TWITTER.md)** — Developer portal setup, API keys, and PIN-based OAuth flow (up to 2 accounts).
+- **[Instagram Setup](docs/INSTAGRAM.md)** — Graph API credentials, Business/Creator account requirements, and token management.
+- **Bluesky** — Enter your handle and an app password (create one at [bsky.app/settings/app-passwords](https://bsky.app/settings/app-passwords)). Supports up to 2 accounts.
+- **WebView platforms** (Snapchat, OnlyFans, Fansly, FetLife) — Log in via the embedded browser during setup. Session cookies are stored locally.
 
 ## Using GaleFling
 

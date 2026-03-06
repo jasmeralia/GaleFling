@@ -1,6 +1,6 @@
 """First-run setup wizard for credential configuration."""
 
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QPalette
 from PyQt6.QtWidgets import (
     QDialog,
@@ -77,6 +77,16 @@ class TwitterSetupPage(QWizardPage):
 
         layout.addLayout(form)
         layout.addSpacing(10)
+
+        hint = QLabel(
+            '<i>Each account is authorized separately. Before clicking '
+            '"Start PIN Flow", make sure you are logged into the correct '
+            'Twitter account in your web browser. To add a second account, '
+            'log out of the first account in your browser first.</i>'
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addSpacing(6)
 
         self._twitter_accounts: dict[str, dict[str, QLineEdit | QLabel]] = {}
         for account_id, label in [
@@ -406,6 +416,26 @@ class BlueskySetupPage(QWizardPage):
         if not self._validate_unique_accounts():
             return False
         self._save_creds()
+        identifier = self._identifier.text().strip()
+        password = self._app_password.text().strip()
+        if identifier and password:
+            self._auth_manager.add_account(
+                AccountConfig(
+                    platform_id='bluesky',
+                    account_id='bluesky_1',
+                    profile_name=identifier,
+                )
+            )
+        identifier_alt = self._identifier_alt.text().strip()
+        password_alt = self._app_password_alt.text().strip()
+        if identifier_alt and password_alt:
+            self._auth_manager.add_account(
+                AccountConfig(
+                    platform_id='bluesky',
+                    account_id='bluesky_alt',
+                    profile_name=identifier_alt,
+                )
+            )
         return True
 
 
@@ -599,6 +629,10 @@ class WebViewPlatformSetupPage(QWizardPage):
         dialog = WebViewLoginDialog(platform, self._platform_name, self)
         dialog.exec()
         self._update_login_status()
+        if dialog.login_detected and self._profile_name.text().strip():
+            wizard = self.wizard()
+            if wizard:
+                wizard.next()
 
     def validatePage(self) -> bool:  # noqa: N802
         name = self._profile_name.text().strip()
@@ -616,28 +650,58 @@ class WebViewPlatformSetupPage(QWizardPage):
 class WebViewLoginDialog(QDialog):
     """Dialog that lets users log in via embedded WebView."""
 
+    login_detected = False
+
     def __init__(self, platform: BaseWebViewPlatform, platform_name: str, parent=None):
         super().__init__(parent)
         self._platform = platform
+        self.login_detected = False
         self.setWindowTitle(f'Log in to {platform_name}')
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
         self.setMinimumSize(900, 700)
+        self.showMaximized()
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
         info = QLabel(
-            'Log in to your account below. Close this window once you are signed in. '
-            'Your session cookies are stored locally for future posts.'
+            'Log in to your account below. This window will close automatically '
+            'once login is detected. Your session cookies are stored locally for '
+            'future posts.'
         )
         info.setWordWrap(True)
         layout.addWidget(info)
 
         view = self._platform.create_webview(self)
-        layout.addWidget(view)
+        layout.addWidget(view, stretch=1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
         self._platform.navigate_to_composer()
+
+        # Poll for successful login via cookie detection
+        self._login_timer = QTimer(self)
+        self._login_timer.setInterval(2000)
+        self._login_timer.timeout.connect(self._check_login)
+        self._login_timer.start()
+
+    def _check_login(self):
+        """Check if the user has successfully logged in."""
+        if self._platform.has_valid_session():
+            self._login_timer.stop()
+            self.login_detected = True
+            self.accept()
+
+    def closeEvent(self, event):  # noqa: N802
+        self._login_timer.stop()
+        event.accept()
 
 
 class SetupWizard(QWizard):
@@ -648,6 +712,11 @@ class SetupWizard(QWizard):
         logger = get_logger()
         logger.info('Setup wizard init starting')
         self.setWindowTitle('GaleFling - Setup')
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+        )
         self.setMinimumSize(600, 500)
         self._theme_mode = theme_mode
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)

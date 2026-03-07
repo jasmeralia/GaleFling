@@ -54,3 +54,35 @@ def test_apply_theme_light_palette(qtbot, monkeypatch):
     resolved = theme.apply_theme(app, window, 'light')
 
     assert resolved == 'light'
+
+
+def test_windows_prefers_dark_not_windows(monkeypatch):
+    monkeypatch.setattr(theme.sys, 'platform', 'linux')
+    assert theme.windows_prefers_dark() is False
+
+
+def test_set_windows_dark_title_bar_not_windows(monkeypatch):
+    monkeypatch.setattr(theme.sys, 'platform', 'linux')
+    # Should be a no-op, not raise
+    theme.set_windows_dark_title_bar(None, True)
+
+
+def test_apply_theme_without_window(qtbot, monkeypatch):
+    app = QApplication.instance()
+    assert app is not None
+
+    monkeypatch.setattr(theme, 'set_windows_dark_title_bar', lambda *_: None)
+
+    resolved = theme.apply_theme(app, None, 'dark')
+    assert resolved == 'dark'
+
+
+def test_apply_theme_resolves_system(qtbot, monkeypatch):
+    app = QApplication.instance()
+    assert app is not None
+
+    monkeypatch.setattr(theme, 'windows_prefers_dark', lambda: False)
+    monkeypatch.setattr(theme, 'set_windows_dark_title_bar', lambda *_: None)
+
+    resolved = theme.apply_theme(app, None, 'system')
+    assert resolved == 'light'

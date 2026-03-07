@@ -131,3 +131,99 @@ def test_base_webview_test_connection_uses_cookie_check(monkeypatch, tmp_path):
     success, error = platform.test_connection()
     assert success is False
     assert error == 'WV-SESSION-EXPIRED'
+
+
+def test_base_webview_test_connection_valid_session(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+    platform = ConcreteWebViewPlatform(account_id='test_1')
+    cookie_path = tmp_path / 'webprofiles' / 'test_1' / 'Cookies'
+    _write_cookie_db(cookie_path, '.example.com')
+    success, error = platform.test_connection()
+    assert success is True
+    assert error is None
+
+
+def test_base_webview_has_valid_session_no_cookie_domains(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+
+    class NoCookiePlatform(ConcreteWebViewPlatform):
+        COOKIE_DOMAINS = []
+
+    platform = NoCookiePlatform(account_id='test_1')
+    assert platform.has_valid_session() is False
+
+
+def test_base_webview_has_valid_session_wrong_domain(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+    platform = ConcreteWebViewPlatform(account_id='test_1')
+    cookie_path = tmp_path / 'webprofiles' / 'test_1' / 'Cookies'
+    _write_cookie_db(cookie_path, '.other-domain.com')
+    assert platform.has_valid_session() is False
+
+
+def test_base_webview_has_valid_session_corrupt_db(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+    platform = ConcreteWebViewPlatform(account_id='test_1')
+    cookie_path = tmp_path / 'webprofiles' / 'test_1' / 'Cookies'
+    cookie_path.parent.mkdir(parents=True, exist_ok=True)
+    cookie_path.write_bytes(b'not a database')
+    assert platform.has_valid_session() is False
+
+
+def test_base_webview_prepare_post():
+    platform = ConcreteWebViewPlatform(account_id='test_1')
+    platform._post_confirmed = True
+    platform._captured_post_url = 'https://old.url'
+
+    platform.prepare_post('New post', Path('/tmp/img.jpg'))
+
+    assert platform._text == 'New post'
+    assert platform._image_path == Path('/tmp/img.jpg')
+    assert platform._captured_post_url is None
+    assert platform._post_confirmed is False
+    assert platform._poll_elapsed_ms == 0
+
+
+def test_base_webview_is_post_confirmed_property():
+    platform = ConcreteWebViewPlatform(account_id='test_1')
+    assert platform.is_post_confirmed is False
+    platform.mark_confirmed()
+    assert platform.is_post_confirmed is True
+
+
+def test_base_webview_captured_post_url_property():
+    platform = ConcreteWebViewPlatform(account_id='test_1')
+    assert platform.captured_post_url is None
+    platform._captured_post_url = 'https://example.com/post/1'
+    assert platform.captured_post_url == 'https://example.com/post/1'
+
+
+def test_base_webview_get_webview_none():
+    platform = ConcreteWebViewPlatform(account_id='test_1')
+    assert platform.get_webview() is None
+
+
+def test_base_webview_profile_storage_path(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+    platform = ConcreteWebViewPlatform(account_id='myaccount')
+    path = platform._get_profile_storage_path()
+    assert path == tmp_path / 'webprofiles' / 'myaccount'
+
+
+def test_base_webview_profile_storage_default_account(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+    platform = ConcreteWebViewPlatform(account_id='')
+    path = platform._get_profile_storage_path()
+    assert path == tmp_path / 'webprofiles' / 'default'

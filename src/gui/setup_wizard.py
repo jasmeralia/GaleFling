@@ -628,11 +628,18 @@ class WebViewPlatformSetupPage(QWizardPage):
             return
         dialog = WebViewLoginDialog(platform, self._platform_name, self)
         dialog.exec()
-        self._update_login_status()
-        if dialog.login_detected and self._profile_name.text().strip():
-            wizard = self.wizard()
-            if wizard:
-                wizard.next()
+        if dialog.login_detected:
+            # Trust the dialog's detection — cookies may not be flushed to
+            # disk yet when QWebEngineProfile is still being torn down.
+            self._status_label.setText(
+                '<span style="color: #4CAF50; font-weight: bold;">\u2713 Login detected</span>'
+            )
+            if self._profile_name.text().strip():
+                wizard = self.wizard()
+                if wizard:
+                    wizard.next()
+        else:
+            self._update_login_status()
 
     def validatePage(self) -> bool:  # noqa: N802
         name = self._profile_name.text().strip()

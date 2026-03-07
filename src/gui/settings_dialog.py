@@ -1,5 +1,6 @@
 """Settings dialog for debug mode, updates, and log configuration."""
 
+import json
 from typing import cast
 
 from PyQt6.QtCore import QUrl
@@ -7,6 +8,7 @@ from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -22,6 +24,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
+from src.core.logger import get_logger
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
 
@@ -181,6 +184,11 @@ class SettingsDialog(QDialog):
 
             self._update_twitter_status(account_id)
             layout.addWidget(account_group)
+
+        # Twitter export
+        export_btn = QPushButton('Export Twitter Credentials')
+        export_btn.clicked.connect(self._export_twitter_credentials)
+        layout.addWidget(export_btn)
 
         # Bluesky
         bs_group = QGroupBox('Bluesky')
@@ -522,6 +530,62 @@ class SettingsDialog(QDialog):
         username_edit.clear()
         pin_edit.clear()
         self._update_twitter_status(account_id)
+
+    def _export_twitter_credentials(self):
+        get_logger().info('User selected Settings > Export Twitter Credentials')
+        app_creds = self._auth_manager.get_twitter_app_credentials() or {}
+        export_data: dict = {}
+        if app_creds:
+            export_data['app_credentials'] = {
+                'api_key': app_creds.get('api_key', ''),
+                'api_secret': app_creds.get('api_secret', ''),
+            }
+        accounts = []
+        for account_id in ('twitter_1', 'twitter_2'):
+            account = self._auth_manager.get_account(account_id)
+            creds = self._auth_manager.get_account_credentials(account_id) or {}
+            if account and all(k in creds for k in ('access_token', 'access_token_secret')):
+                accounts.append(
+                    {
+                        'account_id': account_id,
+                        'profile_name': account.profile_name,
+                        'access_token': creds['access_token'],
+                        'access_token_secret': creds['access_token_secret'],
+                    }
+                )
+        if accounts:
+            export_data['accounts'] = accounts
+
+        if not export_data:
+            QMessageBox.information(
+                self,
+                'No Credentials',
+                'No Twitter credentials are configured to export.',
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Export Twitter Credentials',
+            'twitter_credentials.json',
+            'JSON Files (*.json)',
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'w') as f:
+                json.dump(export_data, f, indent=4)
+            QMessageBox.information(
+                self,
+                'Export Successful',
+                f'Twitter credentials exported to:\n{path}',
+            )
+        except OSError as e:
+            QMessageBox.warning(
+                self,
+                'Export Failed',
+                f'Failed to write file: {e}',
+            )
 
     def _logout_bluesky(self):
         self._auth_manager.clear_bluesky_auth()

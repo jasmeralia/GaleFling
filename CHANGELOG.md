@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-07
+
+### Added
+- Export Twitter credentials to JSON file from Settings > Accounts tab (includes app credentials and both account tokens).
+
+### Fixed
+- WebView login detection in setup wizard now trusts the dialog's login result instead of re-checking the cookie database, which could fail if QWebEngineProfile hadn't flushed cookies to disk yet.
+
 ## [1.1.0] - 2026-03-06
 
 ### Added

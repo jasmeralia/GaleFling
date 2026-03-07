@@ -112,9 +112,8 @@ class PlatformSelector(QWidget):
         cb = self._checkboxes.get(account_id)
         if not cb:
             return
-        specs = PLATFORM_SPECS_MAP.get(
-            self._get_account(account_id).platform_id if self._get_account(account_id) else ''
-        )
+        account = self._get_account(account_id)
+        specs = PLATFORM_SPECS_MAP.get(account.platform_id if account else '')
         color = specs.platform_color if specs else '#000000'
         if account_id in self._available:
             cb.setStyleSheet(f'font-size: 13px; color: {color};')

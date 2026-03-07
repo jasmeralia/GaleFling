@@ -92,30 +92,7 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Install NSIS
-        shell: pwsh
-        run: |
-          if (Get-Command makensis -ErrorAction SilentlyContinue) {
-            Write-Host "makensis already available"
-            makensis -VERSION
-            exit 0
-          }
-
-          $version = "3.11"
-          $zipPath = Join-Path $env:RUNNER_TEMP "nsis-$version.zip"
-          $extractDir = Join-Path $env:RUNNER_TEMP "nsis"
-          $downloadUrl = "https://downloads.sourceforge.net/project/nsis/NSIS%203/$version/nsis-$version.zip"
-
-          Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath
-          Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
-
-          $nsisDir = Join-Path $extractDir "nsis-$version"
-          $makensis = Join-Path $nsisDir "makensis.exe"
-          if (-not (Test-Path $makensis)) {
-            throw "makensis.exe not found after NSIS download"
-          }
-
-          Add-Content -Path $env:GITHUB_PATH -Value $nsisDir
-          & $makensis -VERSION
+        run: choco install nsis -y
 
       - name: Build executable
         run: pyinstaller build/build.spec --distpath dist/ --workpath build/tmp --clean
@@ -123,7 +100,11 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: |
-          makensis build\\installer.nsi
+          $nsis = "${env:ProgramFiles(x86)}\\NSIS\\makensis.exe"
+          if (-not (Test-Path $nsis)) {
+            $nsis = "${env:ProgramFiles}\\NSIS\\makensis.exe"
+          }
+          & $nsis build\\installer.nsi
 
       - name: Create portable zip
         shell: pwsh

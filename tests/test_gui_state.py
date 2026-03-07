@@ -28,12 +28,58 @@ def test_platform_selector_disables_checkboxes(qtbot):
     assert 'twitter_1' not in selector.get_enabled()
     assert 'bluesky_1' in selector.get_enabled()
     assert 'bluesky_alt' in selector.get_enabled()
-    assert 'twitter_1' not in selector.get_selected()
 
+    # Cannot select unavailable platforms
     selector.set_selected(['twitter_1', 'bluesky_1', 'bluesky_alt'])
     assert 'twitter_1' not in selector.get_selected()
     assert 'bluesky_1' in selector.get_selected()
     assert 'bluesky_alt' in selector.get_selected()
+
+
+def test_platform_selector_unavailable_cannot_be_checked(qtbot):
+    """Clicking an unavailable platform's checkbox should not check it."""
+    selector = PlatformSelector()
+    qtbot.addWidget(selector)
+    selector.set_accounts(_sample_accounts())
+
+    selector.set_platform_enabled('twitter_1', False)
+    selector.set_platform_enabled('bluesky_1', True)
+
+    # Simulate user clicking the unavailable checkbox
+    cb = selector._checkboxes['twitter_1']
+    cb.click()
+    # Should be blocked by the click handler
+    assert not cb.isChecked()
+    assert 'twitter_1' not in selector.get_selected()
+
+
+def test_platform_selector_available_can_be_unchecked(qtbot):
+    """Users can always uncheck a platform, even if it becomes unavailable after checking."""
+    selector = PlatformSelector()
+    qtbot.addWidget(selector)
+    selector.set_accounts(_sample_accounts())
+
+    selector.set_platform_enabled('twitter_1', True)
+    selector.set_selected(['twitter_1'])
+    assert 'twitter_1' in selector.get_selected()
+
+    # User unchecks it — should always work
+    cb = selector._checkboxes['twitter_1']
+    cb.setChecked(False)
+    assert 'twitter_1' not in selector.get_selected()
+
+
+def test_platform_selector_unavailable_styled_italic(qtbot):
+    """Unavailable platforms should have italic styling."""
+    selector = PlatformSelector()
+    qtbot.addWidget(selector)
+    selector.set_accounts(_sample_accounts())
+
+    selector.set_platform_enabled('twitter_1', False)
+    selector.set_platform_enabled('bluesky_1', True)
+
+    assert 'italic' in selector._checkboxes['twitter_1'].styleSheet()
+    assert 'italic' not in selector._checkboxes['bluesky_1'].styleSheet()
 
 
 def test_post_composer_counters_and_attach_button(qtbot):

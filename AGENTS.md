@@ -51,7 +51,7 @@ APIs:
   - requests + facebook-sdk (Instagram Graph API)
 Packaging: PyInstaller + NSIS installer
 Auth Storage: keyring (Windows Credential Manager) + accounts_config.json
-Current Version: 1.1.0 (Phase 1 complete)
+Current Version: 1.3.0 (Phase 1 complete)
 ```
 
 ### PyQt6 Notes

@@ -340,3 +340,28 @@ def test_settings_dialog_twitter_status_not_authorized(qtbot, tmp_path, monkeypa
 
     status = cast(QLabel, dialog._twitter_accounts['twitter_1']['status'])
     assert 'Not authorized' in status.text()
+
+
+def test_settings_dialog_has_per_platform_tabs(qtbot, tmp_path, monkeypatch):
+    """Settings dialog should have separate tabs for each platform."""
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    from PyQt6.QtWidgets import QTabWidget
+
+    tabs = dialog.findChild(QTabWidget)
+    tab_names = [tabs.tabText(i) for i in range(tabs.count())]
+
+    assert 'General' in tab_names
+    assert 'Twitter' in tab_names
+    assert 'Bluesky' in tab_names
+    assert 'Instagram' in tab_names
+    assert 'Snapchat' in tab_names
+    assert 'OnlyFans' in tab_names
+    assert 'Fansly' in tab_names
+    assert 'FetLife' in tab_names
+    assert 'Advanced' in tab_names
+    assert 'Accounts' not in tab_names

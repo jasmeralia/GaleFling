@@ -30,7 +30,7 @@ from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
 
 
 class SettingsDialog(QDialog):
-    """Application settings with tabs for general, auth, and debug."""
+    """Application settings with tabs for general, per-platform accounts, and debug."""
 
     def __init__(self, config: ConfigManager, auth_manager: AuthManager, parent=None):
         super().__init__(parent)
@@ -49,9 +49,16 @@ class SettingsDialog(QDialog):
         general_tab = self._create_general_tab()
         tabs.addTab(general_tab, 'General')
 
-        # Accounts tab
-        accounts_tab = self._create_accounts_tab()
-        tabs.addTab(accounts_tab, 'Accounts')
+        # Per-platform account tabs
+        self._create_twitter_tab(tabs)
+        self._create_bluesky_tab(tabs)
+        self._create_instagram_tab(tabs)
+
+        self._webview_profile_edits: dict[str, QLineEdit] = {}
+        for platform_id, specs in PLATFORM_SPECS_MAP.items():
+            if specs.api_type != 'webview':
+                continue
+            self._create_webview_platform_tab(tabs, platform_id, specs)
 
         # Advanced tab
         advanced_tab = self._create_advanced_tab()
@@ -99,15 +106,15 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return widget
 
-    def _create_accounts_tab(self) -> QWidget:
+    def _create_twitter_tab(self, tabs: QTabWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
 
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # Twitter - App Credentials
-        tw_app_group = QGroupBox('Twitter App Credentials')
+        # App Credentials
+        tw_app_group = QGroupBox('App Credentials')
         tw_app_layout = QFormLayout(tw_app_group)
 
         tw_app = (
@@ -124,7 +131,7 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(tw_app_group)
 
-        # Twitter - Accounts
+        # Hint
         tw_hint = QLabel(
             '<i>Each account is authorized separately. Before clicking '
             '"Start PIN Flow", make sure you are logged into the correct '
@@ -134,10 +141,11 @@ class SettingsDialog(QDialog):
         tw_hint.setWordWrap(True)
         layout.addWidget(tw_hint)
 
+        # Accounts
         self._twitter_accounts: dict[str, dict[str, QLineEdit | QLabel]] = {}
         for account_id, label in [
-            ('twitter_1', 'Twitter Account 1'),
-            ('twitter_2', 'Twitter Account 2'),
+            ('twitter_1', 'Account 1'),
+            ('twitter_2', 'Account 2'),
         ]:
             account_group = QGroupBox(label)
             account_layout = QFormLayout(account_group)
@@ -185,13 +193,24 @@ class SettingsDialog(QDialog):
             self._update_twitter_status(account_id)
             layout.addWidget(account_group)
 
-        # Twitter export
+        # Export
         export_btn = QPushButton('Export Twitter Credentials')
         export_btn.clicked.connect(self._export_twitter_credentials)
         layout.addWidget(export_btn)
 
-        # Bluesky
-        bs_group = QGroupBox('Bluesky')
+        layout.addStretch()
+        scroll.setWidget(widget)
+        tabs.addTab(scroll, 'Twitter')
+
+    def _create_bluesky_tab(self, tabs: QTabWidget):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        # Primary account
+        bs_group = QGroupBox('Account 1')
         bs_layout = QFormLayout(bs_group)
 
         bs_creds = self._auth_manager.get_bluesky_auth()
@@ -208,8 +227,8 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(bs_group)
 
-        # Bluesky Account 2
-        bs_alt_group = QGroupBox('Bluesky (Account 2)')
+        # Alt account
+        bs_alt_group = QGroupBox('Account 2')
         bs_alt_layout = QFormLayout(bs_alt_group)
 
         bs_alt_creds = self._auth_manager.get_bluesky_auth_alt()
@@ -230,8 +249,18 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(bs_alt_group)
 
-        # Instagram
-        ig_group = QGroupBox('Instagram')
+        layout.addStretch()
+        scroll.setWidget(widget)
+        tabs.addTab(scroll, 'Bluesky')
+
+    def _create_instagram_tab(self, tabs: QTabWidget):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        ig_group = QGroupBox('Account 1')
         ig_layout = QFormLayout(ig_group)
         ig_layout.addRow(
             QLabel('<i>Requires a Business/Creator account linked to a Facebook Page.</i>'),
@@ -259,37 +288,43 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(ig_group)
 
-        # WebView platforms — show configured accounts with login/logout buttons
-        self._webview_profile_edits: dict[str, QLineEdit] = {}
-        for platform_id, specs in PLATFORM_SPECS_MAP.items():
-            if specs.api_type != 'webview':
-                continue
-            group = QGroupBox(specs.platform_name)
-            form = QFormLayout(group)
+        layout.addStretch()
+        scroll.setWidget(widget)
+        tabs.addTab(scroll, 'Instagram')
 
-            form.addRow(
-                QLabel(
-                    '<i>Log in via the embedded browser. Your session cookies are stored locally.</i>'
-                ),
-                QLabel(),
-            )
+    def _create_webview_platform_tab(self, tabs: QTabWidget, platform_id: str, specs):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
 
-            for n in range(1, specs.max_accounts + 1):
-                account_id = f'{platform_id}_{n}'
-                account = self._auth_manager.get_account(account_id)
-                profile_name = account.profile_name if account else ''
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
 
-                suffix = f' (Account {n})' if specs.max_accounts > 1 else ''
-                name_edit = QLineEdit(profile_name)
-                name_edit.setPlaceholderText(f'Display name{suffix}')
-                form.addRow(f'Profile Name{suffix}:', name_edit)
-                self._webview_profile_edits[account_id] = name_edit
+        group = QGroupBox('Accounts')
+        form = QFormLayout(group)
 
-            layout.addWidget(group)
+        form.addRow(
+            QLabel(
+                '<i>Log in via the embedded browser. Your session cookies are stored locally.</i>'
+            ),
+            QLabel(),
+        )
+
+        for n in range(1, specs.max_accounts + 1):
+            account_id = f'{platform_id}_{n}'
+            account = self._auth_manager.get_account(account_id)
+            profile_name = account.profile_name if account else ''
+
+            suffix = f' (Account {n})' if specs.max_accounts > 1 else ''
+            name_edit = QLineEdit(profile_name)
+            name_edit.setPlaceholderText(f'Display name{suffix}')
+            form.addRow(f'Profile Name{suffix}:', name_edit)
+            self._webview_profile_edits[account_id] = name_edit
+
+        layout.addWidget(group)
 
         layout.addStretch()
         scroll.setWidget(widget)
-        return scroll
+        tabs.addTab(scroll, specs.platform_name)
 
     def _create_advanced_tab(self) -> QWidget:
         widget = QWidget()

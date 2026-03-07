@@ -10,6 +10,8 @@ class PlatformSelector(QWidget):
     """Checkboxes for selecting which platform accounts to post to.
 
     Dynamically builds checkboxes from a list of AccountConfig entries.
+    Unavailable platforms (no credentials/session) cannot be checked,
+    but checked platforms can always be unchecked regardless of availability.
     """
 
     selection_changed = pyqtSignal(list)
@@ -18,6 +20,7 @@ class PlatformSelector(QWidget):
         super().__init__(parent)
         self._checkboxes: dict[str, QCheckBox] = {}
         self._accounts: list[AccountConfig] = []
+        self._available: set[str] = set()
         self._init_ui()
 
     def _init_ui(self):
@@ -38,6 +41,7 @@ class PlatformSelector(QWidget):
             cb.deleteLater()
         self._checkboxes.clear()
         self._accounts = accounts
+        self._available.clear()
 
         # Build checkboxes in a 2-column grid
         for i, account in enumerate(accounts):
@@ -48,14 +52,23 @@ class PlatformSelector(QWidget):
             cb = QCheckBox(label)
             cb.setChecked(account.enabled)
             cb.setStyleSheet(f'font-size: 13px; color: {color};')
-            cb.stateChanged.connect(self._on_changed)
+            cb.clicked.connect(
+                lambda _checked, aid=account.account_id: self._on_checkbox_clicked(aid)
+            )
 
             row = (i // 2) + 1  # row 0 is the "Post to:" label
             col = i % 2
             self._layout.addWidget(cb, row, col)
             self._checkboxes[account.account_id] = cb
 
-    def _on_changed(self, _state):
+    def _on_checkbox_clicked(self, account_id: str):
+        cb = self._checkboxes.get(account_id)
+        if not cb:
+            return
+        # Block checking unavailable platforms, but always allow unchecking
+        if cb.isChecked() and account_id not in self._available:
+            cb.setChecked(False)
+            return
         self.selection_changed.emit(self.get_selected())
 
     def get_selected(self) -> list[str]:
@@ -63,18 +76,21 @@ class PlatformSelector(QWidget):
 
     def set_selected(self, account_ids: list[str]):
         for name, cb in self._checkboxes.items():
-            cb.setChecked(name in account_ids and cb.isEnabled())
+            cb.setChecked(name in account_ids and name in self._available)
+        self.selection_changed.emit(self.get_selected())
 
     def set_platform_enabled(self, account_id: str, enabled: bool):
         cb = self._checkboxes.get(account_id)
         if not cb:
             return
-        cb.setEnabled(enabled)
-        if not enabled:
-            cb.setChecked(False)
+        if enabled:
+            self._available.add(account_id)
+        else:
+            self._available.discard(account_id)
+        self._update_checkbox_style(account_id)
 
     def get_enabled(self) -> list[str]:
-        return [name for name, cb in self._checkboxes.items() if cb.isEnabled()]
+        return [name for name in self._checkboxes if name in self._available]
 
     def set_platform_username(self, account_id: str, username: str | None):
         cb = self._checkboxes.get(account_id)
@@ -91,6 +107,19 @@ class PlatformSelector(QWidget):
             if a.account_id == account_id:
                 return a
         return None
+
+    def _update_checkbox_style(self, account_id: str):
+        cb = self._checkboxes.get(account_id)
+        if not cb:
+            return
+        specs = PLATFORM_SPECS_MAP.get(
+            self._get_account(account_id).platform_id if self._get_account(account_id) else ''
+        )
+        color = specs.platform_color if specs else '#000000'
+        if account_id in self._available:
+            cb.setStyleSheet(f'font-size: 13px; color: {color};')
+        else:
+            cb.setStyleSheet(f'font-size: 13px; color: {color}; font-style: italic;')
 
     @staticmethod
     def _format_account_label(

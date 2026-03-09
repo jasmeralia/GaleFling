@@ -161,6 +161,26 @@ def test_menu_action_logging(qtbot, monkeypatch):
     assert 'User selected Help > About' in logged
 
 
+def test_help_open_log_directory_action(qtbot, monkeypatch, tmp_path):
+    opened = {}
+    logs_dir = tmp_path / 'logs'
+
+    monkeypatch.setattr('src.gui.main_window.get_logs_dir', lambda: logs_dir)
+    monkeypatch.setattr(
+        'src.gui.main_window.QDesktopServices.openUrl',
+        lambda url: opened.setdefault('path', url.toLocalFile()) or True,
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    action = _find_menu_action(window, 'Help', 'Open Log Directory')
+    action.trigger()
+
+    assert logs_dir.exists()
+    assert opened['path'] == str(logs_dir)
+
+
 def test_about_dialog_displays_ffmpeg_version(qtbot, monkeypatch):
     captured = {}
 
@@ -221,6 +241,40 @@ def test_manual_update_check_no_updates_applies_theme(qtbot, monkeypatch):
     window._manual_update_check()
 
     assert any(mode == window._config.theme_mode for _dialog, mode in apply_calls)
+
+
+def test_startup_update_check_accepts_dialog_without_attribute_error(qtbot, monkeypatch):
+    class DummyUpdate:
+        latest_version = '1.5.5'
+        current_version = '1.5.4'
+        is_prerelease = False
+        release_name = 'Release 1.5.5'
+        release_notes = 'Notes'
+
+    class DummyDialog:
+        def __init__(self, *_args, **_kwargs):
+            return
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    called = {}
+
+    monkeypatch.setattr('src.gui.main_window.check_for_updates', lambda *_a, **_k: DummyUpdate())
+    monkeypatch.setattr('src.gui.main_window.UpdateAvailableDialog', DummyDialog)
+    monkeypatch.setattr(
+        'src.gui.main_window.MainWindow._download_update',
+        lambda *_a: called.setdefault('download', True),
+    )
+
+    config = DummyConfig(selected=['twitter_1'])
+    config.auto_check_updates = True
+    window = DummyMainWindow(config, DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window.check_for_updates_on_startup()
+
+    assert called.get('download') is True
 
 
 def test_main_window_missing_usernames_disables_platforms(qtbot):

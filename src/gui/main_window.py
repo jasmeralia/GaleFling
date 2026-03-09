@@ -8,8 +8,8 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
-from PyQt6.QtCore import QProcess, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QPixmap
+from PyQt6.QtCore import QProcess, Qt, QThread, QTimer, QUrl, pyqtSignal
+from PyQt6.QtGui import QAction, QActionGroup, QDesktopServices, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -356,6 +356,12 @@ class MainWindow(QMainWindow):
         send_logs = QAction('Send Logs to Jas', self)
         send_logs.triggered.connect(log_and_call('Help > Send Logs to Jas', self._send_logs))
         help_menu.addAction(send_logs)
+
+        open_log_dir = QAction('Open Log Directory', self)
+        open_log_dir.triggered.connect(
+            log_and_call('Help > Open Log Directory', self._open_log_directory)
+        )
+        help_menu.addAction(open_log_dir)
 
         clear_logs = QAction('Clear Logs', self)
         clear_logs.triggered.connect(log_and_call('Help > Clear Logs', self._clear_logs))
@@ -1046,7 +1052,7 @@ class MainWindow(QMainWindow):
             'keyring \u2013 Credential storage<br>'
             'Requests \u2013 HTTP client<br>'
             'Packaging \u2013 Version parsing<br><br>'
-            'Built for Rin with love.'
+            'Built with care for creators.'
         )
         body.setOpenExternalLinks(True)
         body.setWordWrap(True)
@@ -1114,6 +1120,16 @@ class MainWindow(QMainWindow):
             QMessageBox.Icon.Information,
         )
         get_logger().info('Logs cleared')
+
+    def _open_log_directory(self):
+        logs_dir = get_logs_dir()
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(logs_dir))):
+            self._show_message_box(
+                'Open Log Directory Failed',
+                f'Could not open:\n{logs_dir}',
+                QMessageBox.Icon.Warning,
+            )
 
     def _append_fatal_marker(self, label: str) -> None:
         logs_dir = get_logs_dir()
@@ -1333,7 +1349,7 @@ class MainWindow(QMainWindow):
                     release_notes=update.release_notes,
                 )
                 self._apply_dialog_theme(dialog)
-                if dialog.exec() == dialog.Accepted:
+                if dialog.exec() == QDialog.DialogCode.Accepted:
                     self._download_update(update)
 
     def _download_update(self, update):

@@ -39,3 +39,22 @@ def test_update_dialog_download_button_label(qtbot):
     yes_button = buttons.button(QDialogButtonBox.StandardButton.Yes)
     assert yes_button is not None
     assert yes_button.text() == 'Download and Install'
+
+
+def test_update_dialog_preserves_compare_link_with_ellipsis(qtbot):
+    notes_text = 'Full Changelog: https://github.com/jasmeralia/GaleFling/compare/v1.5.3...v1.5.4'
+    dialog = UpdateAvailableDialog(
+        None,
+        title='Update Available',
+        latest_version='1.5.4',
+        current_version='1.5.3',
+        release_label='stable',
+        release_name='Release 1.5.4',
+        release_notes=notes_text,
+    )
+    qtbot.addWidget(dialog)
+
+    notes = dialog.findChild(QTextBrowser)
+    assert notes is not None
+    html = notes.toHtml()
+    assert 'href="https://github.com/jasmeralia/GaleFling/compare/v1.5.3...v1.5.4"' in html

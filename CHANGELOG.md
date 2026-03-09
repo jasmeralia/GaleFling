@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.5] - 2026-03-09
+
+### Added
+- Help menu option **Open Log Directory** to open the local logs folder in Explorer/File Manager.
+- Update dialog tests for compare-link URL rendering with `...` and startup update acceptance flow.
+
+### Changed
+- About dialog closing copy softened from a personal dedication to neutral public wording.
+- AGENTS release checklist now requires explicit user confirmation before minor-version bumps.
+
+### Fixed
+- Release notes link rendering now preserves full plain URLs that include `...` segments (for GitHub compare links).
+- Startup update flow now checks `QDialog.DialogCode.Accepted` correctly instead of `dialog.Accepted`, preventing crash on retry after canceled installer.
+
 ## [1.5.4] - 2026-03-09
 
 ### Added

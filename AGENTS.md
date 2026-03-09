@@ -30,6 +30,7 @@ Windows GUI application for posting to multiple social media platforms simultane
 - Run `make lint` and confirm it passes.
 - Run `make test` (or `make test-cov` if releasing) and confirm it passes.
 - Bump version in `src/utils/constants.py`, `resources/default_config.json`, `build/installer.nsi`, `build/version_info.txt`, and `README.md`.
+- Before bumping a **minor** version (`X.Y.0` or `X.Y.Z` where `Y` changes), confirm with the user first; do not assume a minor bump is desired.
 - Update `CHANGELOG.md` with a new version entry at the top.
 - Commit with message `Release vX.Y.Z`.
 - Tag with `vX.Y.Z` and push tag and `master`.
@@ -52,7 +53,7 @@ APIs:
   - requests + facebook-sdk (Instagram Graph API)
 Packaging: PyInstaller + NSIS installer
 Auth Storage: keyring (Windows Credential Manager) + accounts_config.json
-Current Version: 1.5.4 (active development)
+Current Version: 1.5.5 (active development)
 ```
 
 ### PyQt6 Notes

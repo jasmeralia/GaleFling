@@ -1,5 +1,7 @@
 """Update available dialog with release notes."""
 
+import re
+
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -45,10 +47,11 @@ class UpdateAvailableDialog(QDialog):
         notes.setOpenExternalLinks(True)
         notes.setMinimumHeight(260)
         if release_notes:
+            prepared_notes = self._linkify_plain_urls(release_notes)
             if hasattr(notes, 'setMarkdown'):
-                notes.setMarkdown(release_notes)
+                notes.setMarkdown(prepared_notes)
             else:
-                notes.setPlainText(release_notes)
+                notes.setPlainText(prepared_notes)
         else:
             notes.setPlainText('No release notes were provided.')
         layout.addWidget(notes)
@@ -65,3 +68,16 @@ class UpdateAvailableDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    @staticmethod
+    def _linkify_plain_urls(markdown_text: str) -> str:
+        """Convert plain URLs to Markdown links so Qt keeps full hrefs."""
+        pattern = re.compile(r'(?<!\]\()https?://[^\s<>)]+')
+
+        def _replace(match: re.Match[str]) -> str:
+            original = match.group(0)
+            url = original.rstrip('.,;:')
+            suffix = original[len(url) :]
+            return f'[{url}]({url}){suffix}'
+
+        return pattern.sub(_replace, markdown_text)

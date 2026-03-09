@@ -33,6 +33,33 @@ def get_ffprobe_path() -> str:
     return str(ffmpeg)
 
 
+def get_ffmpeg_version() -> str:
+    """Probe the ffmpeg binary and return its version string."""
+    logger = get_logger()
+    try:
+        ffmpeg = get_ffmpeg_path()
+        result = subprocess.run(
+            [ffmpeg, '-version'],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        output = (result.stdout or result.stderr or '').strip()
+        if not output:
+            return 'unknown'
+
+        first_line = output.splitlines()[0].strip()
+        prefix = 'ffmpeg version '
+        if first_line.lower().startswith(prefix):
+            version = first_line[len(prefix) :].split(' ', 1)[0].strip()
+            if version:
+                return version
+        return first_line
+    except Exception as exc:
+        logger.warning('Could not probe ffmpeg version', extra={'error': str(exc)})
+        return 'unknown'
+
+
 @dataclass
 class VideoInfo:
     """Metadata extracted from a video file."""
@@ -196,6 +223,89 @@ def validate_video(video_path: Path, specs: PlatformSpecs) -> str | None:
             return 'VID-TOO-LARGE'
 
     return None
+
+
+def convert_image_to_video(
+    image_path: Path,
+    specs: PlatformSpecs,
+    duration_seconds: int = 5,
+    progress_cb: Callable[[int], None] | None = None,
+) -> Path:
+    """Convert a static image to an MP4 video for video-only platforms."""
+    logger = get_logger()
+    ffmpeg = get_ffmpeg_path()
+
+    if duration_seconds <= 0:
+        raise ValueError('duration_seconds must be greater than zero')
+
+    max_w, max_h = specs.max_video_dimensions or (1080, 1920)
+    target_w = max_w - (max_w % 2)
+    target_h = max_h - (max_h % 2)
+
+    with tempfile.NamedTemporaryFile(
+        suffix=f'_{specs.platform_name.lower()}_img.mp4',
+        delete=False,
+    ) as tmp:
+        output_path = Path(tmp.name)
+
+    cmd = [
+        ffmpeg,
+        '-y',
+        '-loop',
+        '1',
+        '-i',
+        str(image_path),
+        '-t',
+        str(duration_seconds),
+        '-vf',
+        (
+            f'scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,'
+            f'pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,format=yuv420p'
+        ),
+        '-r',
+        '30',
+        '-c:v',
+        'libx264',
+        '-pix_fmt',
+        'yuv420p',
+        '-an',
+        '-movflags',
+        '+faststart',
+        str(output_path),
+    ]
+
+    logger.info(
+        'Converting static image to video',
+        extra={
+            'platform': specs.platform_name,
+            'image_path': str(image_path),
+            'output_path': str(output_path),
+            'duration_seconds': duration_seconds,
+            'target_dimensions': f'{target_w}x{target_h}',
+        },
+    )
+    _emit_progress(progress_cb, 0)
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        output_path.unlink(missing_ok=True)
+        logger.error(
+            'Image-to-video conversion failed',
+            extra={
+                'platform': specs.platform_name,
+                'returncode': result.returncode,
+                'stderr': result.stderr[-500:] if result.stderr else '',
+            },
+        )
+        raise RuntimeError(f'ffmpeg exited with code {result.returncode}')
+
+    _emit_progress(progress_cb, 100)
+    return output_path
 
 
 def process_video(

@@ -1,6 +1,7 @@
 """Main application window."""
 
 import contextlib
+import html
 import json
 import os
 from datetime import datetime
@@ -30,6 +31,7 @@ from src.core.image_processor import is_animated_gif
 from src.core.log_uploader import LogUploader
 from src.core.logger import get_current_log_path, get_logger, reset_log_file
 from src.core.update_checker import check_for_updates
+from src.core.video_processor import convert_image_to_video, get_ffmpeg_version
 from src.gui.image_preview_tabs import ImagePreviewDialog
 from src.gui.log_submit_dialog import LogSubmitDialog
 from src.gui.platform_selector import PlatformSelector
@@ -468,12 +470,34 @@ class MainWindow(QMainWindow):
         except Exception:
             return None, False
 
+    @staticmethod
+    def _can_auto_convert_image_format(media_path: Path) -> bool:
+        """Return True when a static image can be converted between formats."""
+        if media_path.suffix.lower() in VIDEO_EXTENSIONS:
+            return False
+        return not is_animated_gif(media_path)
+
+    def _can_auto_convert_image_to_video(
+        self,
+        media_paths: list[Path],
+        media_path: Path,
+        specs,
+    ) -> bool:
+        """Return True when a static image can be converted to MP4 for this platform."""
+        return (
+            len(media_paths) == 1
+            and self._can_auto_convert_image_format(media_path)
+            and not specs.supports_images
+            and 'MP4' in specs.supported_video_formats
+        )
+
     def _apply_format_restriction(self, media_paths: list[Path]):
         """Disable platforms that don't support any of the attached media formats."""
         restricted = set()
         has_video = False
         has_gif = False
         unsupported_fmts: set[str] = set()
+        has_video_only_image_restriction = False
 
         for media_path in media_paths:
             fmt, is_video = self._detect_media_format(media_path)
@@ -494,7 +518,14 @@ class MainWindow(QMainWindow):
                         restricted.add(account_id)
                         unsupported_fmts.add(fmt_upper)
                 else:
-                    if fmt_upper not in specs.supported_formats or not specs.supports_images:
+                    if not specs.supports_images:
+                        if self._can_auto_convert_image_to_video(media_paths, media_path, specs):
+                            continue
+                        restricted.add(account_id)
+                        has_video_only_image_restriction = True
+                    elif fmt_upper not in specs.supported_formats:
+                        if self._can_auto_convert_image_format(media_path):
+                            continue
                         restricted.add(account_id)
                         unsupported_fmts.add(fmt_upper)
 
@@ -508,6 +539,8 @@ class MainWindow(QMainWindow):
                     '\u26a0 Animated GIF attached \u2014 '
                     'only platforms that support GIFs are available.'
                 )
+            elif has_video_only_image_restriction:
+                notice = '\u26a0 Image attached \u2014 some platforms require video uploads.'
             else:
                 fmts = ', '.join(sorted(unsupported_fmts))
                 notice = (
@@ -686,13 +719,59 @@ class MainWindow(QMainWindow):
             groups.append(group)
         # Process each media file; preview dialog handles one file at a time
         for idx, media_path in enumerate(media_paths):
+            auto_converted_groups: set[str] = set()
+            for group in groups:
+                specs = PLATFORM_SPECS_MAP.get(group)
+                if not specs:
+                    continue
+                if not self._can_auto_convert_image_to_video(media_paths, media_path, specs):
+                    continue
+
+                cached_paths = self._processed_media.get(group, [])
+                if idx < len(cached_paths) and cached_paths[idx].exists():
+                    auto_converted_groups.add(group)
+                    continue
+
+                try:
+                    converted_path = convert_image_to_video(media_path, specs)
+                    processed_paths = self._processed_media.setdefault(group, [])
+                    if idx < len(processed_paths):
+                        processed_paths[idx] = converted_path
+                    else:
+                        processed_paths.append(converted_path)
+                    auto_converted_groups.add(group)
+                except Exception as exc:
+                    get_logger().exception(
+                        'Image-to-video conversion failed',
+                        extra={
+                            'platform': specs.platform_name,
+                            'media_path': str(media_path),
+                            'error': str(exc),
+                        },
+                    )
+                    reply = self._show_message_box(
+                        'Media Processing Failed',
+                        'One or more media previews failed to process.\n\n'
+                        'Would you like to send logs to Jas?',
+                        QMessageBox.Icon.Question,
+                        buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        default=QMessageBox.StandardButton.No,
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self._send_logs()
+                    return
+
+            preview_groups = [group for group in groups if group not in auto_converted_groups]
+            if not preview_groups:
+                continue
+
             existing = {
                 g: self._processed_media[g][idx]
                 if g in self._processed_media and len(self._processed_media[g]) > idx
                 else None
-                for g in groups
+                for g in preview_groups
             }
-            dialog = ImagePreviewDialog(media_path, groups, self, existing_paths=existing)
+            dialog = ImagePreviewDialog(media_path, preview_groups, self, existing_paths=existing)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 for platform, path in dialog.get_processed_paths().items():
                     if path and path.exists():
@@ -843,7 +922,9 @@ class MainWindow(QMainWindow):
         if webview_platforms:
             # Prepare each WebView platform with text + media
             for platform in webview_platforms:
-                platform.prepare_post(self._pending_text, self._pending_media_paths or None)
+                group = self._get_platform_group(platform.account_id)
+                media_paths = self._processed_media.get(group) or self._pending_media_paths or None
+                platform.prepare_post(self._pending_text, media_paths)
 
             # Open WebView panel
             self._status_bar.showMessage('Opening WebView panel...')
@@ -949,6 +1030,7 @@ class MainWindow(QMainWindow):
             get_logger().warning('About icon unavailable after fallbacks')
         layout.addWidget(icon_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
+        ffmpeg_version = html.escape(get_ffmpeg_version())
         body = QLabel(
             'Post to Twitter, Bluesky, Instagram, and more simultaneously.<br><br>'
             'Copyright \u00a9 2026 '
@@ -960,6 +1042,7 @@ class MainWindow(QMainWindow):
             'Tweepy \u2013 Twitter API client<br>'
             'atproto \u2013 Bluesky AT Protocol SDK<br>'
             'Pillow \u2013 Image processing<br>'
+            f'ffmpeg ({ffmpeg_version}) \u2013 Video processing<br>'
             'keyring \u2013 Credential storage<br>'
             'Requests \u2013 HTTP client<br>'
             'Packaging \u2013 Version parsing<br><br>'

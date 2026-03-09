@@ -252,6 +252,26 @@ def _emit_progress(progress_cb: Callable[[int], None] | None, value: int):
         progress_cb(value)
 
 
+def _choose_output_format(img: Image.Image, specs: PlatformSpecs) -> str:
+    """Pick a supported output format for the processed image."""
+    supported = {fmt.upper() for fmt in specs.supported_formats}
+    original = (img.format or '').upper()
+
+    if original and original in supported:
+        return original
+
+    # Prefer PNG when transparency is present and PNG is supported.
+    if img.mode in ('RGBA', 'LA') and 'PNG' in supported:
+        return 'PNG'
+
+    for preferred in ('JPEG', 'PNG', 'WEBP', 'GIF', 'BMP'):
+        if preferred in supported:
+            return preferred
+
+    # Defensive fallback for malformed specs.
+    return specs.supported_formats[0].upper() if specs.supported_formats else 'JPEG'
+
+
 def process_image(
     image_path: Path,
     specs: PlatformSpecs,
@@ -307,11 +327,7 @@ def process_image(
         _emit_progress(progress_cb, 20)
 
         # Determine output format
-        out_format = (
-            img.format if img.format and img.format.upper() in specs.supported_formats else 'JPEG'
-        )
-        if out_format.upper() not in specs.supported_formats:
-            out_format = 'JPEG'
+        out_format = _choose_output_format(img, specs)
         logger.debug(
             'Output format selected',
             extra={'platform': specs.platform_name, 'format': out_format},

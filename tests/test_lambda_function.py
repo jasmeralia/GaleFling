@@ -55,6 +55,7 @@ def test_user_notes_in_metadata_and_email(monkeypatch):
             'username': 'morgan',
             'os_version': '10.0.26100',
             'os_platform': 'Windows-11-10.0.26100-SP0',
+            'ffmpeg_version': '7.1.1-custom',
             'log_files': [],
             'screenshots': [],
         }
@@ -71,6 +72,7 @@ def test_user_notes_in_metadata_and_email(monkeypatch):
     assert 'User Notes:' in email_body
     assert 'Attached an image and clicked OK' in email_body
     assert 'OS Platform: Windows-11-10.0.26100-SP0' in email_body
+    assert 'FFmpeg Version: 7.1.1-custom' in email_body
 
 
 def test_attachments_use_raw_email(monkeypatch):

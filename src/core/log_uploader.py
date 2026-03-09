@@ -9,6 +9,7 @@ import requests
 
 from src.core.config_manager import ConfigManager
 from src.core.logger import get_current_log_path, get_logger
+from src.core.video_processor import get_ffmpeg_version
 from src.utils.constants import APP_VERSION
 from src.utils.helpers import OsInfo, get_installation_id, get_logs_dir, get_os_info
 
@@ -35,6 +36,7 @@ class LogUploader:
         hostname = socket.gethostname()
         username = getpass.getuser()
         os_info = get_os_info()
+        ffmpeg_version = get_ffmpeg_version()
 
         if not self._config.log_upload_enabled:
             return (
@@ -48,6 +50,7 @@ class LogUploader:
                     hostname=hostname,
                     username=username,
                     os_info=os_info,
+                    ffmpeg_version=ffmpeg_version,
                 ),
             )
         if not user_notes.strip():
@@ -62,6 +65,7 @@ class LogUploader:
                     hostname=hostname,
                     username=username,
                     os_info=os_info,
+                    ffmpeg_version=ffmpeg_version,
                 ),
             )
 
@@ -78,6 +82,7 @@ class LogUploader:
                 'username': username,
                 'os_version': os_info.get('version', ''),
                 'os_platform': os_info.get('platform', ''),
+                'ffmpeg_version': ffmpeg_version,
                 'log_files': log_files,
                 'screenshots': screenshots,
             }
@@ -107,6 +112,7 @@ class LogUploader:
                     hostname=hostname,
                     username=username,
                     os_info=os_info,
+                    ffmpeg_version=ffmpeg_version,
                     response_text=response.text,
                 ),
             )
@@ -124,6 +130,7 @@ class LogUploader:
                     hostname=hostname,
                     username=username,
                     os_info=os_info,
+                    ffmpeg_version=ffmpeg_version,
                     exception=exc,
                 ),
             )
@@ -140,6 +147,7 @@ class LogUploader:
                     hostname=hostname,
                     username=username,
                     os_info=os_info,
+                    ffmpeg_version=ffmpeg_version,
                     exception=exc,
                 ),
             )
@@ -156,6 +164,7 @@ class LogUploader:
                     hostname=hostname,
                     username=username,
                     os_info=os_info,
+                    ffmpeg_version=ffmpeg_version,
                     exception=e,
                 ),
             )
@@ -169,6 +178,7 @@ class LogUploader:
         hostname: str,
         username: str,
         os_info: OsInfo,
+        ffmpeg_version: str,
         response_text: str | None = None,
         exception: Exception | None = None,
     ) -> str:
@@ -181,6 +191,7 @@ class LogUploader:
             f'Hostname: {hostname}',
             f'Username: {username}',
             f'OS Platform: {os_info.get("platform", "")}',
+            f'FFmpeg Version: {ffmpeg_version}',
             f'Message: {message}',
         ]
         if exception is not None:

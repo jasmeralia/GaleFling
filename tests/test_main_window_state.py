@@ -1,14 +1,21 @@
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QDialog, QLabel, QMessageBox
 
 from src.gui.main_window import MainWindow
 from src.utils.constants import AccountConfig
 
 
 class DummyAuthManager:
-    def __init__(self, twitter: bool, bluesky: bool, bluesky_alt: bool = False):
+    def __init__(
+        self,
+        twitter: bool,
+        bluesky: bool,
+        bluesky_alt: bool = False,
+        snapchat: bool = False,
+    ):
         self._twitter = twitter
         self._bluesky = bluesky
         self._bluesky_alt = bluesky_alt
+        self._snapchat = snapchat
 
     # Phase 1 account-based API
     def get_accounts(self) -> list[AccountConfig]:
@@ -35,6 +42,14 @@ class DummyAuthManager:
                     platform_id='bluesky',
                     account_id='bluesky_alt',
                     profile_name='alt.bsky.social',
+                )
+            )
+        if self._snapchat:
+            accounts.append(
+                AccountConfig(
+                    platform_id='snapchat',
+                    account_id='snapchat_1',
+                    profile_name='snap-user',
                 )
             )
         return accounts
@@ -144,6 +159,26 @@ def test_menu_action_logging(qtbot, monkeypatch):
     action.trigger()
 
     assert 'User selected Help > About' in logged
+
+
+def test_about_dialog_displays_ffmpeg_version(qtbot, monkeypatch):
+    captured = {}
+
+    class CaptureDialog(QDialog):
+        def exec(self):
+            captured['texts'] = [
+                label.text() for label in self.findChildren(QLabel) if label.text()
+            ]
+            return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr('src.gui.main_window.QDialog', CaptureDialog)
+    monkeypatch.setattr('src.gui.main_window.get_ffmpeg_version', lambda: '7.1.1-custom')
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._show_about()
+
+    assert any('ffmpeg (7.1.1-custom)' in text for text in captured['texts'])
 
 
 def test_manual_update_check_no_updates_applies_theme(qtbot, monkeypatch):
@@ -549,6 +584,60 @@ def test_action_logging_for_post_and_connections(qtbot, monkeypatch, tmp_path):
     assert any('User attached media' in message for message in logged)
 
 
+def test_format_restriction_allows_convertible_static_webp(qtbot, monkeypatch, tmp_path):
+    captured = {}
+
+    window = DummyMainWindow(
+        DummyConfig(selected=['twitter_1', 'bluesky_1']),
+        DummyAuthManager(True, True),
+    )
+    qtbot.addWidget(window)
+
+    monkeypatch.setattr(window, '_sync_composer_platform_state', lambda: None)
+    monkeypatch.setattr(
+        window._platform_selector,
+        'set_format_restriction',
+        lambda restricted, notice_text='': captured.update(
+            {'restricted': set(restricted), 'notice': notice_text}
+        ),
+    )
+    monkeypatch.setattr(window, '_detect_media_format', lambda _path: ('WEBP', False))
+    monkeypatch.setattr('src.gui.main_window.is_animated_gif', lambda _path: False)
+
+    media = tmp_path / 'test.webp'
+    media.write_bytes(b'fake')
+    window._apply_format_restriction([media])
+
+    assert captured['restricted'] == set()
+
+
+def test_count_restriction_disables_snapchat_for_multiple_images(qtbot, monkeypatch, tmp_path):
+    captured = {}
+
+    window = DummyMainWindow(
+        DummyConfig(selected=['twitter_1', 'snapchat_1']),
+        DummyAuthManager(True, False, snapchat=True),
+    )
+    qtbot.addWidget(window)
+
+    monkeypatch.setattr(window, '_sync_composer_platform_state', lambda: None)
+    monkeypatch.setattr(
+        window._platform_selector,
+        'set_count_restriction',
+        lambda restricted, notice_text='': captured.update(
+            {'restricted': set(restricted), 'notice': notice_text}
+        ),
+    )
+
+    media_1 = tmp_path / 'img1.png'
+    media_2 = tmp_path / 'img2.png'
+    media_1.write_bytes(b'fake1')
+    media_2.write_bytes(b'fake2')
+    window._apply_count_restriction([media_1, media_2])
+
+    assert 'snapchat_1' in captured['restricted']
+
+
 def test_show_message_box_applies_theme(qtbot, monkeypatch):
     apply_calls = []
 
@@ -664,6 +753,53 @@ def test_show_media_preview_logs_send_on_error(qtbot, monkeypatch, tmp_path):
     window._show_media_preview([image_path], ['twitter'])
 
     assert called.get('sent') is True
+
+
+def test_show_media_preview_converts_single_image_for_snapchat(qtbot, monkeypatch, tmp_path):
+    calls = []
+    converted = tmp_path / 'snapchat_converted.mp4'
+    converted.write_bytes(b'mp4')
+
+    class PreviewDialog:
+        Accepted = 1
+
+        def __init__(self, image_path, platforms, _parent=None, existing_paths=None):
+            self.had_errors = False
+            self._platforms = list(platforms)
+            self._image_path = image_path
+            calls.append(self._platforms)
+
+        def exec(self):
+            return self.Accepted
+
+        def get_processed_paths(self):
+            output = {}
+            for platform in self._platforms:
+                path = self._image_path.with_name(f'processed_{platform}.png')
+                path.write_bytes(b'processed')
+                output[platform] = path
+            return output
+
+    monkeypatch.setattr('src.gui.main_window.ImagePreviewDialog', PreviewDialog)
+    monkeypatch.setattr('src.gui.main_window.is_animated_gif', lambda _path: False)
+    monkeypatch.setattr(
+        'src.gui.main_window.convert_image_to_video',
+        lambda _image_path, _specs: converted,
+    )
+
+    window = DummyMainWindow(
+        DummyConfig(selected=['twitter_1', 'snapchat_1']),
+        DummyAuthManager(True, False, snapchat=True),
+    )
+    qtbot.addWidget(window)
+
+    image_path = tmp_path / 'image.png'
+    image_path.write_bytes(b'fake')
+    window._show_media_preview([image_path], ['twitter_1', 'snapchat_1'])
+
+    assert calls == [['twitter']]
+    assert window._processed_media['snapchat'][0] == converted
+    assert window._processed_media['twitter'][0].exists()
 
 
 def test_show_media_preview_missing_first_media_stays_missing(qtbot, monkeypatch, tmp_path):

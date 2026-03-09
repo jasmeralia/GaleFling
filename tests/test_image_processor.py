@@ -8,7 +8,7 @@ from src.core.image_processor import (
     process_image,
     validate_image,
 )
-from src.utils.constants import BLUESKY_SPECS, TWITTER_SPECS
+from src.utils.constants import BLUESKY_SPECS, TWITTER_SPECS, PlatformSpecs
 
 
 @pytest.fixture
@@ -86,6 +86,24 @@ class TestProcessImage:
         original_ratio = 4000 / 2000
         processed_ratio = w / h
         assert abs(original_ratio - processed_ratio) < 0.01
+
+    def test_unsupported_format_converts_to_supported_format(self, tmp_path):
+        img = Image.new('RGB', (400, 400), color='orange')
+        path = tmp_path / 'image.webp'
+        img.save(path, 'WEBP')
+        specs = PlatformSpecs(
+            platform_name='Test',
+            max_image_dimensions=(1000, 1000),
+            max_file_size_mb=5.0,
+            supported_formats=['PNG'],
+            max_text_length=100,
+        )
+
+        result = process_image(path, specs)
+
+        assert result.meets_requirements
+        assert result.format == 'PNG'
+        assert result.path.suffix == '.png'
 
 
 class TestGenerateThumbnail:

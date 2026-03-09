@@ -4,15 +4,18 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from src.core.video_processor import (
+    convert_image_to_video,
     extract_thumbnail,
     get_ffmpeg_path,
+    get_ffmpeg_version,
     get_video_info,
     process_video,
     validate_video,
 )
-from src.utils.constants import BLUESKY_SPECS, TWITTER_SPECS
+from src.utils.constants import BLUESKY_SPECS, SNAPCHAT_SPECS, TWITTER_SPECS
 
 
 def _make_test_video(path: Path, width=320, height=240, duration=2, fps=10):
@@ -67,6 +70,29 @@ class TestGetFfmpegPath:
     def test_returns_valid_path(self):
         path = get_ffmpeg_path()
         assert Path(path).exists()
+
+
+class TestGetFfmpegVersion:
+    def test_parses_version(self, monkeypatch):
+        monkeypatch.setattr('src.core.video_processor.get_ffmpeg_path', lambda: '/tmp/ffmpeg.exe')
+        monkeypatch.setattr(
+            subprocess,
+            'run',
+            lambda *_args, **_kwargs: subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout='ffmpeg version 7.1.1-custom Copyright\n',
+                stderr='',
+            ),
+        )
+        assert get_ffmpeg_version() == '7.1.1-custom'
+
+    def test_returns_unknown_on_failure(self, monkeypatch):
+        monkeypatch.setattr(
+            'src.core.video_processor.get_ffmpeg_path',
+            lambda: (_ for _ in ()).throw(RuntimeError('missing')),
+        )
+        assert get_ffmpeg_version() == 'unknown'
 
 
 class TestGetVideoInfo:
@@ -143,3 +169,19 @@ class TestExtractThumbnail:
         bad = tmp_path / 'bad.mp4'
         bad.write_bytes(b'not a video')
         assert extract_thumbnail(bad) is None
+
+
+class TestConvertImageToVideo:
+    def test_static_image_converts_to_mp4(self, tmp_path):
+        image_path = tmp_path / 'still.png'
+        img = Image.new('RGB', (800, 1200), color='purple')
+        img.save(image_path, 'PNG')
+
+        output = convert_image_to_video(image_path, SNAPCHAT_SPECS, duration_seconds=3)
+        info = get_video_info(output)
+
+        assert output.exists()
+        assert output.suffix == '.mp4'
+        assert info.duration_seconds >= 2.5
+        assert info.width <= SNAPCHAT_SPECS.max_video_dimensions[0]
+        assert info.height <= SNAPCHAT_SPECS.max_video_dimensions[1]

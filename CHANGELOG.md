@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-03-09
+
+### Added
+- Automatic static image format conversion to match per-platform supported image formats during preview and posting (for example, WEBP to PNG/JPEG).
+- Static image to MP4 conversion path for Snapchat web when exactly one image is attached.
+- Tests covering format-convertible media restrictions and Snapchat single-image conversion behavior.
+- ffmpeg runtime-version reporting: Help > About now displays the probed ffmpeg binary version, and log uploads include the same ffmpeg version in Lambda email metadata.
+
+### Changed
+- WebView posting now prefers platform-specific processed media paths when available.
+- `.gitignore` now ignores both `logs/` and `logs` to cover directory and symlink setups.
+
+### Fixed
+- Platform format restriction logic now keeps platforms enabled when static image conversion is possible instead of over-restricting on unsupported input format.
+
 ## [1.5.1] - 2026-03-09
 
 ### Added

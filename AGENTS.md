@@ -52,7 +52,7 @@ APIs:
   - requests + facebook-sdk (Instagram Graph API)
 Packaging: PyInstaller + NSIS installer
 Auth Storage: keyring (Windows Credential Manager) + accounts_config.json
-Current Version: 1.5.0 (active development)
+Current Version: 1.5.2 (active development)
 ```
 
 ### PyQt6 Notes
@@ -269,7 +269,7 @@ Lookup via `PLATFORM_SPECS_MAP: dict[str, PlatformSpecs]` or individual constant
 | Fansly | 3840x2160 | 5120 MB | MP4, MOV | None |
 | FetLife | 1920x1080 | 500 MB | MP4 | None |
 
-**Note:** Snapchat stories only support video — `supports_images=False`, `supports_text=False`. When an image is attached, Snapchat is automatically disabled. When text is entered with Snapchat selected, a warning is shown.
+**Note:** Snapchat stories only support video — `supports_images=False`, `supports_text=False`. With a single static image attached, GaleFling auto-converts the image to MP4 for Snapchat. With multiple images attached, Snapchat is disabled by attachment-count restriction. When text is entered with Snapchat selected, a warning is shown.
 
 ### PostResult
 ```python
@@ -381,14 +381,15 @@ Each code has both a technical message in `ERROR_CODES` dict and a user-friendly
 ### Image Processing Pipeline
 1. User selects image → load with PIL, convert RGBA → RGB (white background)
 2. For each enabled platform:
+   - Convert static images to a supported output format when needed (e.g., WEBP → PNG/JPEG)
    - Calculate target dimensions (maintain aspect ratio within `max_image_dimensions`)
    - Resize using LANCZOS resampling
    - Compress iteratively (start quality=95, reduce by 5 until size < `max_file_size_mb` or quality < 20)
    - If still too large, reduce dimensions by 10% and retry
 3. **Animated GIFs:** Multi-frame processing preserving animation (frame-by-frame resize)
 4. Generate thumbnail previews for `ImagePreviewDialog` tabs
-5. Cache processed images in `main_window._processed_images` dict to avoid reprocessing on resubmit
-6. Clean up processed images on successful post or draft clear
+5. Cache processed media in `main_window._processed_media` dict to avoid reprocessing on resubmit
+6. Clean up processed media on successful post or draft clear
 
 Implemented in `src/core/image_processor.py` (`process_image()`, `process_animated_gif()`).
 
@@ -399,13 +400,15 @@ Implemented in `src/core/image_processor.py` (`process_image()`, `process_animat
 4. Re-encode to H.264 + AAC MP4 if resize/trim is needed
 5. If file too large, iteratively increase CRF (23 → 28 → 33 → 38) for more compression
 6. If video already meets all specs, pass through without re-encoding
+7. For Snapchat single-image posts, convert static image input to MP4 (`convert_image_to_video()`)
 
-Implemented in `src/core/video_processor.py` (`process_video()`, `get_video_info()`, `validate_video()`, `extract_thumbnail()`).
+Implemented in `src/core/video_processor.py` (`process_video()`, `convert_image_to_video()`, `get_video_info()`, `validate_video()`, `extract_thumbnail()`).
 
 ### Format Restriction System
 When media is attached, `main_window._apply_format_restriction()` determines which platforms support the media type:
 - Checks `supported_formats` (images) or `supported_video_formats` (videos)
-- Checks `supports_images` flag (disables video-only platforms for image attachments)
+- Allows static-image format auto-conversion for image-supporting platforms (instead of disabling them)
+- Allows single-image auto-conversion to video for Snapchat; still disables Snapchat for multi-image attachments via count restriction
 - Calls `PlatformSelector.set_format_restriction()` to disable unsupported platforms with notice text
 - PostComposer shows text warning for platforms where `supports_text=False`
 
@@ -459,7 +462,7 @@ def detect_urls(text: str) -> list[dict]:
 - **Infrastructure:** CloudFormation stack in `infrastructure/template.yaml`
 - **Email:** `morgan@windsofstorm.net` (SES sender + recipient)
 - User must provide a description via `LogSubmitDialog` before sending
-- Sends: log file + screenshot (if available) + user description
+- Sends: log file + screenshot (if available) + user description + ffmpeg version (probed directly from bundled/runtime `ffmpeg` binary)
 
 ---
 

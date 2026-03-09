@@ -67,6 +67,7 @@ def test_upload_success_includes_logs_and_screenshots(tmp_path, monkeypatch):
     monkeypatch.setattr(log_uploader, 'get_current_log_path', lambda: current_log)
     monkeypatch.setattr(log_uploader, 'get_installation_id', lambda: 'install-123')
     monkeypatch.setattr(log_uploader, 'get_os_info', lambda: {'platform': 'TestOS', 'version': '1'})
+    monkeypatch.setattr(log_uploader, 'get_ffmpeg_version', lambda: '7.1.1-custom')
 
     captured = {}
 
@@ -86,6 +87,7 @@ def test_upload_success_includes_logs_and_screenshots(tmp_path, monkeypatch):
 
     payload = captured['payload']
     assert payload['user_id'] == 'install-123'
+    assert payload['ffmpeg_version'] == '7.1.1-custom'
     assert len(payload['log_files']) >= 2
     assert len(payload['screenshots']) == 1
     assert payload['screenshots'][0]['filename'] == screenshot.name

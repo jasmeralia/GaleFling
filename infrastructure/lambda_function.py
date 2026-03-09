@@ -31,6 +31,7 @@ def lambda_handler(event, context):
         "username": "morgan",
         "os_version": "10.0.26100",
         "os_platform": "Windows-11-10.0.26100-SP0",
+        "ffmpeg_version": "7.1-full_build-www.gyan.dev",
         "log_files": [{"filename": "...", "content": "base64..."}],
         "screenshots": [{"filename": "...", "content": "base64..."}]
     }
@@ -77,6 +78,7 @@ def lambda_handler(event, context):
     username = body.get('username', '')
     os_version = body.get('os_version', '')
     os_platform = body.get('os_platform', '')
+    ffmpeg_version = body.get('ffmpeg_version', 'unknown')
     os_display = os_platform or 'Unknown OS'
 
     # Send notification email via SES (attachments preferred)
@@ -95,7 +97,8 @@ def lambda_handler(event, context):
             f'Hostname: {hostname}\n'
             f'Username: {username}\n'
             f'OS Version: {os_version}\n'
-            f'OS Platform: {os_platform}\n\n'
+            f'OS Platform: {os_platform}\n'
+            f'FFmpeg Version: {ffmpeg_version}\n\n'
             f'User Notes:\n{user_notes}\n\n'
             f'Files attached:\n{file_list or "  (none)"}\n\n'
             f'Files skipped due to size limits:\n{skipped_list or "  (none)"}\n'

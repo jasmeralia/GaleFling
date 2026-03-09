@@ -27,6 +27,7 @@ desktop.ini
 
 # Project specific
 logs/
+logs
 *.log
 *_auth.json
 app_config.json

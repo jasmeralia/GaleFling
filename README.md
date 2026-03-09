@@ -7,7 +7,7 @@
 
 GaleFling is a Windows desktop app for posting to multiple social platforms at once. It’s designed for non-technical creators, with clear guidance, robust error handling, and one-click log sharing for support.
 
-**Current Version:** 1.5.1
+**Current Version:** 1.5.2
 
 Docs: [Changelog](CHANGELOG.md) | [Roadmap](docs/ROADMAP.md) | [Contributing](docs/CONTRIBUTING.md) | [Twitter Setup](docs/TWITTER.md) | [Instagram Setup](docs/INSTAGRAM.md)
 
@@ -38,8 +38,9 @@ GaleFling handles images and videos with automatic per-platform processing:
 
 - **Images:** JPEG, PNG, GIF (animated), WEBP, BMP — resized and compressed to fit each platform's limits.
 - **Videos:** MP4, MOV, AVI, MKV, WEBM — resized, trimmed, and re-encoded (H.264 + AAC) as needed.
-- **Format restrictions:** When you attach media, platforms that don't support the format are automatically disabled with a clear explanation. For example, animated GIFs are only supported on Twitter.
-- **Video-only platforms:** Snapchat stories only support video; attaching an image will disable Snapchat.
+- **Automatic format conversion:** Static images are converted to a platform-supported format when needed (for example, WEBP can be converted to PNG/JPEG automatically).
+- **Format restrictions:** Platforms are only disabled when automatic conversion is not possible (for example, animated GIF support remains platform-specific).
+- **Video-only platforms:** Snapchat stories support video uploads; a single static image is auto-converted to MP4 for Snapchat, while multiple image attachments keep Snapchat disabled.
 - **Text warnings:** Platforms that don't support text (e.g., Snapchat) show a warning if you've entered text.
 - **Preview:** Click "Preview Media" to see how your image or video will look on each platform after processing.
 
@@ -50,7 +51,7 @@ If you want beta builds, enable **Settings → Enable beta updates**.
 
 ## Troubleshooting
 
-If something goes wrong, use **Help → Send Logs to Jas**. This bundles logs and screenshots for troubleshooting.
+If something goes wrong, use **Help → Send Logs to Jas**. This bundles logs and screenshots for troubleshooting, along with your detected ffmpeg binary version.
 
 ## Screenshots
 

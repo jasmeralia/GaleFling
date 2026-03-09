@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-03-09
+
+### Added
+- Video support: resize, compress, and trim videos per platform specifications using bundled ffmpeg (H.264 + AAC MP4).
+- Video preview in the media preview dialog with thumbnail extraction and processing metadata.
+- Per-platform video specs: max dimensions, file size, duration, and supported formats for all 7 platforms.
+- Snapchat video-only enforcement: attaching an image automatically disables Snapchat (stories only support video).
+- Text warning for platforms that don't support text (e.g., Snapchat): shows a notice when text is entered.
+- Video format restriction: platforms that don't support the attached video format are automatically disabled.
+- Third-party license notice for bundled GPL-licensed ffmpeg binary.
+
+### Changed
+- "Image" labels in the composer updated to "Media" to reflect image + video support.
+- Platform specifications now include video fields (`supported_video_formats`, `max_video_dimensions`, `max_video_file_size_mb`, `max_video_duration_seconds`, `supports_images`, `supports_text`).
+
 ## [1.4.0] - 2026-03-09
 
 ### Added

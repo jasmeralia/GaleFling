@@ -1,4 +1,4 @@
-"""Tests for image format platform restriction in PlatformSelector."""
+"""Tests for media format platform restriction in PlatformSelector."""
 
 import pytest
 
@@ -112,3 +112,69 @@ class TestFormatRestriction:
 
         selector.set_format_restriction({'bluesky_1'}, WEBP_NOTICE)
         assert 'WEBP' in selector._format_notice.text()
+
+
+VIDEO_NOTICE = '\u26a0 Video attached \u2014 some platforms do not support this video format.'
+IMAGE_ON_VIDEO_ONLY = '\u26a0 Image attached \u2014 this platform only supports video.'
+
+
+@pytest.fixture
+def selector_with_snapchat(qtbot):
+    """Create a PlatformSelector with Snapchat (video-only, no text)."""
+    sel = PlatformSelector()
+    qtbot.addWidget(sel)
+    accounts = [
+        AccountConfig('twitter', 'twitter_1', 'user1'),
+        AccountConfig('bluesky', 'bluesky_1', 'user2'),
+        AccountConfig('snapchat', 'snapchat_1', 'user3'),
+    ]
+    sel.set_accounts(accounts)
+    for a in accounts:
+        sel.set_platform_enabled(a.account_id, True)
+    return sel
+
+
+class TestVideoFormatRestriction:
+    def test_video_restricts_unsupported_platforms(self, selector_with_snapchat):
+        """Platforms that don't support the video format should be restricted."""
+        sel = selector_with_snapchat
+        sel.set_selected(['twitter_1', 'bluesky_1', 'snapchat_1'])
+        # Restrict bluesky (hypothetical unsupported video format)
+        sel.set_format_restriction({'bluesky_1'}, VIDEO_NOTICE)
+        selected = sel.get_selected()
+        assert 'twitter_1' in selected
+        assert 'snapchat_1' in selected
+        assert 'bluesky_1' not in selected
+
+    def test_image_restricts_video_only_platform(self, selector_with_snapchat):
+        """Snapchat (video-only) should be restricted when an image is attached."""
+        sel = selector_with_snapchat
+        sel.set_selected(['twitter_1', 'snapchat_1'])
+        sel.set_format_restriction({'snapchat_1'}, IMAGE_ON_VIDEO_ONLY)
+        selected = sel.get_selected()
+        assert 'twitter_1' in selected
+        assert 'snapchat_1' not in selected
+
+    def test_video_restriction_shows_notice(self, selector_with_snapchat):
+        """Video format restriction shows the notice label."""
+        sel = selector_with_snapchat
+        assert sel._format_notice.isHidden()
+        sel.set_format_restriction({'bluesky_1'}, VIDEO_NOTICE)
+        assert not sel._format_notice.isHidden()
+        assert 'video' in sel._format_notice.text().lower()
+
+    def test_image_on_video_only_notice(self, selector_with_snapchat):
+        """Image restriction on video-only platform shows correct notice."""
+        sel = selector_with_snapchat
+        sel.set_format_restriction({'snapchat_1'}, IMAGE_ON_VIDEO_ONLY)
+        assert not sel._format_notice.isHidden()
+        assert 'video' in sel._format_notice.text().lower()
+
+    def test_video_restriction_prevents_checking(self, selector_with_snapchat):
+        """Restricted platform cannot be checked."""
+        sel = selector_with_snapchat
+        sel.set_format_restriction({'snapchat_1'}, VIDEO_NOTICE)
+        cb = sel._checkboxes['snapchat_1']
+        cb.setChecked(True)
+        sel._on_checkbox_clicked('snapchat_1')
+        assert not cb.isChecked()

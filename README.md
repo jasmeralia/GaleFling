@@ -7,7 +7,7 @@
 
 GaleFling is a Windows desktop app for posting to multiple social platforms at once. It’s designed for non-technical creators, with clear guidance, robust error handling, and one-click log sharing for support.
 
-**Current Version:** 1.4.0 (Phase 1 - Multi-account & WebView platforms)
+**Current Version:** 1.5.0
 
 Docs: [Changelog](CHANGELOG.md) | [Roadmap](docs/ROADMAP.md) | [Contributing](docs/CONTRIBUTING.md) | [Twitter Setup](docs/TWITTER.md) | [Instagram Setup](docs/INSTAGRAM.md)
 
@@ -28,9 +28,20 @@ On first launch, the app walks you through adding credentials for each platform.
 
 ## Using GaleFling
 
-- Write your post text and optionally attach an image.
+- Write your post text and optionally attach media (images or video).
 - Select the platforms you want to post to.
 - Click **Post Now** to publish to all enabled platforms.
+
+### Media Support
+
+GaleFling handles images and videos with automatic per-platform processing:
+
+- **Images:** JPEG, PNG, GIF (animated), WEBP, BMP — resized and compressed to fit each platform's limits.
+- **Videos:** MP4, MOV, AVI, MKV, WEBM — resized, trimmed, and re-encoded (H.264 + AAC) as needed.
+- **Format restrictions:** When you attach media, platforms that don't support the format are automatically disabled with a clear explanation. For example, animated GIFs are only supported on Twitter.
+- **Video-only platforms:** Snapchat stories only support video; attaching an image will disable Snapchat.
+- **Text warnings:** Platforms that don't support text (e.g., Snapchat) show a warning if you've entered text.
+- **Preview:** Click "Preview Media" to see how your image or video will look on each platform after processing.
 
 ## Updates
 

@@ -1,4 +1,4 @@
-"""Text input widget with character counter and image selection."""
+"""Text input widget with character counter and media selection."""
 
 from pathlib import Path
 
@@ -14,11 +14,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.utils.constants import PLATFORM_SPECS_MAP
+from src.utils.constants import IMAGE_EXTENSIONS, PLATFORM_SPECS_MAP, VIDEO_EXTENSIONS
 
 
 class PostComposer(QWidget):
-    """Text input with live character count and image chooser."""
+    """Text input with live character count and media chooser."""
 
     text_changed = pyqtSignal(str)
     image_changed = pyqtSignal(object)  # Path or None
@@ -66,19 +66,28 @@ class PostComposer(QWidget):
         self._counter_layout.addStretch()
         layout.addLayout(self._counter_layout)
 
+        # Snapchat text warning (hidden by default)
+        self._text_warning = QLabel()
+        self._text_warning.setStyleSheet(
+            'color: #FF9800; font-size: 12px; font-style: italic; padding: 2px 0;'
+        )
+        self._text_warning.setWordWrap(True)
+        self._text_warning.setVisible(False)
+        layout.addWidget(self._text_warning)
+
         layout.addSpacing(10)
 
-        # Image section
-        self._img_label = QLabel('Image:')
+        # Media section
+        self._img_label = QLabel('Media:')
         self._img_label.setStyleSheet('font-weight: bold; font-size: 13px; color: palette(text);')
         layout.addWidget(self._img_label)
 
         img_row = QHBoxLayout()
-        self._choose_btn = QPushButton('Choose Image...')
+        self._choose_btn = QPushButton('Choose Media...')
         self._choose_btn.clicked.connect(self._choose_image)
         img_row.addWidget(self._choose_btn)
 
-        self._preview_btn = QPushButton('Preview Images')
+        self._preview_btn = QPushButton('Preview Media')
         self._preview_btn.setEnabled(False)
         self._preview_btn.clicked.connect(self.preview_requested.emit)
         img_row.addWidget(self._preview_btn)
@@ -91,8 +100,8 @@ class PostComposer(QWidget):
         img_row.addStretch()
         layout.addLayout(img_row)
 
-        self._image_label = QLabel('No image selected')
-        self._set_image_label('No image selected', is_placeholder=True)
+        self._image_label = QLabel('No media selected')
+        self._set_image_label('No media selected', is_placeholder=True)
         layout.addWidget(self._image_label)
 
         self._update_counters()
@@ -118,11 +127,34 @@ class PostComposer(QWidget):
 
         # Determine which platform types are active (deduplicate by platform_id)
         active_platforms: dict[str, str] = {}  # platform_id -> platform_name
+        has_no_text_platform = False
         for account_id in self._selected_platforms & self._enabled_platforms:
             platform_id = self._account_platform_map.get(account_id, account_id)
             specs = PLATFORM_SPECS_MAP.get(platform_id)
-            if specs and specs.max_text_length is not None:
+            if not specs:
+                continue
+            if not specs.supports_text:
+                has_no_text_platform = True
+            if specs.max_text_length is not None:
                 active_platforms[platform_id] = specs.platform_name
+
+        # Show text warning for platforms that ignore text
+        if has_no_text_platform and length > 0:
+            # Collect names of text-ignoring platforms
+            no_text_names = []
+            for account_id in self._selected_platforms & self._enabled_platforms:
+                platform_id = self._account_platform_map.get(account_id, account_id)
+                specs = PLATFORM_SPECS_MAP.get(platform_id)
+                if specs and not specs.supports_text and specs.platform_name not in no_text_names:
+                    no_text_names.append(specs.platform_name)
+            names = ', '.join(no_text_names)
+            self._text_warning.setText(
+                f'\u26a0 {names} does not support text in posts \u2014 '
+                f'your text will not be included on that platform.'
+            )
+            self._text_warning.setVisible(True)
+        else:
+            self._text_warning.setVisible(False)
 
         # Remove counters for inactive platforms
         for pid in list(self._counter_labels.keys()):
@@ -151,11 +183,14 @@ class PostComposer(QWidget):
 
     def _choose_image(self):
         start_dir = self._last_image_dir or ''
+        img_exts = ' '.join(f'*{ext}' for ext in sorted(IMAGE_EXTENSIONS))
+        vid_exts = ' '.join(f'*{ext}' for ext in sorted(VIDEO_EXTENSIONS))
         path, _ = QFileDialog.getOpenFileName(
             self,
-            'Choose Image',
+            'Choose Media',
             start_dir,
-            'Images (*.jpg *.jpeg *.png *.gif *.webp *.bmp);;All Files (*)',
+            f'Media ({img_exts} {vid_exts});;Images ({img_exts});;'
+            f'Videos ({vid_exts});;All Files (*)',
         )
         if path:
             self._image_path = Path(path)
@@ -167,7 +202,7 @@ class PostComposer(QWidget):
 
     def _clear_image(self):
         self._image_path = None
-        self._set_image_label('No image selected', is_placeholder=True)
+        self._set_image_label('No media selected', is_placeholder=True)
         self._clear_btn.setEnabled(False)
         self._preview_btn.setEnabled(False)
         self.image_changed.emit(None)

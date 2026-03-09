@@ -4,11 +4,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 APP_NAME = 'GaleFling'
-APP_VERSION = '1.4.0'
+APP_VERSION = '1.5.0'
 APP_ORG = 'Winds of Storm'
 LOG_UPLOAD_ENDPOINT = 'https://galepost.jasmer.tools/logs/upload'
 
 DRAFT_AUTO_SAVE_INTERVAL_SECONDS = 30
+
+VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.webm'}
+IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
 
 
 @dataclass
@@ -27,6 +30,15 @@ class PlatformSpecs:
     max_accounts: int = 1
     requires_user_confirm: bool = False
     has_cloudflare: bool = False
+    # Video support
+    supported_video_formats: list[str] = field(default_factory=list)
+    max_video_dimensions: tuple[int, int] | None = None
+    max_video_file_size_mb: float | None = None
+    max_video_duration_seconds: int | None = None
+    # Whether the platform supports image posts (False = video-only, e.g. Snapchat web)
+    supports_images: bool = True
+    # Whether the platform ignores text (e.g. Snapchat web stories)
+    supports_text: bool = True
 
 
 @dataclass
@@ -50,6 +62,10 @@ TWITTER_SPECS = PlatformSpecs(
     api_type='tweepy',
     auth_method='oauth1.0a_pin',
     max_accounts=2,
+    supported_video_formats=['MP4'],
+    max_video_dimensions=(1920, 1200),
+    max_video_file_size_mb=512.0,
+    max_video_duration_seconds=140,
 )
 
 BLUESKY_SPECS = PlatformSpecs(
@@ -63,6 +79,10 @@ BLUESKY_SPECS = PlatformSpecs(
     api_type='atproto',
     auth_method='app_password',
     max_accounts=2,
+    supported_video_formats=['MP4'],
+    max_video_dimensions=(1920, 1080),
+    max_video_file_size_mb=50.0,
+    max_video_duration_seconds=60,
 )
 
 INSTAGRAM_SPECS = PlatformSpecs(
@@ -75,6 +95,10 @@ INSTAGRAM_SPECS = PlatformSpecs(
     api_type='graph_api',
     auth_method='oauth2',
     max_accounts=2,
+    supported_video_formats=['MP4'],
+    max_video_dimensions=(1920, 1080),
+    max_video_file_size_mb=100.0,
+    max_video_duration_seconds=60,
 )
 
 SNAPCHAT_SPECS = PlatformSpecs(
@@ -88,6 +112,12 @@ SNAPCHAT_SPECS = PlatformSpecs(
     auth_method='session_cookie',
     max_accounts=2,
     requires_user_confirm=True,
+    supported_video_formats=['MP4'],
+    max_video_dimensions=(1080, 1920),
+    max_video_file_size_mb=50.0,
+    max_video_duration_seconds=60,
+    supports_images=False,
+    supports_text=False,
 )
 
 ONLYFANS_SPECS = PlatformSpecs(
@@ -102,6 +132,9 @@ ONLYFANS_SPECS = PlatformSpecs(
     max_accounts=1,
     requires_user_confirm=True,
     has_cloudflare=True,
+    supported_video_formats=['MP4', 'MOV'],
+    max_video_dimensions=(3840, 2160),
+    max_video_file_size_mb=5120.0,
 )
 
 FANSLY_SPECS = PlatformSpecs(
@@ -116,6 +149,9 @@ FANSLY_SPECS = PlatformSpecs(
     max_accounts=1,
     requires_user_confirm=True,
     has_cloudflare=True,
+    supported_video_formats=['MP4', 'MOV'],
+    max_video_dimensions=(3840, 2160),
+    max_video_file_size_mb=5120.0,
 )
 
 FETLIFE_SPECS = PlatformSpecs(
@@ -129,6 +165,9 @@ FETLIFE_SPECS = PlatformSpecs(
     auth_method='session_cookie',
     max_accounts=1,
     requires_user_confirm=True,
+    supported_video_formats=['MP4'],
+    max_video_dimensions=(1920, 1080),
+    max_video_file_size_mb=500.0,
 )
 
 PLATFORM_SPECS_MAP: dict[str, PlatformSpecs] = {
@@ -179,6 +218,15 @@ ERROR_CODES = {
     'IMG-UPLOAD-FAILED': 'Image upload to platform failed.',
     'IMG-NOT-FOUND': 'Image file does not exist.',
     'IMG-CORRUPT': 'Image file is corrupted or unreadable.',
+    # Video Processing (VID)
+    'VID-NOT-FOUND': 'Video file does not exist.',
+    'VID-CORRUPT': 'Video file is corrupted or unreadable.',
+    'VID-INVALID-FORMAT': 'Video format not supported by platform.',
+    'VID-TOO-LONG': 'Video exceeds maximum duration for platform.',
+    'VID-TOO-LARGE': 'Video file size exceeds platform limits.',
+    'VID-RESIZE-FAILED': 'Failed to resize or compress video.',
+    'VID-UPLOAD-FAILED': 'Video upload to platform failed.',
+    'VID-FFMPEG-MISSING': 'ffmpeg binary not found — video processing unavailable.',
     # Network (NET)
     'NET-TIMEOUT': 'Request timed out.',
     'NET-CONNECTION': 'Could not connect to platform.',
@@ -219,6 +267,14 @@ USER_FRIENDLY_MESSAGES = {
     'IMG-UPLOAD-FAILED': 'Image upload failed. Please try again.',
     'IMG-NOT-FOUND': "The selected image file can't be found. It may have been moved or deleted.",
     'IMG-CORRUPT': 'This image file appears to be corrupted. Please try a different image.',
+    'VID-NOT-FOUND': "The selected video file can't be found. It may have been moved or deleted.",
+    'VID-CORRUPT': 'This video file appears to be corrupted. Please try a different video.',
+    'VID-INVALID-FORMAT': "This video format isn't supported. Please use MP4.",
+    'VID-TOO-LONG': 'This video is too long for the platform. It will be trimmed automatically.',
+    'VID-TOO-LARGE': 'This video is too large. The app will try to compress it automatically.',
+    'VID-RESIZE-FAILED': "Couldn't resize or compress the video to fit platform requirements.",
+    'VID-UPLOAD-FAILED': 'Video upload failed. Please try again.',
+    'VID-FFMPEG-MISSING': 'Video processing is unavailable because ffmpeg was not found.',
     'NET-TIMEOUT': 'The request timed out. Please check your internet and try again.',
     'NET-CONNECTION': "Couldn't connect to the platform. Please check your internet connection.",
     'NET-DNS': 'DNS lookup failed. Please check your internet connection.',

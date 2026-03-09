@@ -9,6 +9,14 @@ binaries = []
 if py_dll_path.exists():
     binaries.append((str(py_dll_path), '.'))
 
+# Bundle ffmpeg binary from imageio-ffmpeg
+try:
+    import imageio_ffmpeg
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    binaries.append((ffmpeg_exe, 'imageio_ffmpeg/binaries'))
+except ImportError:
+    pass
+
 block_cipher = None
 
 a = Analysis(
@@ -27,6 +35,8 @@ a = Analysis(
         'atproto',
         'PyQt6.QtWebEngineWidgets',
         'PyQt6.QtWebEngineCore',
+        'imageio_ffmpeg',
+        'ffmpeg',
     ],
     hookspath=[],
     hooksconfig={},

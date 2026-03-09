@@ -8,10 +8,10 @@ Windows GUI application for posting to multiple social media platforms simultane
 
 ## Current Status
 - **Phase 0** (v0.2.118): Complete — Twitter and Bluesky working
-- **Phase 1** (v1.0.0): **Complete** — Multi-account, 7 platforms, WebView integration, PyQt6 migration
+- **Phase 1** (v1.0.0–v1.4.0): **Active development** — Multi-account, 7 platforms, WebView integration, PyQt6 migration, media processing (animated GIFs, video support)
 
 ### Phase 1 Progress (All Steps Complete)
-- [x] **Step 1: PyQt5 → PyQt6 migration** — All source and test files migrated, 168 tests passing
+- [x] **Step 1: PyQt5 → PyQt6 migration** — All source and test files migrated, 288 tests passing
 - [x] **Step 2: Multi-account architecture** — AccountConfig, accounts_config.json, updated PlatformSpecs/PostResult
 - [x] **Step 3: Existing platform refactoring** — Twitter PIN flow support, Bluesky account_id alignment
 - [x] **Step 4: WebView infrastructure** — BaseWebViewPlatform + WebViewPanel implemented
@@ -19,7 +19,7 @@ Windows GUI application for posting to multiple social media platforms simultane
 - [x] **Step 6: WebView platforms** — Snapchat, OnlyFans, Fansly, FetLife all implemented with tests
 - [x] **Step 7: GUI updates** — Platform selector, setup wizard, settings, results dialog, main window all updated for multi-account
 - [x] **Step 8: Error codes finalization** — All IG-* and WV-* codes defined, SuicideGirls deferred
-- [x] **Step 9: Testing & polish** — 168 tests passing, 71% coverage, lint clean
+- [x] **Step 9: Testing & polish** — 288 tests passing, 71% coverage, lint clean
 - [x] **Step 10: Build & release** — Version bump to 1.0.0, CHANGELOG updated, all checks passing
 
 **Note:** SuicideGirls support is deferred to future phases.
@@ -44,14 +44,15 @@ Windows GUI application for posting to multiple social media platforms simultane
 Language: Python 3.11+
 GUI Framework: PyQt6 (migrated from PyQt5)
 WebEngine: PyQt6-WebEngine (QtWebEngineWidgets)
-Image Processing: Pillow (PIL)
+Image Processing: Pillow (PIL) — including animated GIF multi-frame processing
+Video Processing: ffmpeg via imageio-ffmpeg (bundled binary)
 APIs:
   - tweepy (Twitter - OAuth 1.0a PIN flow, pay-per-tweet)
   - atproto (Bluesky - app password auth)
   - requests + facebook-sdk (Instagram Graph API)
 Packaging: PyInstaller + NSIS installer
 Auth Storage: keyring (Windows Credential Manager) + accounts_config.json
-Current Version: 1.3.0 (Phase 1 complete)
+Current Version: 1.5.0 (active development)
 ```
 
 ### PyQt6 Notes
@@ -73,9 +74,9 @@ galefling/
 │   │   ├── __init__.py
 │   │   ├── main_window.py             # Main application window (two-tier posting)
 │   │   ├── setup_wizard.py            # First-run credential setup (multi-account)
-│   │   ├── post_composer.py           # Text + image selection widget (dynamic counters)
+│   │   ├── post_composer.py           # Text + media selection widget (dynamic counters, text warnings)
 │   │   ├── platform_selector.py       # Platform checkboxes (account-based, 2-column grid)
-│   │   ├── image_preview_tabs.py      # TABBED platform-specific previews
+│   │   ├── image_preview_tabs.py      # TABBED platform-specific previews (images + video)
 │   │   ├── results_dialog.py          # Post results (CLICKABLE links + WebView states)
 │   │   ├── settings_dialog.py         # Debug mode, update settings, log upload, account management
 │   │   ├── update_dialog.py           # Update available notification
@@ -94,7 +95,8 @@ galefling/
 │   │   └── fetlife.py                 # FetLife WebView
 │   ├── core/
 │   │   ├── __init__.py
-│   │   ├── image_processor.py         # Resize/optimize per platform
+│   │   ├── image_processor.py         # Resize/optimize per platform (incl. animated GIFs)
+│   │   ├── video_processor.py         # Video resize/compress/trim per platform (ffmpeg)
 │   │   ├── error_handler.py           # Error codes + logging
 │   │   ├── logger.py                  # File logging + screenshots
 │   │   ├── config_manager.py          # App settings persistence
@@ -124,7 +126,11 @@ galefling/
 │   ├── test_webview_platform.py       # WebView infrastructure tests
 │   ├── test_webview_platforms.py      # Snapchat/OnlyFans/Fansly/FetLife tests
 │   ├── test_instagram.py              # Instagram Graph API tests
-│   └── ... (168 tests total across 27 files)
+│   ├── test_animated_gif.py            # Animated GIF processing tests
+│   ├── test_format_restriction.py      # Media format restriction tests (GIF, WEBP, video)
+│   ├── test_video_processor.py         # Video processing pipeline tests
+│   ├── test_post_composer.py           # PostComposer text warning + counter tests
+│   └── ... (288 tests total across 31 files)
 ├── build/
 │   ├── build.spec                     # PyInstaller specification (PyQt6 + WebEngine)
 │   ├── version_info.txt
@@ -222,29 +228,48 @@ class PlatformSpecs:
     platform_name: str
     max_image_dimensions: tuple[int, int]
     max_file_size_mb: float
-    supported_formats: list[str]
-    max_text_length: int | None          # None = no known limit (WebView platforms)
+    supported_formats: list[str]           # Image formats: JPEG, PNG, GIF, WEBP, BMP
+    max_text_length: int | None            # None = no known limit (WebView platforms)
     requires_facets: bool = False
     platform_color: str = '#000000'
-    api_type: str = ''                   # 'tweepy', 'atproto', 'graph_api', 'webview'
+    api_type: str = ''                     # 'tweepy', 'atproto', 'graph_api', 'webview'
     auth_method: str = ''
     max_accounts: int = 1
-    requires_user_confirm: bool = False  # True for WebView platforms
-    has_cloudflare: bool = False         # OnlyFans, Fansly
+    requires_user_confirm: bool = False    # True for WebView platforms
+    has_cloudflare: bool = False           # OnlyFans, Fansly
+    supported_video_formats: list[str]     # e.g., ['MP4'], ['MP4', 'MOV']
+    max_video_dimensions: tuple[int, int] | None  # (width, height) or None
+    max_video_file_size_mb: float | None
+    max_video_duration_seconds: int | None
+    supports_images: bool = True           # False for video-only platforms (Snapchat)
+    supports_text: bool = True             # False for platforms that ignore text (Snapchat)
 ```
 
 Lookup via `PLATFORM_SPECS_MAP: dict[str, PlatformSpecs]` or individual constants (`TWITTER_SPECS`, `BLUESKY_SPECS`, `INSTAGRAM_SPECS`, etc.)
 
-### Platform Requirements
+### Image Requirements
 | Platform | Max Dimensions | Max Size | Formats | Text Limit |
 |---|---|---|---|---|
 | Twitter | 4096x4096 | 5 MB | JPEG, PNG, GIF, WEBP | 280 |
 | Bluesky | 2000x2000 | 1 MB | JPEG, PNG | 300 |
 | Instagram | 1440x1440 | 8 MB | JPEG, PNG | 2200 |
-| Snapchat | 1080x1920 | 5 MB | JPEG, PNG | None |
+| Snapchat | N/A (video only) | N/A | N/A | N/A (no text) |
 | OnlyFans | 4096x4096 | 50 MB | JPEG, PNG, WEBP | 1000 |
 | Fansly | 4096x4096 | 50 MB | JPEG, PNG, WEBP | 3000 |
 | FetLife | 4096x4096 | 20 MB | JPEG, PNG | None |
+
+### Video Requirements
+| Platform | Max Dimensions | Max Size | Formats | Max Duration |
+|---|---|---|---|---|
+| Twitter | 1920x1200 | 512 MB | MP4 | 140s |
+| Bluesky | 1920x1080 | 50 MB | MP4 | 60s |
+| Instagram | 1920x1080 | 100 MB | MP4 | 60s |
+| Snapchat | 1080x1920 | 50 MB | MP4 | 60s |
+| OnlyFans | 3840x2160 | 5120 MB | MP4, MOV | None |
+| Fansly | 3840x2160 | 5120 MB | MP4, MOV | None |
+| FetLife | 1920x1080 | 500 MB | MP4 | None |
+
+**Note:** Snapchat stories only support video — `supports_images=False`, `supports_text=False`. When an image is attached, Snapchat is automatically disabled. When text is entered with Snapchat selected, a warning is shown.
 
 ### PostResult
 ```python
@@ -341,6 +366,7 @@ Dialog in `src/gui/webview_panel.py`:
 - **AUTH**: Authentication errors (`TW-AUTH-INVALID`, `TW-AUTH-EXPIRED`, `BS-AUTH-INVALID`, `BS-AUTH-EXPIRED`, `IG-AUTH-INVALID`, `IG-AUTH-EXPIRED`, `AUTH-MISSING`)
 - **RATE**: Rate limiting (`TW-RATE-LIMIT`, `BS-RATE-LIMIT`, `IG-RATE-LIMIT`)
 - **IMG**: Image processing errors (`IMG-TOO-LARGE`, `IMG-INVALID-FORMAT`, `IMG-RESIZE-FAILED`, `IMG-UPLOAD-FAILED`, `IMG-NOT-FOUND`, `IMG-CORRUPT`)
+- **VID**: Video processing errors (`VID-NOT-FOUND`, `VID-INVALID-FORMAT`, `VID-CORRUPT`, `VID-TOO-LONG`, `VID-TOO-LARGE`, `VID-FFMPEG-MISSING`)
 - **NET**: Network errors (`NET-TIMEOUT`, `NET-CONNECTION`, `NET-DNS`, `NET-SSL`)
 - **POST**: Post submission errors (`POST-TEXT-TOO-LONG`, `POST-DUPLICATE`, `POST-FAILED`, `POST-EMPTY`)
 - **WV**: WebView-specific errors (`WV-LOAD-FAILED`, `WV-PREFILL-FAILED`, `WV-SUBMIT-TIMEOUT`, `WV-SESSION-EXPIRED`, `WV-URL-CAPTURE-FAILED`)
@@ -350,20 +376,38 @@ Each code has both a technical message in `ERROR_CODES` dict and a user-friendly
 
 ---
 
-## Image Processing
+## Media Processing
 
-### Processing Pipeline
+### Image Processing Pipeline
 1. User selects image → load with PIL, convert RGBA → RGB (white background)
 2. For each enabled platform:
    - Calculate target dimensions (maintain aspect ratio within `max_image_dimensions`)
    - Resize using LANCZOS resampling
    - Compress iteratively (start quality=95, reduce by 5 until size < `max_file_size_mb` or quality < 20)
    - If still too large, reduce dimensions by 10% and retry
-3. Generate thumbnail previews for `ImagePreviewDialog` tabs
-4. Cache processed images in `main_window._processed_images` dict to avoid reprocessing on resubmit
-5. Clean up processed images on successful post or draft clear
+3. **Animated GIFs:** Multi-frame processing preserving animation (frame-by-frame resize)
+4. Generate thumbnail previews for `ImagePreviewDialog` tabs
+5. Cache processed images in `main_window._processed_images` dict to avoid reprocessing on resubmit
+6. Clean up processed images on successful post or draft clear
 
-Implemented in `src/core/image_processor.py::process_image()`.
+Implemented in `src/core/image_processor.py` (`process_image()`, `process_animated_gif()`).
+
+### Video Processing Pipeline
+1. Probe video metadata using ffprobe or ffmpeg stderr parsing
+2. Scale to fit max dimensions (preserve aspect ratio, ensure even dimensions for H.264)
+3. Trim to max duration if needed
+4. Re-encode to H.264 + AAC MP4 if resize/trim is needed
+5. If file too large, iteratively increase CRF (23 → 28 → 33 → 38) for more compression
+6. If video already meets all specs, pass through without re-encoding
+
+Implemented in `src/core/video_processor.py` (`process_video()`, `get_video_info()`, `validate_video()`, `extract_thumbnail()`).
+
+### Format Restriction System
+When media is attached, `main_window._apply_format_restriction()` determines which platforms support the media type:
+- Checks `supported_formats` (images) or `supported_video_formats` (videos)
+- Checks `supports_images` flag (disables video-only platforms for image attachments)
+- Calls `PlatformSelector.set_format_restriction()` to disable unsupported platforms with notice text
+- PostComposer shows text warning for platforms where `supports_text=False`
 
 ---
 
@@ -461,6 +505,8 @@ requests>=2.31.0
 packaging>=24.0
 python-dotenv>=1.0.0
 facebook-sdk>=3.1.0
+ffmpeg-python>=0.2.0
+imageio-ffmpeg>=0.5.1
 ```
 
 ### requirements-dev.txt
@@ -486,7 +532,7 @@ python -m venv .venv
 # Run
 .venv/bin/python src/main.py
 
-# Test (168 tests)
+# Test (288 tests)
 PYTHON=.venv/bin/python make test
 
 # Test with coverage (71% overall)
@@ -506,7 +552,7 @@ makensis build/installer.nsi
 ## Tooling
 
 - **Linting & formatting:** ruff (configured in `pyproject.toml`). Run `make lint` / `make lint-fix`.
-- **Testing:** pytest. **168 tests** across 27 files. Run `make test`.
+- **Testing:** pytest. **288 tests** across 27 files. Run `make test`.
 - **Coverage:** 71% overall (reasonable for PyQt6 GUI app). Main gaps: WebView browser interaction, GUI event handlers, error paths.
 - **Type checking:** mypy. Note: pre-existing false positive on `ImagePreviewDialog.Accepted`.
 - **Building:** PyInstaller via `make build`, NSIS installer via `make installer`.
@@ -543,9 +589,9 @@ makensis build/installer.nsi
 5. ~~Instagram API platform~~ ✅
 6. ~~WebView platforms (Snapchat, OnlyFans, Fansly, FetLife)~~ ✅
 7. ~~GUI updates for multi-account~~ ✅
-8. ~~Testing & polish (168 tests)~~ ✅
+8. ~~Testing & polish (288 tests)~~ ✅
 9. Build & release (Step 10 pending)
-10. Video support deferred to Phase 2
+10. ~~Video support~~ ✅ — Video processing, format restrictions, Snapchat video-only
 
 ---
 

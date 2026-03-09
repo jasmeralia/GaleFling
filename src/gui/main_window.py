@@ -47,7 +47,13 @@ from src.platforms.instagram import InstagramPlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
 from src.platforms.twitter import TwitterPlatform
-from src.utils.constants import APP_NAME, APP_VERSION, PLATFORM_SPECS_MAP, PostResult
+from src.utils.constants import (
+    APP_NAME,
+    APP_VERSION,
+    PLATFORM_SPECS_MAP,
+    VIDEO_EXTENSIONS,
+    PostResult,
+)
 from src.utils.helpers import get_drafts_dir, get_logs_dir, get_resource_path
 from src.utils.theme import apply_theme, resolve_theme_mode
 
@@ -428,34 +434,41 @@ class MainWindow(QMainWindow):
         self._setup_wizard = None
         self._refresh_platform_state()
 
-    def _on_image_changed(self, image_path):
+    def _on_image_changed(self, media_path):
         self._cleanup_processed_images()
-        if image_path:
-            get_logger().info(f'User attached image: {image_path}')
-            self._apply_format_restriction(image_path)
+        if media_path:
+            get_logger().info(f'User attached media: {media_path}')
+            self._apply_format_restriction(media_path)
             selected = self._get_selected_enabled_platforms()
             if selected:
-                self._show_image_preview(image_path, selected)
+                self._show_image_preview(media_path, selected)
                 self._auto_save_draft()
-            self._config.last_image_directory = str(image_path.parent)
+            self._config.last_image_directory = str(media_path.parent)
         else:
             self._clear_format_restriction()
 
-    def _detect_image_format(self, image_path: Path) -> str | None:
-        """Detect the image format, treating animated GIFs specially."""
-        if is_animated_gif(image_path):
-            return 'GIF'
+    @staticmethod
+    def _is_video_file(path: Path) -> bool:
+        return path.suffix.lower() in VIDEO_EXTENSIONS
+
+    def _detect_media_format(self, media_path: Path) -> tuple[str | None, bool]:
+        """Detect the media format. Returns (format_str, is_video)."""
+        if self._is_video_file(media_path):
+            fmt = media_path.suffix.lstrip('.').upper()
+            return fmt, True
+        if is_animated_gif(media_path):
+            return 'GIF', False
         try:
             from PIL import Image
 
-            with Image.open(image_path) as img:
-                return img.format
+            with Image.open(media_path) as img:
+                return img.format, False
         except Exception:
-            return None
+            return None, False
 
-    def _apply_format_restriction(self, image_path: Path):
-        """Disable platforms that don't support the attached image format."""
-        fmt = self._detect_image_format(image_path)
+    def _apply_format_restriction(self, media_path: Path):
+        """Disable platforms that don't support the attached media format."""
+        fmt, is_video = self._detect_media_format(media_path)
         if not fmt:
             self._clear_format_restriction()
             return
@@ -464,12 +477,25 @@ class MainWindow(QMainWindow):
         restricted = set()
         for account_id, platform_id in self._platform_groups.items():
             specs = PLATFORM_SPECS_MAP.get(platform_id)
-            if specs and fmt_upper not in specs.supported_formats:
-                restricted.add(account_id)
+            if not specs:
+                continue
+            if is_video:
+                # Restrict platforms that don't support this video format
+                if fmt_upper not in specs.supported_video_formats:
+                    restricted.add(account_id)
+            else:
+                # Restrict platforms that don't support this image format
+                # or don't support images at all (e.g. Snapchat web = video-only)
+                if fmt_upper not in specs.supported_formats or not specs.supports_images:
+                    restricted.add(account_id)
 
         if restricted:
-            is_gif = is_animated_gif(image_path)
-            if is_gif:
+            if is_video:
+                notice = (
+                    f'\u26a0 {fmt_upper} video attached \u2014 '
+                    f'some platforms do not support this video format.'
+                )
+            elif is_animated_gif(media_path):
                 notice = (
                     '\u26a0 Animated GIF attached \u2014 '
                     'only platforms that support GIFs are available.'
@@ -480,8 +506,8 @@ class MainWindow(QMainWindow):
                     f'some platforms do not support this format.'
                 )
             get_logger().info(
-                f'{fmt_upper} image restricting platforms',
-                extra={'restricted': sorted(restricted)},
+                f'{fmt_upper} media restricting platforms',
+                extra={'restricted': sorted(restricted), 'is_video': is_video},
             )
             self._platform_selector.set_format_restriction(restricted, notice)
         else:
@@ -492,7 +518,7 @@ class MainWindow(QMainWindow):
         self._composer.set_platform_state(selected, enabled)
 
     def _clear_format_restriction(self):
-        """Remove image format platform restrictions."""
+        """Remove media format platform restrictions."""
         self._platform_selector.set_format_restriction(set())
         selected = self._platform_selector.get_selected()
         enabled = self._platform_selector.get_enabled()

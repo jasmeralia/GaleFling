@@ -546,7 +546,7 @@ def test_action_logging_for_post_and_connections(qtbot, monkeypatch, tmp_path):
     image_path = tmp_path / 'image.png'
     image_path.write_bytes(b'fake')
     window._on_image_changed(image_path)
-    assert any('User attached image' in message for message in logged)
+    assert any('User attached media' in message for message in logged)
 
 
 def test_show_message_box_applies_theme(qtbot, monkeypatch):

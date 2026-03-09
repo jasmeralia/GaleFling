@@ -75,6 +75,74 @@ def test_user_notes_in_metadata_and_email(monkeypatch):
     assert 'FFmpeg Version: 7.1.1-custom' in email_body
 
 
+def test_ffmpeg_version_accepts_legacy_field_name(monkeypatch):
+    fake_ses = FakeSES()
+    monkeypatch.setattr(lf, 'ses', fake_ses)
+
+    event = _make_event(
+        {
+            'app_version': '1.5.2',
+            'error_code': 'POST-FAILED',
+            'user_id': 'abc',
+            'user_notes': 'legacy payload',
+            'ffmpegVersion': '6.0-legacy',
+            'log_files': [],
+            'screenshots': [],
+        }
+    )
+
+    result = lf.lambda_handler(event, None)
+    assert result['statusCode'] == 200
+    assert fake_ses.sent
+    email_body = fake_ses.sent[0]['Message']['Body']['Text']['Data']
+    assert 'FFmpeg Version: 6.0-legacy' in email_body
+
+
+def test_ffmpeg_version_accepts_nested_metadata(monkeypatch):
+    fake_ses = FakeSES()
+    monkeypatch.setattr(lf, 'ses', fake_ses)
+
+    event = _make_event(
+        {
+            'app_version': '1.5.2',
+            'error_code': 'POST-FAILED',
+            'user_id': 'abc',
+            'user_notes': 'nested payload',
+            'metadata': {'ffmpeg_version': '7.2.0-nested'},
+            'log_files': [],
+            'screenshots': [],
+        }
+    )
+
+    result = lf.lambda_handler(event, None)
+    assert result['statusCode'] == 200
+    assert fake_ses.sent
+    email_body = fake_ses.sent[0]['Message']['Body']['Text']['Data']
+    assert 'FFmpeg Version: 7.2.0-nested' in email_body
+
+
+def test_ffmpeg_version_defaults_to_unknown_when_missing(monkeypatch):
+    fake_ses = FakeSES()
+    monkeypatch.setattr(lf, 'ses', fake_ses)
+
+    event = _make_event(
+        {
+            'app_version': '1.5.2',
+            'error_code': 'POST-FAILED',
+            'user_id': 'abc',
+            'user_notes': 'no ffmpeg key',
+            'log_files': [],
+            'screenshots': [],
+        }
+    )
+
+    result = lf.lambda_handler(event, None)
+    assert result['statusCode'] == 200
+    assert fake_ses.sent
+    email_body = fake_ses.sent[0]['Message']['Body']['Text']['Data']
+    assert 'FFmpeg Version: unknown' in email_body
+
+
 def test_attachments_use_raw_email(monkeypatch):
     fake_ses = FakeSES()
     monkeypatch.setattr(lf, 'ses', fake_ses)

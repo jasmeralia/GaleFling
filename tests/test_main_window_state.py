@@ -335,7 +335,44 @@ def test_image_preview_opens_for_newly_enabled_platform(qtbot, tmp_path, monkeyp
     window._refresh_platform_state()
     window._platform_selector.set_selected(['twitter_1', 'bluesky_1'])
 
-    assert calls[-1] == ['twitter', 'bluesky']
+    assert calls[-1] == ['bluesky', 'twitter']
+
+
+def test_refresh_resorts_accounts_after_profile_update(qtbot):
+    class MutableProfileAuth(DummyAuthManager):
+        def __init__(self):
+            super().__init__(twitter=False, bluesky=True, bluesky_alt=True)
+            self._primary_profile = 'zeta.bsky.social'
+            self._alt_profile = 'alpha.bsky.social'
+
+        def get_accounts(self) -> list[AccountConfig]:
+            return [
+                AccountConfig(
+                    platform_id='bluesky',
+                    account_id='bluesky_1',
+                    profile_name=self._primary_profile,
+                ),
+                AccountConfig(
+                    platform_id='bluesky',
+                    account_id='bluesky_alt',
+                    profile_name=self._alt_profile,
+                ),
+            ]
+
+    auth = MutableProfileAuth()
+    window = DummyMainWindow(
+        DummyConfig(selected=['bluesky_1', 'bluesky_alt']),
+        auth,
+    )
+    qtbot.addWidget(window)
+
+    assert list(window._platform_selector._checkboxes.keys()) == ['bluesky_alt', 'bluesky_1']
+
+    auth._primary_profile = 'aardvark.bsky.social'
+    window._refresh_platform_state()
+
+    assert list(window._platform_selector._checkboxes.keys()) == ['bluesky_1', 'bluesky_alt']
+    assert window._platform_selector.get_selected() == ['bluesky_1', 'bluesky_alt']
 
 
 def test_resubmit_does_not_regenerate_preview_when_cached(qtbot, tmp_path, monkeypatch):

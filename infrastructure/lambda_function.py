@@ -37,6 +37,26 @@ def _is_supported_version(app_version: str, min_supported_version: str) -> bool:
     return app_tuple >= min_tuple
 
 
+def _extract_ffmpeg_version(payload: dict) -> str:
+    """Extract ffmpeg version from known payload locations."""
+    candidates = [
+        payload.get('ffmpeg_version'),
+        payload.get('ffmpegVersion'),
+        payload.get('ffmpeg'),
+        (payload.get('metadata') or {}).get('ffmpeg_version'),
+        (payload.get('metadata') or {}).get('ffmpegVersion'),
+        (payload.get('client') or {}).get('ffmpeg_version'),
+        (payload.get('client') or {}).get('ffmpegVersion'),
+    ]
+    for value in candidates:
+        if value is None:
+            continue
+        normalized = str(value).strip()
+        if normalized:
+            return normalized
+    return 'unknown'
+
+
 def lambda_handler(event, context):
     """Handle log upload from the desktop application.
 
@@ -112,7 +132,7 @@ def lambda_handler(event, context):
     username = body.get('username', '')
     os_version = body.get('os_version', '')
     os_platform = body.get('os_platform', '')
-    ffmpeg_version = body.get('ffmpeg_version', 'unknown')
+    ffmpeg_version = _extract_ffmpeg_version(body)
     os_display = os_platform or 'Unknown OS'
 
     # Send notification email via SES (attachments preferred)

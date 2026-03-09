@@ -62,11 +62,11 @@ class PlatformSelector(QWidget):
             cb.setParent(None)
             cb.deleteLater()
         self._checkboxes.clear()
-        self._accounts = accounts
+        self._accounts = sorted(accounts, key=self._account_sort_key)
         self._available.clear()
 
         # Build checkboxes in a 2-column grid
-        for i, account in enumerate(accounts):
+        for i, account in enumerate(self._accounts):
             specs = PLATFORM_SPECS_MAP.get(account.platform_id)
             color = specs.platform_color if specs else '#000000'
             label = self._format_account_label(account)
@@ -173,6 +173,7 @@ class PlatformSelector(QWidget):
             return
         label = self._format_account_label(account, username_override=username)
         cb.setText(label)
+        self._resort_checkboxes()
 
     def _get_account(self, account_id: str) -> AccountConfig | None:
         for a in self._accounts:
@@ -214,14 +215,51 @@ class PlatformSelector(QWidget):
         cb = self._checkboxes.get(account_id)
         return cb.text() if cb else ''
 
+    def _resort_checkboxes(self):
+        """Reorder checkboxes when account labels change."""
+        self._accounts = sorted(self._accounts, key=self._account_display_sort_key)
+        existing = self._checkboxes
+        self._checkboxes = {
+            account.account_id: existing[account.account_id]
+            for account in self._accounts
+            if account.account_id in existing
+        }
+        for i, account in enumerate(self._accounts):
+            cb = self._checkboxes.get(account.account_id)
+            if not cb:
+                continue
+            row = (i // 2) + 1  # row 0 is the "Post to:" label
+            col = i % 2
+            self._layout.addWidget(cb, row, col)
+
+    def _account_display_sort_key(self, account: AccountConfig) -> tuple[str, str]:
+        cb = self._checkboxes.get(account.account_id)
+        if cb:
+            return (cb.text().strip().casefold(), account.account_id.casefold())
+        base, has_username, username, account_id = self._account_sort_key(account)
+        return (f'{base}:{has_username}:{username}', account_id)
+
+    @staticmethod
+    def _account_sort_key(account: AccountConfig) -> tuple[str, int, str, str]:
+        specs = PLATFORM_SPECS_MAP.get(account.platform_id)
+        base = specs.platform_name if specs else account.platform_id.title()
+        username = PlatformSelector._normalized_username(account.profile_name, account.platform_id)
+        has_username = 0 if username else 1
+        return (base.casefold(), has_username, username.casefold(), account.account_id.casefold())
+
+    @staticmethod
+    def _normalized_username(username: str | None, platform_id: str = '') -> str:
+        if not username:
+            return ''
+        trimmed = username.strip().lstrip('@')
+        if platform_id == 'bluesky' and trimmed.endswith('.bsky.social'):
+            trimmed = trimmed[: -len('.bsky.social')]
+        return trimmed
+
 
 def _format_platform_label(base: str, username: str | None, platform_id: str = '') -> str:
     """Format a platform label with optional username parenthetical."""
-    if not username:
-        return base
-    trimmed = username.strip().lstrip('@')
-    if platform_id == 'bluesky' and trimmed.endswith('.bsky.social'):
-        trimmed = trimmed[: -len('.bsky.social')]
+    trimmed = PlatformSelector._normalized_username(username, platform_id)
     if not trimmed:
         return base
     return f'{base} ({trimmed})'

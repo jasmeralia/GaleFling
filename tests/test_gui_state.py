@@ -141,6 +141,49 @@ def test_platform_selector_usernames(qtbot):
     assert selector.get_platform_label('bluesky_alt') == 'Bluesky (alt)'
 
 
+def test_platform_selector_sorts_by_platform_then_profile(qtbot):
+    selector = PlatformSelector()
+    qtbot.addWidget(selector)
+    selector.set_accounts(
+        [
+            AccountConfig(platform_id='twitter', account_id='twitter_1', profile_name='jasmeralia'),
+            AccountConfig(platform_id='fansly', account_id='fansly_1', profile_name=''),
+            AccountConfig(
+                platform_id='bluesky',
+                account_id='bluesky_alt',
+                profile_name='jasmeralia_sfw.bsky.social',
+            ),
+            AccountConfig(
+                platform_id='bluesky',
+                account_id='bluesky_1',
+                profile_name='jasmeralia.bsky.social',
+            ),
+        ]
+    )
+
+    assert list(selector._checkboxes.keys()) == [
+        'bluesky_1',
+        'bluesky_alt',
+        'fansly_1',
+        'twitter_1',
+    ]
+
+
+def test_platform_selector_resorts_when_profile_updates(qtbot):
+    selector = PlatformSelector()
+    qtbot.addWidget(selector)
+    selector.set_accounts(
+        [
+            AccountConfig(platform_id='bluesky', account_id='bluesky_1', profile_name='zeta'),
+            AccountConfig(platform_id='bluesky', account_id='bluesky_alt', profile_name='alpha'),
+        ]
+    )
+
+    assert list(selector._checkboxes.keys()) == ['bluesky_alt', 'bluesky_1']
+    selector.set_platform_username('bluesky_1', 'aardvark.bsky.social')
+    assert list(selector._checkboxes.keys()) == ['bluesky_1', 'bluesky_alt']
+
+
 def test_preview_button_enabled_when_image_present(qtbot, tmp_path):
     composer = PostComposer()
     qtbot.addWidget(composer)

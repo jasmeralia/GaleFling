@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.7] - 2026-03-09
+
+### Changed
+- Composer platform selector now sorts accounts by platform name and then account/profile label (for example, `Bluesky (jasmeralia)` before `Bluesky (jasmeralia_sfw)`), and re-sorts when profile labels change.
+- Lambda log ingestion now extracts ffmpeg version from additional payload shapes (`ffmpegVersion`, `ffmpeg`, and nested metadata/client fields) before falling back to `unknown`.
+
+### Added
+- Tests for platform/account sort ordering and re-sorting after profile updates.
+- Lambda tests covering ffmpeg version extraction from legacy and nested payload keys.
+
 ## [1.5.6] - 2026-03-09
 
 ### Changed

@@ -15,7 +15,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.image_processor import ProcessedImage, process_image
+from src.core.image_processor import (
+    ProcessedImage,
+    is_animated_gif,
+    process_animated_gif,
+    process_image,
+)
 from src.core.logger import get_logger
 from src.utils.constants import PLATFORM_SPECS_MAP, PlatformSpecs
 
@@ -321,7 +326,14 @@ class _ImageProcessWorker(QObject):
                     'image_path': str(self._image_path),
                 },
             )
-            result = process_image(self._image_path, self._specs, progress_cb=self.progress.emit)
+            if is_animated_gif(self._image_path):
+                result = process_animated_gif(
+                    self._image_path, self._specs, progress_cb=self.progress.emit
+                )
+            else:
+                result = process_image(
+                    self._image_path, self._specs, progress_cb=self.progress.emit
+                )
             logger.info(
                 'Preview processing finished',
                 extra={

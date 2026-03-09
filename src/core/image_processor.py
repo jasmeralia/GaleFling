@@ -66,6 +66,187 @@ def validate_image(image_path: Path, specs: PlatformSpecs) -> str | None:
     return None
 
 
+def is_animated_gif(image_path: Path) -> bool:
+    """Check if an image file is an animated GIF (more than one frame)."""
+    try:
+        with Image.open(image_path) as img:
+            if img.format != 'GIF':
+                return False
+            return getattr(img, 'is_animated', False)
+    except Exception:
+        return False
+
+
+def _resize_gif_frame(frame: Image.Image, new_size: tuple[int, int]) -> Image.Image:
+    """Resize a single GIF frame, preserving palette mode."""
+    return frame.resize(new_size, Resampling.LANCZOS)
+
+
+def process_animated_gif(
+    image_path: Path,
+    specs: PlatformSpecs,
+    progress_cb: Callable[[int], None] | None = None,
+) -> ProcessedImage:
+    """Resize and compress an animated GIF while preserving all frames.
+
+    Pipeline:
+    1. Load all frames from the GIF
+    2. Scale each frame to fit max dimensions (preserve aspect ratio)
+    3. Check total file size, reduce dimensions if needed
+    4. Save with all frames preserved
+    """
+    logger = get_logger()
+    try:
+        logger.info(
+            'Animated GIF processing start',
+            extra={
+                'platform': specs.platform_name,
+                'image_path': str(image_path),
+            },
+        )
+        _emit_progress(progress_cb, 0)
+        original_file_size = image_path.stat().st_size
+
+        img: Image.Image = Image.open(image_path)
+        original_size = img.size
+        n_frames = getattr(img, 'n_frames', 1)
+        logger.info(
+            'Loaded animated GIF',
+            extra={
+                'platform': specs.platform_name,
+                'size': original_size,
+                'frames': n_frames,
+                'file_size': original_file_size,
+            },
+        )
+        _emit_progress(progress_cb, 10)
+
+        # Extract all frames and their durations
+        frames: list[Image.Image] = []
+        durations: list[int] = []
+        for i in range(n_frames):
+            img.seek(i)
+            frame = img.copy()
+            # Convert to RGBA for consistent processing (handles disposal methods)
+            if frame.mode != 'RGBA':
+                frame = frame.convert('RGBA')
+            frames.append(frame)
+            durations.append(img.info.get('duration', 100))
+        _emit_progress(progress_cb, 30)
+
+        # Calculate target dimensions
+        max_w, max_h = specs.max_image_dimensions
+        w, h = original_size
+        if w > max_w or h > max_h:
+            ratio = min(max_w / w, max_h / h)
+            target_size = (int(w * ratio), int(h * ratio))
+        else:
+            target_size = (w, h)
+
+        # Resize all frames
+        resized_frames = [_resize_gif_frame(f, target_size) for f in frames]
+        _emit_progress(progress_cb, 50)
+
+        # Convert frames back to palette mode for GIF saving
+        def _to_palette(frame_list: list[Image.Image]) -> list[Image.Image]:
+            return [f.convert('P', palette=Image.Palette.ADAPTIVE, colors=256) for f in frame_list]
+
+        palette_frames = _to_palette(resized_frames)
+
+        # Save and check file size
+        max_bytes = int(specs.max_file_size_mb * 1024 * 1024)
+        buf = io.BytesIO()
+        palette_frames[0].save(
+            buf,
+            format='GIF',
+            save_all=True,
+            append_images=palette_frames[1:],
+            duration=durations,
+            loop=img.info.get('loop', 0),
+            optimize=True,
+        )
+        _emit_progress(progress_cb, 70)
+
+        # If too large, progressively reduce dimensions
+        warning = None
+        scale_factor = 0.9
+        current_frames = resized_frames
+        while buf.tell() > max_bytes and scale_factor > 0.3:
+            new_w = int(target_size[0] * scale_factor)
+            new_h = int(target_size[1] * scale_factor)
+            current_frames = [_resize_gif_frame(f, (new_w, new_h)) for f in frames]
+            palette_frames = _to_palette(current_frames)
+            target_size = (new_w, new_h)
+
+            buf.seek(0)
+            buf.truncate()
+            palette_frames[0].save(
+                buf,
+                format='GIF',
+                save_all=True,
+                append_images=palette_frames[1:],
+                duration=durations,
+                loop=img.info.get('loop', 0),
+                optimize=True,
+            )
+            scale_factor -= 0.1
+            logger.debug(
+                'Animated GIF dimension reduction',
+                extra={
+                    'platform': specs.platform_name,
+                    'size': target_size,
+                    'bytes': buf.tell(),
+                    'max_bytes': max_bytes,
+                },
+            )
+        _emit_progress(progress_cb, 80)
+
+        meets = buf.tell() <= max_bytes
+        if not meets:
+            warning = f'Could not compress below {specs.max_file_size_mb}MB'
+
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(
+            suffix=f'_{specs.platform_name.lower()}.gif',
+            delete=False,
+        ) as tmp:
+            tmp.write(buf.getvalue())
+            tmp_name = tmp.name
+        logger.info(
+            'Saved processed animated GIF',
+            extra={
+                'platform': specs.platform_name,
+                'output_path': tmp_name,
+                'processed_size': target_size,
+                'processed_bytes': buf.tell(),
+                'frames': n_frames,
+            },
+        )
+        _emit_progress(progress_cb, 100)
+
+        return ProcessedImage(
+            path=Path(tmp_name),
+            original_size=original_size,
+            processed_size=target_size,
+            original_file_size=original_file_size,
+            processed_file_size=buf.tell(),
+            format='GIF',
+            quality=100,
+            meets_requirements=meets,
+            warning=warning,
+        )
+    except Exception as exc:
+        logger.exception(
+            'Animated GIF processing failed',
+            extra={
+                'platform': specs.platform_name,
+                'image_path': str(image_path),
+                'error': str(exc),
+            },
+        )
+        raise
+
+
 def _emit_progress(progress_cb: Callable[[int], None] | None, value: int):
     if progress_cb is not None:
         progress_cb(value)
@@ -214,7 +395,8 @@ def process_image(
         _emit_progress(progress_cb, 80)
 
         # Save to temp file
-        ext = '.png' if out_format.upper() == 'PNG' else '.jpg'
+        ext_map = {'PNG': '.png', 'GIF': '.gif', 'WEBP': '.webp'}
+        ext = ext_map.get(out_format.upper(), '.jpg')
         with tempfile.NamedTemporaryFile(
             suffix=f'_{specs.platform_name.lower()}{ext}',
             delete=False,

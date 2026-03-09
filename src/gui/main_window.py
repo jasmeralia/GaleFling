@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
+from src.core.image_processor import is_animated_gif
 from src.core.log_uploader import LogUploader
 from src.core.logger import get_current_log_path, get_logger, reset_log_file
 from src.core.update_checker import check_for_updates
@@ -46,7 +47,7 @@ from src.platforms.instagram import InstagramPlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
 from src.platforms.twitter import TwitterPlatform
-from src.utils.constants import APP_NAME, APP_VERSION, PostResult
+from src.utils.constants import APP_NAME, APP_VERSION, PLATFORM_SPECS_MAP, PostResult
 from src.utils.helpers import get_drafts_dir, get_logs_dir, get_resource_path
 from src.utils.theme import apply_theme, resolve_theme_mode
 
@@ -431,11 +432,71 @@ class MainWindow(QMainWindow):
         self._cleanup_processed_images()
         if image_path:
             get_logger().info(f'User attached image: {image_path}')
+            self._apply_format_restriction(image_path)
             selected = self._get_selected_enabled_platforms()
             if selected:
                 self._show_image_preview(image_path, selected)
                 self._auto_save_draft()
             self._config.last_image_directory = str(image_path.parent)
+        else:
+            self._clear_format_restriction()
+
+    def _detect_image_format(self, image_path: Path) -> str | None:
+        """Detect the image format, treating animated GIFs specially."""
+        if is_animated_gif(image_path):
+            return 'GIF'
+        try:
+            from PIL import Image
+
+            with Image.open(image_path) as img:
+                return img.format
+        except Exception:
+            return None
+
+    def _apply_format_restriction(self, image_path: Path):
+        """Disable platforms that don't support the attached image format."""
+        fmt = self._detect_image_format(image_path)
+        if not fmt:
+            self._clear_format_restriction()
+            return
+
+        fmt_upper = fmt.upper()
+        restricted = set()
+        for account_id, platform_id in self._platform_groups.items():
+            specs = PLATFORM_SPECS_MAP.get(platform_id)
+            if specs and fmt_upper not in specs.supported_formats:
+                restricted.add(account_id)
+
+        if restricted:
+            is_gif = is_animated_gif(image_path)
+            if is_gif:
+                notice = (
+                    '\u26a0 Animated GIF attached \u2014 '
+                    'only platforms that support GIFs are available.'
+                )
+            else:
+                notice = (
+                    f'\u26a0 {fmt_upper} image attached \u2014 '
+                    f'some platforms do not support this format.'
+                )
+            get_logger().info(
+                f'{fmt_upper} image restricting platforms',
+                extra={'restricted': sorted(restricted)},
+            )
+            self._platform_selector.set_format_restriction(restricted, notice)
+        else:
+            self._platform_selector.set_format_restriction(set())
+
+        selected = self._platform_selector.get_selected()
+        enabled = self._platform_selector.get_enabled()
+        self._composer.set_platform_state(selected, enabled)
+
+    def _clear_format_restriction(self):
+        """Remove image format platform restrictions."""
+        self._platform_selector.set_format_restriction(set())
+        selected = self._platform_selector.get_selected()
+        enabled = self._platform_selector.get_enabled()
+        self._composer.set_platform_state(selected, enabled)
 
     def _on_preview_requested(self):
         image_path = self._composer.get_image_path()
@@ -731,6 +792,7 @@ class MainWindow(QMainWindow):
             self._clear_draft()
             self._composer.clear()
             self._cleanup_processed_images()
+            self._clear_format_restriction()
 
     def _open_settings(self):
         dialog = SettingsDialog(self._config, self._auth_manager, self)

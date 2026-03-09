@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-03-09
+
+### Added
+- Animated GIF support for Twitter: multi-frame resize/compression preserves animation, durations, and loop count.
+- Image format-based platform restriction: when an attached image uses a format not supported by all platforms (e.g. GIF, WEBP), unsupported platforms are automatically disabled with a clear warning notice explaining why.
+
+### Fixed
+- Processed image temp files now use correct extensions (.gif, .webp, .png) instead of always defaulting to .jpg.
+
 ## [1.3.2] - 2026-03-07
 
 ### Fixed

@@ -21,6 +21,8 @@ class PlatformSelector(QWidget):
         self._checkboxes: dict[str, QCheckBox] = {}
         self._accounts: list[AccountConfig] = []
         self._available: set[str] = set()
+        self._format_restricted: set[str] = set()
+        self._format_notice: QLabel | None = None
         self._init_ui()
 
     def _init_ui(self):
@@ -32,6 +34,14 @@ class PlatformSelector(QWidget):
         self._label = QLabel('Post to:')
         self._label.setStyleSheet('font-weight: bold; font-size: 13px; color: palette(text);')
         self._layout.addWidget(self._label, 0, 0)
+
+        self._format_notice = QLabel()
+        self._format_notice.setStyleSheet(
+            'color: #FF9800; font-size: 12px; font-style: italic; padding: 2px 0;'
+        )
+        self._format_notice.setWordWrap(True)
+        self._format_notice.setVisible(False)
+        self._layout.addWidget(self._format_notice, 0, 1)
 
     def set_accounts(self, accounts: list[AccountConfig]):
         """Rebuild checkboxes from account list."""
@@ -65,8 +75,10 @@ class PlatformSelector(QWidget):
         cb = self._checkboxes.get(account_id)
         if not cb:
             return
-        # Block checking unavailable platforms, but always allow unchecking
-        if cb.isChecked() and account_id not in self._available:
+        # Block checking unavailable or format-restricted platforms, allow unchecking
+        if cb.isChecked() and (
+            account_id not in self._available or account_id in self._format_restricted
+        ):
             cb.setChecked(False)
             return
         self.selection_changed.emit(self.get_selected())
@@ -92,6 +104,29 @@ class PlatformSelector(QWidget):
     def get_enabled(self) -> list[str]:
         return [name for name in self._checkboxes if name in self._available]
 
+    def set_format_restriction(self, restricted_account_ids: set[str], notice_text: str = ''):
+        """Restrict platforms that don't support the attached image format.
+
+        Unchecks and dims any accounts in restricted_account_ids,
+        and shows an explanatory notice. Pass an empty set to clear.
+        """
+        self._format_restricted = set(restricted_account_ids)
+        show_notice = bool(self._format_restricted)
+        if self._format_notice:
+            self._format_notice.setText(notice_text)
+            self._format_notice.setVisible(show_notice)
+
+        for account_id in self._format_restricted:
+            cb = self._checkboxes.get(account_id)
+            if cb and cb.isChecked():
+                cb.setChecked(False)
+
+        for account_id in self._checkboxes:
+            self._update_checkbox_style(account_id)
+
+        if self._format_restricted:
+            self.selection_changed.emit(self.get_selected())
+
     def set_platform_username(self, account_id: str, username: str | None):
         cb = self._checkboxes.get(account_id)
         if not cb:
@@ -115,10 +150,15 @@ class PlatformSelector(QWidget):
         account = self._get_account(account_id)
         specs = PLATFORM_SPECS_MAP.get(account.platform_id if account else '')
         color = specs.platform_color if specs else '#000000'
-        if account_id in self._available:
+        if account_id in self._format_restricted:
+            cb.setStyleSheet('font-size: 13px; color: #888888; font-style: italic;')
+            cb.setToolTip('This platform does not support the attached image format.')
+        elif account_id in self._available:
             cb.setStyleSheet(f'font-size: 13px; color: {color};')
+            cb.setToolTip('')
         else:
             cb.setStyleSheet(f'font-size: 13px; color: {color}; font-style: italic;')
+            cb.setToolTip('')
 
     @staticmethod
     def _format_account_label(

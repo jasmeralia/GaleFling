@@ -22,7 +22,9 @@ class PlatformSelector(QWidget):
         self._accounts: list[AccountConfig] = []
         self._available: set[str] = set()
         self._format_restricted: set[str] = set()
+        self._count_restricted: set[str] = set()
         self._format_notice: QLabel | None = None
+        self._count_notice: QLabel | None = None
         self._init_ui()
 
     def _init_ui(self):
@@ -42,6 +44,16 @@ class PlatformSelector(QWidget):
         self._format_notice.setWordWrap(True)
         self._format_notice.setVisible(False)
         self._layout.addWidget(self._format_notice, 0, 1)
+
+        self._count_notice = QLabel()
+        self._count_notice.setStyleSheet(
+            'color: #FF9800; font-size: 12px; font-style: italic; padding: 2px 0;'
+        )
+        self._count_notice.setWordWrap(True)
+        self._count_notice.setVisible(False)
+        # Place count notice at row 0, column 1 — will stack with format_notice
+        # Actually place at a high row, it will adjust once checkboxes are built
+        self._layout.addWidget(self._count_notice, 100, 0, 1, 2)
 
     def set_accounts(self, accounts: list[AccountConfig]):
         """Rebuild checkboxes from account list."""
@@ -75,9 +87,11 @@ class PlatformSelector(QWidget):
         cb = self._checkboxes.get(account_id)
         if not cb:
             return
-        # Block checking unavailable or format-restricted platforms, allow unchecking
+        # Block checking unavailable, format-restricted, or count-restricted platforms
         if cb.isChecked() and (
-            account_id not in self._available or account_id in self._format_restricted
+            account_id not in self._available
+            or account_id in self._format_restricted
+            or account_id in self._count_restricted
         ):
             cb.setChecked(False)
             return
@@ -127,6 +141,29 @@ class PlatformSelector(QWidget):
         if self._format_restricted:
             self.selection_changed.emit(self.get_selected())
 
+    def set_count_restriction(self, restricted_account_ids: set[str], notice_text: str = ''):
+        """Restrict platforms that don't support the number of attachments.
+
+        Unchecks and dims any accounts in restricted_account_ids,
+        and shows an explanatory notice. Pass an empty set to clear.
+        """
+        self._count_restricted = set(restricted_account_ids)
+        show_notice = bool(self._count_restricted)
+        if self._count_notice:
+            self._count_notice.setText(notice_text)
+            self._count_notice.setVisible(show_notice)
+
+        for account_id in self._count_restricted:
+            cb = self._checkboxes.get(account_id)
+            if cb and cb.isChecked():
+                cb.setChecked(False)
+
+        for account_id in self._checkboxes:
+            self._update_checkbox_style(account_id)
+
+        if self._count_restricted:
+            self.selection_changed.emit(self.get_selected())
+
     def set_platform_username(self, account_id: str, username: str | None):
         cb = self._checkboxes.get(account_id)
         if not cb:
@@ -152,7 +189,10 @@ class PlatformSelector(QWidget):
         color = specs.platform_color if specs else '#000000'
         if account_id in self._format_restricted:
             cb.setStyleSheet('font-size: 13px; color: #888888; font-style: italic;')
-            cb.setToolTip('This platform does not support the attached image format.')
+            cb.setToolTip('This platform does not support the attached media format.')
+        elif account_id in self._count_restricted:
+            cb.setStyleSheet('font-size: 13px; color: #888888; font-style: italic;')
+            cb.setToolTip('Too many attachments for this platform.')
         elif account_id in self._available:
             cb.setStyleSheet(f'font-size: 13px; color: {color};')
             cb.setToolTip('')

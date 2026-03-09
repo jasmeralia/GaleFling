@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-03-09
+
+### Added
+- Multiple media attachment support in posting flows (up to 4 images on platforms that allow it).
+- Attachment-count platform restriction notices when selected media exceeds platform limits.
+
+### Changed
+- Unified platform posting APIs to accept `media_paths` lists across API and WebView implementations.
+- Draft save/restore now persists `media_paths` and `processed_media` with backward compatibility for legacy draft keys.
+
+### Fixed
+- Multi-media preview caching now indexes by attachment position, preventing false "processed" states when earlier attachments fail.
+- NSIS installer registry version fields now match the current app version.
+
 ## [1.5.0] - 2026-03-09
 
 ### Added

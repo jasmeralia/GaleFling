@@ -35,7 +35,7 @@ class BasePlatform(ABC):
         """Return platform requirements and constraints."""
 
     @abstractmethod
-    def post(self, text: str, image_path: Path | None = None) -> PostResult:
+    def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
         """Post content. Returns detailed result with clickable URL."""
 
     @abstractmethod

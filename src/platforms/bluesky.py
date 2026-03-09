@@ -114,7 +114,7 @@ class BlueskyPlatform(BasePlatform):
             get_logger().error(f'Bluesky connection test failed: {e}')
             return False, 'BS-AUTH-INVALID'
 
-    def post(self, text: str, image_path: Path | None = None) -> PostResult:
+    def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
         if not self._client:
             success, error = self.authenticate()
             if not success:
@@ -126,18 +126,19 @@ class BlueskyPlatform(BasePlatform):
         try:
             facets = detect_urls(text)
             embed: dict[str, object] | None = None
-            images: list[dict[str, object]] | None = None
 
-            if image_path:
+            if media_paths:
                 try:
-                    img_data = image_path.read_bytes()
-                    upload = client.upload_blob(img_data)
-                    images = [
-                        {
-                            'alt': '',
-                            'image': upload.blob,
-                        }
-                    ]
+                    images: list[dict[str, object]] = []
+                    for media_path in media_paths:
+                        img_data = media_path.read_bytes()
+                        upload = client.upload_blob(img_data)
+                        images.append(
+                            {
+                                'alt': '',
+                                'image': upload.blob,
+                            }
+                        )
                     embed = {
                         '$type': 'app.bsky.embed.images',
                         'images': images,
@@ -147,7 +148,7 @@ class BlueskyPlatform(BasePlatform):
                         'IMG-UPLOAD-FAILED',
                         'Bluesky',
                         exception=e,
-                        details={'image_path': str(image_path)},
+                        details={'media_paths': [str(p) for p in media_paths]},
                     )
 
             record: dict[str, object] = {

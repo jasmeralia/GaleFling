@@ -276,9 +276,9 @@ def test_resubmit_does_not_regenerate_preview_when_cached(qtbot, tmp_path, monke
     processed_path = tmp_path / 'processed.png'
     processed_path.write_bytes(b'processed')
 
-    window._show_image_preview = fake_preview
+    window._show_media_preview = fake_preview
     window._composer.set_image_path(image_path)
-    window._processed_images = {'twitter': processed_path}
+    window._processed_media = {'twitter': [processed_path]}
     window._composer.set_text('hello')
 
     calls.clear()
@@ -296,10 +296,10 @@ def test_auto_save_draft_persists_processed_images(qtbot, tmp_path, monkeypatch)
     processed_path = tmp_path / 'processed.png'
     processed_path.write_bytes(b'processed')
 
-    window._show_image_preview = lambda *_args, **_kwargs: None
+    window._show_media_preview = lambda *_args, **_kwargs: None
     window._composer.set_text('hello')
     window._composer.set_image_path(image_path)
-    window._processed_images = {'twitter': processed_path}
+    window._processed_media = {'twitter': [processed_path]}
 
     monkeypatch.setattr('src.gui.main_window.get_drafts_dir', lambda: tmp_path)
 
@@ -307,7 +307,7 @@ def test_auto_save_draft_persists_processed_images(qtbot, tmp_path, monkeypatch)
 
     draft_path = tmp_path / 'current_draft.json'
     data = draft_path.read_text()
-    assert 'processed_images' in data
+    assert 'processed_media' in data
     assert 'processed.png' in data
     assert 'enabled_platforms' in data
 
@@ -342,9 +342,9 @@ def test_successful_post_clears_draft_and_processed_images(qtbot, tmp_path, monk
     image_path.write_bytes(b'fake')
     processed_path = tmp_path / 'processed.png'
     processed_path.write_bytes(b'processed')
-    window._processed_images = {'twitter': processed_path}
+    window._processed_media = {'twitter': [processed_path]}
 
-    window._show_image_preview = lambda *_args, **_kwargs: None
+    window._show_media_preview = lambda *_args, **_kwargs: None
     window._composer.set_text('hello')
     window._composer.set_image_path(image_path)
 
@@ -545,7 +545,7 @@ def test_action_logging_for_post_and_connections(qtbot, monkeypatch, tmp_path):
     window._platform_selector.set_selected([])
     image_path = tmp_path / 'image.png'
     image_path.write_bytes(b'fake')
-    window._on_image_changed(image_path)
+    window._on_media_changed([image_path])
     assert any('User attached media' in message for message in logged)
 
 
@@ -632,7 +632,7 @@ def test_manual_update_check_accepts_update(qtbot, monkeypatch):
     assert called['downloaded'] == '1.0.1'
 
 
-def test_show_image_preview_logs_send_on_error(qtbot, monkeypatch, tmp_path):
+def test_show_media_preview_logs_send_on_error(qtbot, monkeypatch, tmp_path):
     class PreviewDialog:
         Accepted = 1
 
@@ -661,9 +661,50 @@ def test_show_image_preview_logs_send_on_error(qtbot, monkeypatch, tmp_path):
 
     image_path = tmp_path / 'image.png'
     image_path.write_bytes(b'fake')
-    window._show_image_preview(image_path, ['twitter'])
+    window._show_media_preview([image_path], ['twitter'])
 
     assert called.get('sent') is True
+
+
+def test_show_media_preview_missing_first_media_stays_missing(qtbot, monkeypatch, tmp_path):
+    class PreviewDialog:
+        Accepted = 1
+        _calls = 0
+
+        def __init__(self, image_path, _platforms, _parent=None, existing_paths=None):
+            self.had_errors = False
+            self._image_path = image_path
+            self._existing_paths = existing_paths or {}
+            self._call_idx = PreviewDialog._calls
+            PreviewDialog._calls += 1
+
+        def exec(self):
+            return self.Accepted
+
+        def get_processed_paths(self):
+            # First media fails to process for twitter; second succeeds.
+            if self._call_idx == 0:
+                return {'twitter': None}
+            processed = self._image_path.with_name(f'processed_{self._image_path.name}')
+            processed.write_bytes(b'processed')
+            return {'twitter': processed}
+
+    monkeypatch.setattr('src.gui.main_window.ImagePreviewDialog', PreviewDialog)
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    media_1 = tmp_path / 'image1.png'
+    media_2 = tmp_path / 'image2.png'
+    media_1.write_bytes(b'fake1')
+    media_2.write_bytes(b'fake2')
+
+    window._show_media_preview([media_1, media_2], ['twitter_1'])
+
+    # Only one processed media should be cached; first is still missing.
+    assert len(window._processed_media['twitter']) == 1
+    missing = window._get_missing_processed_platforms(['twitter_1'], expected_count=2)
+    assert missing == ['twitter']
 
 
 def test_main_window_single_platform_enabled(qtbot):

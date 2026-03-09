@@ -280,8 +280,8 @@ def process_video(
 
         # Build ffmpeg command
         crf = 23  # Default quality
-        output_path = None
-        warning = None
+        output_path: Path | None = None
+        warning: str | None = None
 
         for attempt in range(4):  # Try up to 4 CRF levels: 23, 28, 33, 38
             with tempfile.NamedTemporaryFile(
@@ -370,6 +370,7 @@ def process_video(
 
         _emit_progress(progress_cb, 80)
 
+        assert output_path is not None  # guaranteed by the for loop above
         processed_info = get_video_info(output_path)
         meets = max_bytes is None or processed_info.file_size <= max_bytes
 

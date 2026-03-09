@@ -183,7 +183,7 @@ def test_base_webview_prepare_post():
     platform._post_confirmed = True
     platform._captured_post_url = 'https://old.url'
 
-    platform.prepare_post('New post', Path('/tmp/img.jpg'))
+    platform.prepare_post('New post', [Path('/tmp/img.jpg')])
 
     assert platform._text == 'New post'
     assert platform._image_path == Path('/tmp/img.jpg')

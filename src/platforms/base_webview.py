@@ -114,10 +114,10 @@ class BaseWebViewPlatform(BasePlatform):
 
     # ── Posting workflow ────────────────────────────────────────────
 
-    def prepare_post(self, text: str, image_path: Path | None = None):
-        """Store text and image for pre-fill after page loads."""
+    def prepare_post(self, text: str, media_paths: list[Path] | None = None):
+        """Store text and media for pre-fill after page loads."""
         self._text = text
-        self._image_path = image_path
+        self._image_path = media_paths[0] if media_paths else None
         self._captured_post_url = None
         self._post_confirmed = False
         self._poll_elapsed_ms = 0
@@ -347,7 +347,7 @@ class BaseWebViewPlatform(BasePlatform):
             return True, None
         return False, 'WV-SESSION-EXPIRED'
 
-    def post(self, text: str, image_path: Path | None = None) -> PostResult:
+    def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
         """WebView platforms don't post programmatically.
 
         Use prepare_post() + navigate_to_composer() + build_result() instead.

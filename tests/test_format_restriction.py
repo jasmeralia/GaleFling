@@ -178,3 +178,62 @@ class TestVideoFormatRestriction:
         cb.setChecked(True)
         sel._on_checkbox_clicked('snapchat_1')
         assert not cb.isChecked()
+
+
+COUNT_NOTICE = '\u26a0 3 attachments \u2014 some platforms support fewer attachments.'
+
+
+class TestCountRestriction:
+    def test_count_restricts_single_attachment_platforms(self, selector_with_snapchat):
+        """Platforms that only support 1 attachment should be restricted with 2+ files."""
+        sel = selector_with_snapchat
+        sel.set_selected(['twitter_1', 'bluesky_1', 'snapchat_1'])
+        # Snapchat supports 1 attachment, Twitter/Bluesky support 4
+        sel.set_count_restriction({'snapchat_1'}, COUNT_NOTICE)
+        selected = sel.get_selected()
+        assert 'twitter_1' in selected
+        assert 'bluesky_1' in selected
+        assert 'snapchat_1' not in selected
+
+    def test_count_restriction_shows_notice(self, selector_with_snapchat):
+        """Count restriction shows the notice label."""
+        sel = selector_with_snapchat
+        assert sel._count_notice.isHidden()
+        sel.set_count_restriction({'snapchat_1'}, COUNT_NOTICE)
+        assert not sel._count_notice.isHidden()
+        assert 'attachments' in sel._count_notice.text().lower()
+
+    def test_clearing_count_restriction(self, selector_with_snapchat):
+        """Clearing count restriction hides the notice."""
+        sel = selector_with_snapchat
+        sel.set_count_restriction({'snapchat_1'}, COUNT_NOTICE)
+        assert not sel._count_notice.isHidden()
+        sel.set_count_restriction(set())
+        assert sel._count_notice.isHidden()
+
+    def test_count_restriction_prevents_checking(self, selector_with_snapchat):
+        """Count-restricted platform cannot be checked."""
+        sel = selector_with_snapchat
+        sel.set_count_restriction({'snapchat_1'}, COUNT_NOTICE)
+        cb = sel._checkboxes['snapchat_1']
+        cb.setChecked(True)
+        sel._on_checkbox_clicked('snapchat_1')
+        assert not cb.isChecked()
+
+    def test_count_restriction_tooltip(self, selector_with_snapchat):
+        """Count-restricted platform shows tooltip."""
+        sel = selector_with_snapchat
+        sel.set_count_restriction({'snapchat_1'}, COUNT_NOTICE)
+        cb = sel._checkboxes['snapchat_1']
+        assert 'attachments' in cb.toolTip().lower()
+
+    def test_count_and_format_restriction_independent(self, selector_with_snapchat):
+        """Count and format restrictions can coexist."""
+        sel = selector_with_snapchat
+        sel.set_selected(['twitter_1', 'bluesky_1', 'snapchat_1'])
+        sel.set_format_restriction({'bluesky_1'}, VIDEO_NOTICE)
+        sel.set_count_restriction({'snapchat_1'}, COUNT_NOTICE)
+        selected = sel.get_selected()
+        assert 'twitter_1' in selected
+        assert 'bluesky_1' not in selected
+        assert 'snapchat_1' not in selected

@@ -1,8 +1,12 @@
-"""Tests for PostComposer text warning and character counters."""
+"""Tests for PostComposer text warning, character counters, and multi-attachment."""
+
+import tempfile
+from pathlib import Path
 
 import pytest
 
 from src.gui.post_composer import PostComposer
+from src.utils.constants import MAX_MEDIA_ATTACHMENTS
 
 
 @pytest.fixture
@@ -94,3 +98,100 @@ class TestCharacterCounters:
         assert 'twitter' in composer._counter_labels
         composer.set_platform_state(selected=[], enabled=['twitter_1'])
         assert 'twitter' not in composer._counter_labels
+
+
+class TestMultiAttachment:
+    def test_get_media_paths_empty(self, composer):
+        """Empty by default."""
+        assert composer.get_media_paths() == []
+
+    def test_set_media_paths(self, composer):
+        """Can set multiple paths."""
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f1:
+            p1 = Path(f1.name)
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f2:
+            p2 = Path(f2.name)
+        composer.set_media_paths([p1, p2])
+        assert composer.get_media_paths() == [p1, p2]
+        p1.unlink(missing_ok=True)
+        p2.unlink(missing_ok=True)
+
+    def test_set_media_paths_caps_at_max(self, composer):
+        """Paths beyond MAX_MEDIA_ATTACHMENTS are dropped."""
+        paths = []
+        for _i in range(MAX_MEDIA_ATTACHMENTS + 2):
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+                paths.append(Path(f.name))
+        composer.set_media_paths(paths)
+        assert len(composer.get_media_paths()) == MAX_MEDIA_ATTACHMENTS
+        for p in paths:
+            p.unlink(missing_ok=True)
+
+    def test_remove_media(self, composer):
+        """Can remove a media item by index."""
+        paths = []
+        for _i in range(3):
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+                paths.append(Path(f.name))
+        composer.set_media_paths(paths)
+        composer._remove_media(1)
+        remaining = composer.get_media_paths()
+        assert len(remaining) == 2
+        assert remaining[0] == paths[0]
+        assert remaining[1] == paths[2]
+        for p in paths:
+            p.unlink(missing_ok=True)
+
+    def test_clear_all_media(self, composer):
+        """Clear all removes everything."""
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            p = Path(f.name)
+        composer.set_media_paths([p])
+        assert composer.get_media_paths() == [p]
+        composer._clear_all_media()
+        assert composer.get_media_paths() == []
+        p.unlink(missing_ok=True)
+
+    def test_get_image_path_backward_compat(self, composer):
+        """get_image_path returns first path for backward compat."""
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f1:
+            p1 = Path(f1.name)
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f2:
+            p2 = Path(f2.name)
+        composer.set_media_paths([p1, p2])
+        assert composer.get_image_path() == p1
+        p1.unlink(missing_ok=True)
+        p2.unlink(missing_ok=True)
+
+    def test_get_image_path_none_when_empty(self, composer):
+        """get_image_path returns None when no media."""
+        assert composer.get_image_path() is None
+
+    def test_media_item_rows_created(self, composer):
+        """Media item rows are created for each attachment."""
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f1:
+            p1 = Path(f1.name)
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as f2:
+            p2 = Path(f2.name)
+        composer.set_media_paths([p1, p2])
+        assert len(composer._media_item_rows) == 2
+        p1.unlink(missing_ok=True)
+        p2.unlink(missing_ok=True)
+
+    def test_placeholder_hidden_when_media_attached(self, composer):
+        """Placeholder hidden when media is present."""
+        assert not composer._placeholder_label.isHidden()
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            p = Path(f.name)
+        composer.set_media_paths([p])
+        assert composer._placeholder_label.isHidden()
+        p.unlink(missing_ok=True)
+
+    def test_placeholder_visible_when_cleared(self, composer):
+        """Placeholder visible again after clearing."""
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            p = Path(f.name)
+        composer.set_media_paths([p])
+        composer._clear_all_media()
+        assert not composer._placeholder_label.isHidden()
+        p.unlink(missing_ok=True)

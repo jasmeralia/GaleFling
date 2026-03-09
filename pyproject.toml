@@ -15,6 +15,13 @@ known-first-party = ["src"]
 [tool.ruff.format]
 quote-style = "single"
 
+[tool.mypy]
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = ["imageio_ffmpeg", "ffmpeg"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

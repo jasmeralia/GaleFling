@@ -405,11 +405,13 @@ class ImagePreviewDialog(QDialog):
             if specs:
                 cached_path = self._existing_paths.get(platform)
                 if self._is_video:
-                    tab = VideoPreviewTab(image_path, specs, self, cached_path=cached_path)
+                    preview_tab: ImagePreviewTab | VideoPreviewTab = VideoPreviewTab(
+                        image_path, specs, self, cached_path=cached_path
+                    )
                 else:
-                    tab = ImagePreviewTab(image_path, specs, self, cached_path=cached_path)
-                self._tabs[platform] = tab
-                self._tab_widget.addTab(tab, specs.platform_name)
+                    preview_tab = ImagePreviewTab(image_path, specs, self, cached_path=cached_path)
+                self._tabs[platform] = preview_tab
+                self._tab_widget.addTab(preview_tab, specs.platform_name)
 
         layout.addWidget(self._tab_widget)
 

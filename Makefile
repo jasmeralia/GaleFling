@@ -14,14 +14,14 @@ install-dev: install ## Install runtime + dev dependencies
 	$(PIP) install -r requirements-dev.txt
 
 lint: ## Run ruff linter, formatter check, and mypy
-	ruff check src/ tests/ infrastructure/
-	ruff format --check src/ tests/ infrastructure/
-	mypy src/
+	$(PYTHON) -m ruff check src/ tests/ infrastructure/
+	$(PYTHON) -m ruff format --check src/ tests/ infrastructure/
+	$(PYTHON) -m mypy src/
 	shellcheck infrastructure/deploy.sh scripts/commit_with_changelog_notes.sh
 
 lint-fix: ## Auto-fix lint issues and format code
-	ruff check --fix src/ tests/ infrastructure/
-	ruff format src/ tests/ infrastructure/
+	$(PYTHON) -m ruff check --fix src/ tests/ infrastructure/
+	$(PYTHON) -m ruff format src/ tests/ infrastructure/
 
 format: lint-fix ## Alias for lint-fix
 

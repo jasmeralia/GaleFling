@@ -73,10 +73,11 @@ class InstagramPlatform(BasePlatform):
     def test_connection(self) -> tuple[bool, str | None]:
         return self.authenticate()
 
-    def post(self, text: str, image_path: Path | None = None) -> PostResult:
+    def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
         if (not self._access_token or not self._ig_user_id) and not self._load_credentials():
             return create_error_result('AUTH-MISSING', 'Instagram')
 
+        image_path = media_paths[0] if media_paths else None
         if not image_path:
             return create_error_result(
                 'POST-FAILED',

@@ -14,25 +14,33 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.utils.constants import IMAGE_EXTENSIONS, PLATFORM_SPECS_MAP, VIDEO_EXTENSIONS
+from src.utils.constants import (
+    IMAGE_EXTENSIONS,
+    MAX_MEDIA_ATTACHMENTS,
+    PLATFORM_SPECS_MAP,
+    VIDEO_EXTENSIONS,
+)
 
 
 class PostComposer(QWidget):
-    """Text input with live character count and media chooser."""
+    """Text input with live character count and multi-media chooser."""
 
     text_changed = pyqtSignal(str)
-    image_changed = pyqtSignal(object)  # Path or None
+    media_changed = pyqtSignal(object)  # list[Path]
+    # Keep old signal name as alias for backward compatibility in tests/connections
+    image_changed = pyqtSignal(object)  # emitted alongside media_changed
     preview_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._image_path: Path | None = None
+        self._media_paths: list[Path] = []
         self._last_image_dir = ''
         self._selected_platforms: set[str] = set()
         self._enabled_platforms: set[str] = set()
         # Maps account_id -> platform_id for counter grouping
         self._account_platform_map: dict[str, str] = {}
         self._counter_labels: dict[str, QLabel] = {}
+        self._media_item_rows: list[QWidget] = []
         self._init_ui()
 
     def set_last_image_dir(self, path: str):
@@ -83,8 +91,8 @@ class PostComposer(QWidget):
         layout.addWidget(self._img_label)
 
         img_row = QHBoxLayout()
-        self._choose_btn = QPushButton('Choose Media...')
-        self._choose_btn.clicked.connect(self._choose_image)
+        self._choose_btn = QPushButton('Add Media...')
+        self._choose_btn.clicked.connect(self._choose_media)
         img_row.addWidget(self._choose_btn)
 
         self._preview_btn = QPushButton('Preview Media')
@@ -92,27 +100,47 @@ class PostComposer(QWidget):
         self._preview_btn.clicked.connect(self.preview_requested.emit)
         img_row.addWidget(self._preview_btn)
 
-        self._clear_btn = QPushButton('Clear')
-        self._clear_btn.clicked.connect(self._clear_image)
+        self._clear_btn = QPushButton('Clear All')
+        self._clear_btn.clicked.connect(self._clear_all_media)
         self._clear_btn.setEnabled(False)
         img_row.addWidget(self._clear_btn)
 
         img_row.addStretch()
         layout.addLayout(img_row)
 
-        self._image_label = QLabel('No media selected')
-        self._set_image_label('No media selected', is_placeholder=True)
-        layout.addWidget(self._image_label)
+        # Container for media item rows
+        self._media_list_layout = QVBoxLayout()
+        self._media_list_layout.setContentsMargins(0, 0, 0, 0)
+        self._media_list_layout.setSpacing(2)
+        layout.addLayout(self._media_list_layout)
+
+        # Placeholder label
+        self._placeholder_label = QLabel('No media selected')
+        self._set_placeholder_style()
+        layout.addWidget(self._placeholder_label)
 
         self._update_counters()
+
+    def _set_placeholder_style(self):
+        muted = self.palette().color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text).name()
+        self._placeholder_label.setStyleSheet(f'color: {muted}; padding: 4px;')
 
     def set_platform_state(self, selected: list[str], enabled: list[str]):
         self._selected_platforms = set(selected)
         self._enabled_platforms = set(enabled)
         has_targets = bool(self._enabled_platforms and self._selected_platforms)
-        self._choose_btn.setEnabled(has_targets)
-        self._preview_btn.setEnabled(bool(self._image_path and has_targets))
+        self._update_add_btn_state()
+        self._preview_btn.setEnabled(bool(self._media_paths and has_targets))
         self._update_counters()
+
+    def _update_add_btn_state(self):
+        """Enable/disable the Add Media button based on current state."""
+        has_targets = bool(self._enabled_platforms and self._selected_platforms)
+        has_video = any(p.suffix.lower() in VIDEO_EXTENSIONS for p in self._media_paths)
+        at_capacity = len(self._media_paths) >= MAX_MEDIA_ATTACHMENTS
+        # If a video is attached, no more attachments allowed (video = 1 attachment)
+        at_capacity = at_capacity or has_video
+        self._choose_btn.setEnabled(has_targets and not at_capacity)
 
     def _on_text_changed(self):
         text = self._text_edit.toPlainText()
@@ -181,31 +209,107 @@ class PostComposer(QWidget):
             lbl.setText(f'{symbol} {platform_name}: {length}/{max_len}')
             lbl.setStyleSheet(f'color: {color}; font-weight: bold;')
 
-    def _choose_image(self):
+    def _choose_media(self):
         start_dir = self._last_image_dir or ''
-        img_exts = ' '.join(f'*{ext}' for ext in sorted(IMAGE_EXTENSIONS))
-        vid_exts = ' '.join(f'*{ext}' for ext in sorted(VIDEO_EXTENSIONS))
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            'Choose Media',
-            start_dir,
-            f'Media ({img_exts} {vid_exts});;Images ({img_exts});;'
-            f'Videos ({vid_exts});;All Files (*)',
-        )
-        if path:
-            self._image_path = Path(path)
-            self._last_image_dir = str(self._image_path.parent)
-            self._set_image_label(f'{self._image_path.name}', is_placeholder=False)
-            self._clear_btn.setEnabled(True)
-            self._preview_btn.setEnabled(bool(self._selected_platforms and self._enabled_platforms))
-            self.image_changed.emit(self._image_path)
+        has_video = any(p.suffix.lower() in VIDEO_EXTENSIONS for p in self._media_paths)
+        remaining = MAX_MEDIA_ATTACHMENTS - len(self._media_paths)
 
-    def _clear_image(self):
-        self._image_path = None
-        self._set_image_label('No media selected', is_placeholder=True)
-        self._clear_btn.setEnabled(False)
-        self._preview_btn.setEnabled(False)
-        self.image_changed.emit(None)
+        if has_video or remaining <= 0:
+            return
+
+        # If we already have images, only allow images (no mixing with video)
+        if self._media_paths:
+            img_exts = ' '.join(f'*{ext}' for ext in sorted(IMAGE_EXTENSIONS))
+            filter_str = f'Images ({img_exts});;All Files (*)'
+        else:
+            img_exts = ' '.join(f'*{ext}' for ext in sorted(IMAGE_EXTENSIONS))
+            vid_exts = ' '.join(f'*{ext}' for ext in sorted(VIDEO_EXTENSIONS))
+            filter_str = (
+                f'Media ({img_exts} {vid_exts});;Images ({img_exts});;'
+                f'Videos ({vid_exts});;All Files (*)'
+            )
+
+        paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            'Add Media',
+            start_dir,
+            filter_str,
+        )
+        if not paths:
+            return
+
+        for p_str in paths:
+            p = Path(p_str)
+            if p in self._media_paths:
+                continue
+            is_video = p.suffix.lower() in VIDEO_EXTENSIONS
+            # Video: only allow as sole attachment
+            if is_video and self._media_paths:
+                continue
+            # If adding a video, only add 1
+            if is_video:
+                self._media_paths = [p]
+                break
+            if len(self._media_paths) >= MAX_MEDIA_ATTACHMENTS:
+                break
+            self._media_paths.append(p)
+
+        if self._media_paths:
+            self._last_image_dir = str(self._media_paths[-1].parent)
+
+        self._refresh_media_list()
+        self._emit_media_changed()
+
+    def _remove_media(self, index: int):
+        """Remove a single media attachment by index."""
+        if 0 <= index < len(self._media_paths):
+            self._media_paths.pop(index)
+        self._refresh_media_list()
+        self._emit_media_changed()
+
+    def _clear_all_media(self):
+        self._media_paths.clear()
+        self._refresh_media_list()
+        self._emit_media_changed()
+
+    def _emit_media_changed(self):
+        has_targets = bool(self._selected_platforms and self._enabled_platforms)
+        self._clear_btn.setEnabled(bool(self._media_paths))
+        self._preview_btn.setEnabled(bool(self._media_paths and has_targets))
+        self._update_add_btn_state()
+        self.media_changed.emit(list(self._media_paths))
+        # Emit on legacy signal for backward compat
+        self.image_changed.emit(self._media_paths[0] if self._media_paths else None)
+
+    def _refresh_media_list(self):
+        """Rebuild the list of media item rows."""
+        # Remove existing rows
+        for row in self._media_item_rows:
+            self._media_list_layout.removeWidget(row)
+            row.deleteLater()
+        self._media_item_rows.clear()
+
+        self._placeholder_label.setVisible(not self._media_paths)
+
+        for i, path in enumerate(self._media_paths):
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(4, 1, 4, 1)
+
+            name_label = QLabel(path.name)
+            name_label.setStyleSheet('padding: 2px;')
+            row_layout.addWidget(name_label)
+
+            remove_btn = QPushButton('\u2715')
+            remove_btn.setFixedSize(22, 22)
+            remove_btn.setToolTip('Remove this attachment')
+            remove_btn.setStyleSheet('font-size: 12px; padding: 0px;')
+            remove_btn.clicked.connect(lambda _checked, idx=i: self._remove_media(idx))
+            row_layout.addWidget(remove_btn)
+
+            row_layout.addStretch()
+            self._media_list_layout.addWidget(row)
+            self._media_item_rows.append(row)
 
     def get_text(self) -> str:
         return self._text_edit.toPlainText()
@@ -214,28 +318,32 @@ class PostComposer(QWidget):
         self._text_edit.setPlainText(text)
 
     def get_image_path(self) -> Path | None:
-        return self._image_path
+        """Return the first media path (backward compat)."""
+        return self._media_paths[0] if self._media_paths else None
+
+    def get_media_paths(self) -> list[Path]:
+        """Return all attached media paths."""
+        return list(self._media_paths)
 
     def set_image_path(self, path: Path | None):
+        """Set a single media path (backward compat)."""
         if path and path.exists():
-            self._image_path = path
-            self._set_image_label(f'{path.name}', is_placeholder=False)
-            self._clear_btn.setEnabled(True)
-            self._preview_btn.setEnabled(bool(self._selected_platforms and self._enabled_platforms))
-            self.image_changed.emit(path)
+            self._media_paths = [path]
         else:
-            self._clear_image()
+            self._media_paths = []
+        self._refresh_media_list()
+        self._emit_media_changed()
+
+    def set_media_paths(self, paths: list[Path]):
+        """Set multiple media paths."""
+        self._media_paths = [p for p in paths if p.exists()][:MAX_MEDIA_ATTACHMENTS]
+        self._refresh_media_list()
+        self._emit_media_changed()
 
     def clear(self):
         self._text_edit.clear()
-        self._clear_image()
+        self._clear_all_media()
 
-    def _set_image_label(self, text: str, is_placeholder: bool):
-        self._image_label.setText(text)
-        if is_placeholder:
-            muted = (
-                self.palette().color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text).name()
-            )
-            self._image_label.setStyleSheet(f'color: {muted}; padding: 4px;')
-        else:
-            self._image_label.setStyleSheet('padding: 4px;')
+    # Kept for backward compat with draft save/restore
+    def _clear_image(self):
+        self._clear_all_media()

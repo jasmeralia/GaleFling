@@ -82,6 +82,32 @@ def test_instagram_post_no_image():
     assert result.error_code == 'POST-FAILED'
 
 
+def test_instagram_post_multiple_media_uses_first_path(monkeypatch, tmp_path):
+    first = tmp_path / 'first.jpg'
+    second = tmp_path / 'second.jpg'
+    first.write_bytes(b'\xff\xd8\xff\xe0')
+    second.write_bytes(b'\xff\xd8\xff\xe0')
+
+    p = _make_platform()
+    called = {}
+
+    def fake_upload(image_path):
+        called['image_path'] = image_path
+        return 'https://scontent.example.com/photo.jpg'
+
+    monkeypatch.setattr(p, '_upload_image', fake_upload)
+    monkeypatch.setattr(p, '_create_media_container', lambda _url, _caption: 'container456')
+    monkeypatch.setattr(p, '_publish_container', lambda _container_id: 'media789')
+    monkeypatch.setattr(
+        p, '_get_permalink', lambda _media_id: 'https://www.instagram.com/p/ABC123/'
+    )
+
+    result = p.post('Hello', media_paths=[first, second])
+
+    assert result.success is True
+    assert called['image_path'] == first
+
+
 @patch('src.platforms.instagram.requests')
 def test_instagram_post_success(mock_requests, tmp_path):
     # Mock the upload photo call
@@ -119,7 +145,7 @@ def test_instagram_post_success(mock_requests, tmp_path):
     image.write_bytes(b'\xff\xd8\xff\xe0')
 
     p = _make_platform()
-    result = p.post('Hello Instagram!', image_path=image)
+    result = p.post('Hello Instagram!', media_paths=[image])
 
     assert result.success is True
     assert result.post_url == 'https://www.instagram.com/p/ABC123/'
@@ -149,7 +175,7 @@ def test_instagram_post_rate_limited(mock_requests, tmp_path):
     image.write_bytes(b'\xff\xd8\xff\xe0')
 
     p = _make_platform()
-    result = p.post('Hello', image_path=image)
+    result = p.post('Hello', media_paths=[image])
 
     assert result.success is False
     assert result.error_code == 'IG-RATE-LIMIT'

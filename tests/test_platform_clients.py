@@ -93,10 +93,64 @@ def test_twitter_post_success(monkeypatch, tmp_path):
     image_path = tmp_path / 'image.png'
     image_path.write_bytes(b'data')
 
-    result = platform.post('Hello', image_path=image_path)
+    result = platform.post('Hello', media_paths=[image_path])
 
     assert result.success
     assert result.post_url == 'https://twitter.com/tester/status/tweet123'
+
+
+def test_twitter_post_multiple_media(monkeypatch, tmp_path):
+    import src.platforms.twitter as twitter_mod
+
+    class _RecordingAPI(_FakeTwitterAPI):
+        def __init__(self, auth):
+            super().__init__(auth)
+            self.uploaded = []
+
+        def media_upload(self, filename):
+            self.uploaded.append(filename)
+            return SimpleNamespace(media_id=f'media{len(self.uploaded)}')
+
+    class _RecordingClient(_FakeTwitterClient):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.last_media_ids = None
+
+        def create_tweet(self, text, media_ids=None):
+            self.last_media_ids = media_ids
+            return super().create_tweet(text, media_ids)
+
+    fake_tweepy = SimpleNamespace(
+        OAuth1UserHandler=_FakeOAuth,
+        API=_RecordingAPI,
+        Client=_RecordingClient,
+        Unauthorized=_UnauthorizedError,
+        TooManyRequests=_TooManyRequestsError,
+        Forbidden=_ForbiddenError,
+    )
+    monkeypatch.setattr(twitter_mod, 'tweepy', fake_tweepy)
+
+    auth = _FakeAuth(
+        twitter={
+            'api_key': 'k',
+            'api_secret': 's',
+            'access_token': 't',
+            'access_token_secret': 'ts',
+            'username': 'tester',
+        }
+    )
+    platform = TwitterPlatform(auth)
+
+    image1 = tmp_path / 'image1.png'
+    image2 = tmp_path / 'image2.png'
+    image1.write_bytes(b'data1')
+    image2.write_bytes(b'data2')
+
+    result = platform.post('Hello', media_paths=[image1, image2])
+
+    assert result.success
+    assert platform._api_v1.uploaded == [str(image1), str(image2)]
+    assert platform._client.last_media_ids == ['media1', 'media2']
 
 
 def test_twitter_test_connection_unauthorized(monkeypatch):
@@ -176,10 +230,58 @@ def test_bluesky_post_success(monkeypatch, tmp_path):
     image_path = tmp_path / 'image.png'
     image_path.write_bytes(b'data')
 
-    result = platform.post('Hello', image_path=image_path)
+    result = platform.post('Hello', media_paths=[image_path])
 
     assert result.success
     assert result.post_url.endswith('/post/abc123')
+
+
+def test_bluesky_post_multiple_media(monkeypatch, tmp_path):
+    import src.platforms.bluesky as bluesky_mod
+
+    class _RecordingBskyClient(_FakeBskyClient):
+        def __init__(self, base_url=None):
+            super().__init__(base_url)
+            self.uploaded_blobs = []
+            self.last_create_record_data = None
+            self.com = SimpleNamespace(
+                atproto=SimpleNamespace(
+                    repo=SimpleNamespace(create_record=self._recording_create_record)
+                )
+            )
+
+        def upload_blob(self, img_data):
+            self.uploaded_blobs.append(img_data)
+            return SimpleNamespace(blob=f'blob{len(self.uploaded_blobs)}')
+
+        def _recording_create_record(self, data):
+            self.last_create_record_data = data
+            return SimpleNamespace(uri='at://did/app.bsky.feed.post/abc123', cid='cid123')
+
+    monkeypatch.setattr(bluesky_mod, 'BskyClient', _RecordingBskyClient)
+
+    auth = _FakeAuth(
+        bluesky={
+            'identifier': 'user.bsky.social',
+            'app_password': 'pw',
+            'service': 'https://bsky.social',
+        }
+    )
+    platform = BlueskyPlatform(auth)
+
+    image1 = tmp_path / 'image1.png'
+    image2 = tmp_path / 'image2.png'
+    image1.write_bytes(b'data1')
+    image2.write_bytes(b'data2')
+
+    result = platform.post('Hello', media_paths=[image1, image2])
+
+    assert result.success
+    assert len(platform._client.uploaded_blobs) == 2
+    embed_images = platform._client.last_create_record_data['record']['embed']['images']
+    assert len(embed_images) == 2
+    assert embed_images[0]['image'] == 'blob1'
+    assert embed_images[1]['image'] == 'blob2'
 
 
 def test_bluesky_image_upload_failure(monkeypatch, tmp_path):
@@ -199,7 +301,7 @@ def test_bluesky_image_upload_failure(monkeypatch, tmp_path):
     image_path = tmp_path / 'image.png'
     image_path.write_bytes(b'data')
 
-    result = platform.post('Hello', image_path=image_path)
+    result = platform.post('Hello', media_paths=[image_path])
 
     assert not result.success
     assert result.error_code == 'IMG-UPLOAD-FAILED'
@@ -404,7 +506,7 @@ def test_twitter_post_media_rate_limited(monkeypatch, tmp_path):
     image_path = tmp_path / 'image.png'
     image_path.write_bytes(b'data')
 
-    result = platform.post('Hello', image_path=image_path)
+    result = platform.post('Hello', media_paths=[image_path])
     assert not result.success
     assert result.error_code == 'TW-RATE-LIMIT'
 

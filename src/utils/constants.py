@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 APP_NAME = 'GaleFling'
-APP_VERSION = '1.5.0'
+APP_VERSION = '1.5.1'
 APP_ORG = 'Winds of Storm'
 LOG_UPLOAD_ENDPOINT = 'https://galepost.jasmer.tools/logs/upload'
 
@@ -12,6 +12,7 @@ DRAFT_AUTO_SAVE_INTERVAL_SECONDS = 30
 
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.webm'}
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
+MAX_MEDIA_ATTACHMENTS = 4
 
 
 @dataclass
@@ -39,6 +40,8 @@ class PlatformSpecs:
     supports_images: bool = True
     # Whether the platform ignores text (e.g. Snapchat web stories)
     supports_text: bool = True
+    # Max media attachments per post (images; video is always 1)
+    max_media_attachments: int = 1
 
 
 @dataclass
@@ -66,6 +69,7 @@ TWITTER_SPECS = PlatformSpecs(
     max_video_dimensions=(1920, 1200),
     max_video_file_size_mb=512.0,
     max_video_duration_seconds=140,
+    max_media_attachments=4,
 )
 
 BLUESKY_SPECS = PlatformSpecs(
@@ -83,6 +87,7 @@ BLUESKY_SPECS = PlatformSpecs(
     max_video_dimensions=(1920, 1080),
     max_video_file_size_mb=50.0,
     max_video_duration_seconds=60,
+    max_media_attachments=4,
 )
 
 INSTAGRAM_SPECS = PlatformSpecs(
@@ -135,6 +140,7 @@ ONLYFANS_SPECS = PlatformSpecs(
     supported_video_formats=['MP4', 'MOV'],
     max_video_dimensions=(3840, 2160),
     max_video_file_size_mb=5120.0,
+    max_media_attachments=4,
 )
 
 FANSLY_SPECS = PlatformSpecs(
@@ -152,6 +158,7 @@ FANSLY_SPECS = PlatformSpecs(
     supported_video_formats=['MP4', 'MOV'],
     max_video_dimensions=(3840, 2160),
     max_video_file_size_mb=5120.0,
+    max_media_attachments=4,
 )
 
 FETLIFE_SPECS = PlatformSpecs(

@@ -98,7 +98,7 @@ class TwitterPlatform(BasePlatform):
             get_logger().error(f'Twitter connection test failed: {e}')
             return False, 'TW-AUTH-INVALID'
 
-    def post(self, text: str, image_path: Path | None = None) -> PostResult:
+    def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
         if not self._client:
             success, error = self.authenticate()
             if not success:
@@ -108,23 +108,24 @@ class TwitterPlatform(BasePlatform):
         if client is None or api_v1 is None:
             return create_error_result('TW-AUTH-INVALID', 'Twitter')
 
-        media_id = None
-        if image_path:
-            try:
-                media = api_v1.media_upload(filename=str(image_path))
-                media_id = media.media_id
-            except tweepy.TooManyRequests:
-                return create_error_result('TW-RATE-LIMIT', 'Twitter')
-            except Exception as e:
-                return create_error_result(
-                    'IMG-UPLOAD-FAILED',
-                    'Twitter',
-                    exception=e,
-                    details={'image_path': str(image_path)},
-                )
+        media_ids = None
+        if media_paths:
+            media_ids = []
+            for image_path in media_paths:
+                try:
+                    media = api_v1.media_upload(filename=str(image_path))
+                    media_ids.append(media.media_id)
+                except tweepy.TooManyRequests:
+                    return create_error_result('TW-RATE-LIMIT', 'Twitter')
+                except Exception as e:
+                    return create_error_result(
+                        'IMG-UPLOAD-FAILED',
+                        'Twitter',
+                        exception=e,
+                        details={'image_path': str(image_path)},
+                    )
 
         try:
-            media_ids = [media_id] if media_id else None
             response = client.create_tweet(text=text, media_ids=media_ids)
 
             if response and response.data:

@@ -67,21 +67,21 @@ class PostWorker(QThread):
         self,
         platforms: dict,
         text: str,
-        processed_images: dict[str, Path | None],
+        processed_media: dict[str, list[Path]],
         platform_groups: dict[str, str],
     ):
         super().__init__()
         self._platforms = platforms
         self._text = text
-        self._processed_images = processed_images
+        self._processed_media = processed_media
         self._platform_groups = platform_groups
 
     def run(self):
         results = []
         for name, platform in self._platforms.items():
             group = self._platform_groups.get(name, name)
-            image_path = self._processed_images.get(group)
-            result = platform.post(self._text, image_path)
+            media_paths = self._processed_media.get(group) or None
+            result = platform.post(self._text, media_paths)
             results.append(result)
         self.finished.emit(results)
 
@@ -152,14 +152,14 @@ class MainWindow(QMainWindow):
         self._config = config
         self._auth_manager = auth_manager
         self._log_uploader = LogUploader(config)
-        self._processed_images: dict[str, Path | None] = {}
+        self._processed_media: dict[str, list[Path]] = {}
 
         self._platforms: dict = {}
         self._platform_groups: dict[str, str] = {}
         self._refreshing = False
         self._pending_webview_platforms: list = []
         self._pending_text: str = ''
-        self._pending_image_path = None
+        self._pending_media_paths: list[Path] = []
         self._build_platforms()
 
         self._init_ui()
@@ -225,7 +225,7 @@ class MainWindow(QMainWindow):
         # Post composer
         self._composer = PostComposer()
         self._composer.set_last_image_dir(self._config.last_image_directory)
-        self._composer.image_changed.connect(self._on_image_changed)
+        self._composer.media_changed.connect(self._on_media_changed)
         self._composer.preview_requested.connect(self._on_preview_requested)
         layout.addWidget(self._composer)
 
@@ -434,18 +434,20 @@ class MainWindow(QMainWindow):
         self._setup_wizard = None
         self._refresh_platform_state()
 
-    def _on_image_changed(self, media_path):
-        self._cleanup_processed_images()
-        if media_path:
-            get_logger().info(f'User attached media: {media_path}')
-            self._apply_format_restriction(media_path)
+    def _on_media_changed(self, media_paths):
+        self._cleanup_processed_media()
+        if media_paths:
+            get_logger().info(f'User attached media: {[str(p) for p in media_paths]}')
+            self._apply_format_restriction(media_paths)
+            self._apply_count_restriction(media_paths)
             selected = self._get_selected_enabled_platforms()
             if selected:
-                self._show_image_preview(media_path, selected)
+                self._show_media_preview(media_paths, selected)
                 self._auto_save_draft()
-            self._config.last_image_directory = str(media_path.parent)
+            self._config.last_image_directory = str(media_paths[-1].parent)
         else:
             self._clear_format_restriction()
+            self._clear_count_restriction()
 
     @staticmethod
     def _is_video_file(path: Path) -> bool:
@@ -466,53 +468,95 @@ class MainWindow(QMainWindow):
         except Exception:
             return None, False
 
-    def _apply_format_restriction(self, media_path: Path):
-        """Disable platforms that don't support the attached media format."""
-        fmt, is_video = self._detect_media_format(media_path)
-        if not fmt:
-            self._clear_format_restriction()
-            return
-
-        fmt_upper = fmt.upper()
+    def _apply_format_restriction(self, media_paths: list[Path]):
+        """Disable platforms that don't support any of the attached media formats."""
         restricted = set()
-        for account_id, platform_id in self._platform_groups.items():
-            specs = PLATFORM_SPECS_MAP.get(platform_id)
-            if not specs:
+        has_video = False
+        has_gif = False
+        unsupported_fmts: set[str] = set()
+
+        for media_path in media_paths:
+            fmt, is_video = self._detect_media_format(media_path)
+            if not fmt:
                 continue
+            fmt_upper = fmt.upper()
             if is_video:
-                # Restrict platforms that don't support this video format
-                if fmt_upper not in specs.supported_video_formats:
-                    restricted.add(account_id)
-            else:
-                # Restrict platforms that don't support this image format
-                # or don't support images at all (e.g. Snapchat web = video-only)
-                if fmt_upper not in specs.supported_formats or not specs.supports_images:
-                    restricted.add(account_id)
+                has_video = True
+            if not is_video and is_animated_gif(media_path):
+                has_gif = True
+
+            for account_id, platform_id in self._platform_groups.items():
+                specs = PLATFORM_SPECS_MAP.get(platform_id)
+                if not specs:
+                    continue
+                if is_video:
+                    if fmt_upper not in specs.supported_video_formats:
+                        restricted.add(account_id)
+                        unsupported_fmts.add(fmt_upper)
+                else:
+                    if fmt_upper not in specs.supported_formats or not specs.supports_images:
+                        restricted.add(account_id)
+                        unsupported_fmts.add(fmt_upper)
 
         if restricted:
-            if is_video:
+            if has_video:
                 notice = (
-                    f'\u26a0 {fmt_upper} video attached \u2014 '
-                    f'some platforms do not support this video format.'
+                    '\u26a0 Video attached \u2014 some platforms do not support this video format.'
                 )
-            elif is_animated_gif(media_path):
+            elif has_gif:
                 notice = (
                     '\u26a0 Animated GIF attached \u2014 '
                     'only platforms that support GIFs are available.'
                 )
             else:
+                fmts = ', '.join(sorted(unsupported_fmts))
                 notice = (
-                    f'\u26a0 {fmt_upper} image attached \u2014 '
+                    f'\u26a0 {fmts} media attached \u2014 '
                     f'some platforms do not support this format.'
                 )
             get_logger().info(
-                f'{fmt_upper} media restricting platforms',
-                extra={'restricted': sorted(restricted), 'is_video': is_video},
+                'Media format restricting platforms',
+                extra={'restricted': sorted(restricted), 'has_video': has_video},
             )
             self._platform_selector.set_format_restriction(restricted, notice)
         else:
             self._platform_selector.set_format_restriction(set())
 
+        self._sync_composer_platform_state()
+
+    def _apply_count_restriction(self, media_paths: list[Path]):
+        """Disable platforms that don't support the number of attachments."""
+        count = len(media_paths)
+        has_video = any(p.suffix.lower() in VIDEO_EXTENSIONS for p in media_paths)
+        restricted = set()
+
+        for account_id, platform_id in self._platform_groups.items():
+            specs = PLATFORM_SPECS_MAP.get(platform_id)
+            if not specs:
+                continue
+            # Video attachments: always max 1
+            max_allowed = 1 if has_video else specs.max_media_attachments
+            if count > max_allowed:
+                restricted.add(account_id)
+
+        if restricted:
+            notice = f'\u26a0 {count} attachments \u2014 some platforms support fewer attachments.'
+            get_logger().info(
+                'Attachment count restricting platforms',
+                extra={'restricted': sorted(restricted), 'count': count},
+            )
+            self._platform_selector.set_count_restriction(restricted, notice)
+        else:
+            self._platform_selector.set_count_restriction(set())
+
+        self._sync_composer_platform_state()
+
+    def _clear_count_restriction(self):
+        """Remove attachment count platform restrictions."""
+        self._platform_selector.set_count_restriction(set())
+        self._sync_composer_platform_state()
+
+    def _sync_composer_platform_state(self):
         selected = self._platform_selector.get_selected()
         enabled = self._platform_selector.get_enabled()
         self._composer.set_platform_state(selected, enabled)
@@ -520,18 +564,16 @@ class MainWindow(QMainWindow):
     def _clear_format_restriction(self):
         """Remove media format platform restrictions."""
         self._platform_selector.set_format_restriction(set())
-        selected = self._platform_selector.get_selected()
-        enabled = self._platform_selector.get_enabled()
-        self._composer.set_platform_state(selected, enabled)
+        self._sync_composer_platform_state()
 
     def _on_preview_requested(self):
-        image_path = self._composer.get_image_path()
-        if not image_path:
+        media_paths = self._composer.get_media_paths()
+        if not media_paths:
             return
         selected = self._get_selected_enabled_platforms()
         if not selected:
             return
-        self._show_image_preview(image_path, selected)
+        self._show_media_preview(media_paths, selected)
         self._auto_save_draft()
 
     def _on_platforms_changed(self, platforms):
@@ -602,12 +644,12 @@ class MainWindow(QMainWindow):
             self._post_btn.setEnabled(False)
             self._test_btn.setEnabled(False)
 
-        image_path = self._composer.get_image_path()
-        if image_path:
+        media_paths = self._composer.get_media_paths()
+        if media_paths:
             selected_enabled = self._get_selected_enabled_platforms()
-            missing = self._get_missing_processed_platforms(selected_enabled)
+            missing = self._get_missing_processed_platforms(selected_enabled, len(media_paths))
             if missing:
-                self._show_image_preview(image_path, selected_enabled)
+                self._show_media_preview(media_paths, selected_enabled)
                 self._auto_save_draft()
 
     def _get_selected_enabled_platforms(self) -> list[str]:
@@ -618,7 +660,9 @@ class MainWindow(QMainWindow):
     def _get_platform_group(self, platform: str) -> str:
         return self._platform_groups.get(platform, platform)
 
-    def _get_missing_processed_platforms(self, platforms: list[str]) -> list[str]:
+    def _get_missing_processed_platforms(
+        self, platforms: list[str], expected_count: int = 1
+    ) -> list[str]:
         missing = []
         seen = set()
         for platform in platforms:
@@ -626,12 +670,12 @@ class MainWindow(QMainWindow):
             if group in seen:
                 continue
             seen.add(group)
-            path = self._processed_images.get(group)
-            if not path or not path.exists():
+            paths = self._processed_media.get(group, [])
+            if len(paths) != expected_count or not all(p.exists() for p in paths):
                 missing.append(group)
         return missing
 
-    def _show_image_preview(self, image_path: Path, platforms: list[str]):
+    def _show_media_preview(self, media_paths: list[Path], platforms: list[str]):
         groups = []
         seen = set()
         for platform in platforms:
@@ -640,22 +684,35 @@ class MainWindow(QMainWindow):
                 continue
             seen.add(group)
             groups.append(group)
-        dialog = ImagePreviewDialog(image_path, groups, self, existing_paths=self._processed_images)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            for platform, path in dialog.get_processed_paths().items():
-                if path and path.exists():
-                    self._processed_images[platform] = path
-        elif dialog.had_errors:
-            reply = self._show_message_box(
-                'Image Processing Failed',
-                'One or more image previews failed to process.\n\n'
-                'Would you like to send logs to Jas?',
-                QMessageBox.Icon.Question,
-                buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                default=QMessageBox.StandardButton.No,
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                self._send_logs()
+        # Process each media file; preview dialog handles one file at a time
+        for idx, media_path in enumerate(media_paths):
+            existing = {
+                g: self._processed_media[g][idx]
+                if g in self._processed_media and len(self._processed_media[g]) > idx
+                else None
+                for g in groups
+            }
+            dialog = ImagePreviewDialog(media_path, groups, self, existing_paths=existing)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                for platform, path in dialog.get_processed_paths().items():
+                    if path and path.exists():
+                        processed_paths = self._processed_media.setdefault(platform, [])
+                        if idx < len(processed_paths):
+                            processed_paths[idx] = path
+                        else:
+                            processed_paths.append(path)
+            elif dialog.had_errors:
+                reply = self._show_message_box(
+                    'Media Processing Failed',
+                    'One or more media previews failed to process.\n\n'
+                    'Would you like to send logs to Jas?',
+                    QMessageBox.Icon.Question,
+                    buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    default=QMessageBox.StandardButton.No,
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self._send_logs()
+                return  # Don't continue if there were errors
 
     def _test_connections(self):
         get_logger().info('User clicked Test Connections')
@@ -727,17 +784,17 @@ class MainWindow(QMainWindow):
                     )
                     return
 
-        # Process images if needed
-        image_path = self._composer.get_image_path()
-        if image_path:
-            missing = self._get_missing_processed_platforms(selected)
+        # Process media if needed
+        media_paths = self._composer.get_media_paths()
+        if media_paths:
+            missing = self._get_missing_processed_platforms(selected, len(media_paths))
             if missing:
-                self._show_image_preview(image_path, selected)
-                missing = self._get_missing_processed_platforms(selected)
+                self._show_media_preview(media_paths, selected)
+                missing = self._get_missing_processed_platforms(selected, len(media_paths))
                 if missing:
                     self._show_message_box(
-                        'Image Error',
-                        'Image previews could not be generated for all selected platforms.',
+                        'Media Error',
+                        'Media could not be processed for all selected platforms.',
                         QMessageBox.Icon.Warning,
                     )
                     return
@@ -763,14 +820,14 @@ class MainWindow(QMainWindow):
         # Store WebView platforms for after API posting completes
         self._pending_webview_platforms = webview_platforms
         self._pending_text = text
-        self._pending_image_path = image_path
+        self._pending_media_paths = media_paths or []
 
         if api_platforms:
             # Post API platforms in background thread
             self._worker = PostWorker(
                 api_platforms,
                 text,
-                self._processed_images,
+                self._processed_media,
                 self._platform_groups,
             )
             self._worker.finished.connect(self._on_api_post_finished)
@@ -784,9 +841,9 @@ class MainWindow(QMainWindow):
         self._pending_webview_platforms = []
 
         if webview_platforms:
-            # Prepare each WebView platform with text + image
+            # Prepare each WebView platform with text + media
             for platform in webview_platforms:
-                platform.prepare_post(self._pending_text, self._pending_image_path)
+                platform.prepare_post(self._pending_text, self._pending_media_paths or None)
 
             # Open WebView panel
             self._status_bar.showMessage('Opening WebView panel...')
@@ -817,8 +874,9 @@ class MainWindow(QMainWindow):
         if all(r.success for r in all_results):
             self._clear_draft()
             self._composer.clear()
-            self._cleanup_processed_images()
+            self._cleanup_processed_media()
             self._clear_format_restriction()
+            self._clear_count_restriction()
 
     def _open_settings(self):
         dialog = SettingsDialog(self._config, self._auth_manager, self)
@@ -1072,25 +1130,27 @@ class MainWindow(QMainWindow):
 
     def _auto_save_draft(self):
         text = self._composer.get_text()
-        image_path = self._composer.get_image_path()
+        media_paths = self._composer.get_media_paths()
         selected = self._platform_selector.get_selected()
         enabled = self._platform_selector.get_enabled()
 
-        if not text.strip() and not image_path:
+        if not text.strip() and not media_paths:
             return
 
-        processed = {
-            name: str(path)
-            for name, path in self._processed_images.items()
-            if path and path.exists()
-        }
+        processed = {}
+        for name, paths in self._processed_media.items():
+            existing = [str(p) for p in paths if p and p.exists()]
+            if existing:
+                processed[name] = existing
 
         draft = {
             'text': text,
-            'image_path': str(image_path) if image_path else None,
+            'media_paths': [str(p) for p in media_paths],
+            # Keep old key for backward compat with existing drafts
+            'image_path': str(media_paths[0]) if media_paths else None,
             'selected_platforms': selected,
             'enabled_platforms': enabled,
-            'processed_images': processed,
+            'processed_media': processed,
             'timestamp': datetime.now().isoformat(),
             'auto_saved': True,
         }
@@ -1134,28 +1194,45 @@ class MainWindow(QMainWindow):
 
         if reply == QMessageBox.StandardButton.Yes:
             self._composer.set_text(draft.get('text', ''))
-            image_path = draft.get('image_path')
-            if image_path:
-                self._composer.set_image_path(Path(image_path))
+            # Restore media paths (new multi-attachment format or old single path)
+            media_path_strs = draft.get('media_paths', [])
+            if not media_path_strs:
+                # Backward compat with old single-path drafts
+                old_path = draft.get('image_path')
+                if old_path:
+                    media_path_strs = [old_path]
+            media_paths = [Path(p) for p in media_path_strs if Path(p).exists()]
+            if media_paths:
+                self._composer.set_media_paths(media_paths)
             platforms = draft.get('selected_platforms', [])
             if platforms:
                 self._platform_selector.set_selected(platforms)
-            restored = {}
-            for name, path in draft.get('processed_images', {}).items():
-                candidate = Path(path)
-                if candidate.exists():
-                    restored[name] = candidate
-            self._processed_images = restored
+            restored: dict[str, list[Path]] = {}
+            # Restore processed media (new list format or old single-path format)
+            processed = draft.get('processed_media', {})
+            if not processed:
+                # Backward compat: old format was {name: str_path}
+                for name, path in draft.get('processed_images', {}).items():
+                    candidate = Path(path)
+                    if candidate.exists():
+                        restored[name] = [candidate]
+            else:
+                for name, path_strs in processed.items():
+                    paths = [Path(p) for p in path_strs if Path(p).exists()]
+                    if paths:
+                        restored[name] = paths
+            self._processed_media = restored
             self._refresh_platform_state()
         else:
             self._clear_draft()
 
-    def _cleanup_processed_images(self):
-        for path in self._processed_images.values():
-            if path and path.exists():
-                with contextlib.suppress(OSError):
-                    path.unlink()
-        self._processed_images.clear()
+    def _cleanup_processed_media(self):
+        for paths in self._processed_media.values():
+            for path in paths:
+                if path and path.exists():
+                    with contextlib.suppress(OSError):
+                        path.unlink()
+        self._processed_media.clear()
 
     def check_for_updates_on_startup(self):
         """Check for updates if enabled (call after show)."""

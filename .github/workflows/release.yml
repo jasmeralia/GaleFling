@@ -32,6 +32,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
         run: |
@@ -74,7 +78,6 @@ jobs:
 
   build:
     name: Build Windows Executable
-    needs: lint-and-test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,17 +88,29 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          pip install pyinstaller
 
-      - name: Install NSIS
-        run: choco install nsis -y
+      - name: Ensure NSIS
+        shell: pwsh
+        run: |
+          $nsisX86 = "${env:ProgramFiles(x86)}\\NSIS\\makensis.exe"
+          $nsisX64 = "${env:ProgramFiles}\\NSIS\\makensis.exe"
+          if ((Test-Path $nsisX86) -or (Test-Path $nsisX64)) {
+            Write-Host "NSIS already installed"
+          } else {
+            choco install nsis -y
+          }
 
       - name: Build executable
-        run: pyinstaller build/build.spec --distpath dist/ --workpath build/tmp --clean
+        run: pyinstaller build/build.spec --distpath dist/ --workpath build/tmp
 
       - name: Build installer
         shell: pwsh
@@ -121,7 +136,7 @@ jobs:
 
   release:
     name: Create Draft Release
-    needs: build
+    needs: [lint-and-test, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

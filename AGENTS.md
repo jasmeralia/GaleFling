@@ -27,8 +27,8 @@ Windows GUI application for posting to multiple social media platforms simultane
 ---
 
 ## Release Checklist
-- Run `make lint` and confirm it passes.
-- Run `make test` (or `make test-cov` if releasing) and confirm it passes.
+- Run `make lint PYTHON=.venv/bin/python` and confirm it passes.
+- Run `make test-cov PYTHON=.venv/bin/python` and confirm it passes.
 - Bump version in `src/utils/constants.py`, `resources/default_config.json`, `build/installer.nsi`, `build/version_info.txt`, and `README.md`.
 - Before bumping a **minor** version (`X.Y.0` or `X.Y.Z` where `Y` changes), confirm with the user first; do not assume a minor bump is desired.
 - Update `CHANGELOG.md` with a new version entry at the top.

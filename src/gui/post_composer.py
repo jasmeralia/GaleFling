@@ -41,6 +41,8 @@ class PostComposer(QWidget):
         self._account_platform_map: dict[str, str] = {}
         self._counter_labels: dict[str, QLabel] = {}
         self._media_item_rows: list[QWidget] = []
+        self._format_restriction_notice: QLabel | None = None
+        self._count_restriction_notice: QLabel | None = None
         self._init_ui()
 
     def set_last_image_dir(self, path: str):
@@ -108,16 +110,46 @@ class PostComposer(QWidget):
         img_row.addStretch()
         layout.addLayout(img_row)
 
+        media_body = QHBoxLayout()
+        media_body.setSpacing(12)
+
+        media_list_col = QVBoxLayout()
+        media_list_col.setContentsMargins(0, 0, 0, 0)
+        media_list_col.setSpacing(2)
         # Container for media item rows
         self._media_list_layout = QVBoxLayout()
         self._media_list_layout.setContentsMargins(0, 0, 0, 0)
         self._media_list_layout.setSpacing(2)
-        layout.addLayout(self._media_list_layout)
+        media_list_col.addLayout(self._media_list_layout)
 
         # Placeholder label
         self._placeholder_label = QLabel('No media selected')
         self._set_placeholder_style()
-        layout.addWidget(self._placeholder_label)
+        media_list_col.addWidget(self._placeholder_label)
+        media_body.addLayout(media_list_col, 1)
+
+        notice_col = QVBoxLayout()
+        notice_col.setContentsMargins(0, 0, 0, 0)
+        notice_col.setSpacing(2)
+        self._format_restriction_notice = QLabel()
+        self._format_restriction_notice.setStyleSheet(
+            'color: #FF9800; font-size: 12px; font-style: italic; padding: 2px 0;'
+        )
+        self._format_restriction_notice.setWordWrap(True)
+        self._format_restriction_notice.setVisible(False)
+        notice_col.addWidget(self._format_restriction_notice)
+
+        self._count_restriction_notice = QLabel()
+        self._count_restriction_notice.setStyleSheet(
+            'color: #FF9800; font-size: 12px; font-style: italic; padding: 2px 0;'
+        )
+        self._count_restriction_notice.setWordWrap(True)
+        self._count_restriction_notice.setVisible(False)
+        notice_col.addWidget(self._count_restriction_notice)
+        notice_col.addStretch()
+        media_body.addLayout(notice_col, 1)
+
+        layout.addLayout(media_body)
 
         self._update_counters()
 
@@ -339,6 +371,18 @@ class PostComposer(QWidget):
         self._media_paths = [p for p in paths if p.exists()][:MAX_MEDIA_ATTACHMENTS]
         self._refresh_media_list()
         self._emit_media_changed()
+
+    def set_format_restriction_notice(self, text: str = ''):
+        if not self._format_restriction_notice:
+            return
+        self._format_restriction_notice.setText(text)
+        self._format_restriction_notice.setVisible(bool(text))
+
+    def set_count_restriction_notice(self, text: str = ''):
+        if not self._count_restriction_notice:
+            return
+        self._count_restriction_notice.setText(text)
+        self._count_restriction_notice.setVisible(bool(text))
 
     def clear(self):
         self._text_edit.clear()

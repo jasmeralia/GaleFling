@@ -23,8 +23,6 @@ class PlatformSelector(QWidget):
         self._available: set[str] = set()
         self._format_restricted: set[str] = set()
         self._count_restricted: set[str] = set()
-        self._format_notice: QLabel | None = None
-        self._count_notice: QLabel | None = None
         self._init_ui()
 
     def _init_ui(self):
@@ -36,24 +34,6 @@ class PlatformSelector(QWidget):
         self._label = QLabel('Post to:')
         self._label.setStyleSheet('font-weight: bold; font-size: 13px; color: palette(text);')
         self._layout.addWidget(self._label, 0, 0)
-
-        self._format_notice = QLabel()
-        self._format_notice.setStyleSheet(
-            'color: #FF9800; font-size: 12px; font-style: italic; padding: 2px 0;'
-        )
-        self._format_notice.setWordWrap(True)
-        self._format_notice.setVisible(False)
-        self._layout.addWidget(self._format_notice, 0, 1)
-
-        self._count_notice = QLabel()
-        self._count_notice.setStyleSheet(
-            'color: #FF9800; font-size: 12px; font-style: italic; padding: 2px 0;'
-        )
-        self._count_notice.setWordWrap(True)
-        self._count_notice.setVisible(False)
-        # Place count notice at row 0, column 1 — will stack with format_notice
-        # Actually place at a high row, it will adjust once checkboxes are built
-        self._layout.addWidget(self._count_notice, 100, 0, 1, 2)
 
     def set_accounts(self, accounts: list[AccountConfig]):
         """Rebuild checkboxes from account list."""
@@ -122,13 +102,9 @@ class PlatformSelector(QWidget):
         """Restrict platforms that don't support the attached image format.
 
         Unchecks and dims any accounts in restricted_account_ids,
-        and shows an explanatory notice. Pass an empty set to clear.
+        then updates selection state. Pass an empty set to clear.
         """
         self._format_restricted = set(restricted_account_ids)
-        show_notice = bool(self._format_restricted)
-        if self._format_notice:
-            self._format_notice.setText(notice_text)
-            self._format_notice.setVisible(show_notice)
 
         for account_id in self._format_restricted:
             cb = self._checkboxes.get(account_id)
@@ -145,13 +121,9 @@ class PlatformSelector(QWidget):
         """Restrict platforms that don't support the number of attachments.
 
         Unchecks and dims any accounts in restricted_account_ids,
-        and shows an explanatory notice. Pass an empty set to clear.
+        then updates selection state. Pass an empty set to clear.
         """
         self._count_restricted = set(restricted_account_ids)
-        show_notice = bool(self._count_restricted)
-        if self._count_notice:
-            self._count_notice.setText(notice_text)
-            self._count_notice.setVisible(show_notice)
 
         for account_id in self._count_restricted:
             cb = self._checkboxes.get(account_id)

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.9] - 2026-03-09
+
+### Changed
+- WebView login detection now prioritizes live cookie-store events (`cookieAdded`) and keeps database polling as a lightweight fallback to reduce in-browser login lag.
+- Composer media restriction notices are now displayed next to the attachment list (right side) instead of in the platform selector section.
+
+### Fixed
+- WebView session checks no longer perform retry/sleep loops on the UI thread, preventing multi-second login freezes when the Chromium cookie database is locked.
+- Media preview processing now hard-caps to the configured max attachment count, preventing extra preview dialogs when too many attachments are passed in.
+
+### Added
+- Tests covering quick-return behavior for locked cookie DB session checks, cookie-event login detection in setup wizard, composer-side restriction notices, and preview dialog cap enforcement.
+
 ## [1.5.8] - 2026-03-09
 
 ### Changed

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 from src.platforms.base_webview import BaseWebViewPlatform
@@ -178,7 +179,7 @@ def test_base_webview_has_valid_session_corrupt_db(monkeypatch, tmp_path):
     assert platform.has_valid_session() is False
 
 
-def test_base_webview_has_valid_session_retries_locked_db(monkeypatch, tmp_path):
+def test_base_webview_has_valid_session_locked_db_returns_quickly(monkeypatch, tmp_path):
     import src.platforms.base_webview as base_webview
 
     monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
@@ -186,19 +187,27 @@ def test_base_webview_has_valid_session_retries_locked_db(monkeypatch, tmp_path)
     cookie_path = tmp_path / 'webprofiles' / 'test_1' / 'Cookies'
     _write_cookie_db(cookie_path, '.example.com')
 
-    real_connect = sqlite3.connect
-    state = {'first': True}
+    lock_conn = sqlite3.connect(cookie_path)
+    lock_conn.execute('BEGIN EXCLUSIVE')
+    start = time.perf_counter()
+    try:
+        assert platform.has_valid_session() is False
+    finally:
+        lock_conn.rollback()
+        lock_conn.close()
+    elapsed = time.perf_counter() - start
+    assert elapsed < 0.2
 
-    def flaky_connect(*args, **kwargs):
-        if state['first']:
-            state['first'] = False
-            raise sqlite3.OperationalError('database is locked')
-        return real_connect(*args, **kwargs)
 
-    monkeypatch.setattr(base_webview.sqlite3, 'connect', flaky_connect)
-    monkeypatch.setattr(base_webview.time, 'sleep', lambda _seconds: None)
+def test_base_webview_is_session_cookie_matches_domain_and_auth_name():
+    class AuthPlatform(ConcreteWebViewPlatform):
+        AUTH_COOKIE_NAMES = ['session_id']
 
-    assert platform.has_valid_session() is True
+    platform = AuthPlatform(account_id='test_1')
+    assert platform.is_session_cookie('.example.com', 'session_id') is True
+    assert platform.is_session_cookie('sub.example.com', 'session_id') is True
+    assert platform.is_session_cookie('.example.com', 'other') is False
+    assert platform.is_session_cookie('.other.com', 'session_id') is False
 
 
 def test_base_webview_prepare_post():

@@ -7,7 +7,7 @@
 
 GaleFling is a Windows desktop app for posting to multiple social platforms at once. It’s designed for non-technical creators, with clear guidance, robust error handling, and one-click log sharing for support.
 
-**Current Version:** 1.5.8
+**Current Version:** 1.5.9
 
 Docs: [Changelog](CHANGELOG.md) | [Roadmap](docs/ROADMAP.md) | [Contributing](docs/CONTRIBUTING.md) | [Twitter Setup](docs/TWITTER.md) | [Instagram Setup](docs/INSTAGRAM.md)
 

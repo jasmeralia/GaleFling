@@ -46,20 +46,6 @@ class TestFormatRestriction:
         selector._on_checkbox_clicked('bluesky_1')
         assert not cb.isChecked()
 
-    def test_restriction_shows_notice(self, selector):
-        """The format notice should be visible when restriction is active."""
-        assert selector._format_notice.isHidden()
-        selector.set_format_restriction({'bluesky_1'}, GIF_NOTICE)
-        assert not selector._format_notice.isHidden()
-        assert 'GIF' in selector._format_notice.text()
-
-    def test_clearing_restriction_hides_notice(self, selector):
-        """Clearing restriction should hide the notice."""
-        selector.set_format_restriction({'bluesky_1'}, GIF_NOTICE)
-        assert not selector._format_notice.isHidden()
-        selector.set_format_restriction(set())
-        assert selector._format_notice.isHidden()
-
     def test_restricted_platforms_have_tooltip(self, selector):
         """Restricted platforms should have an explanatory tooltip."""
         selector.set_format_restriction({'bluesky_1'}, GIF_NOTICE)
@@ -105,14 +91,6 @@ class TestFormatRestriction:
         assert 'bluesky_1' not in selected
         assert 'instagram_1' not in selected
 
-    def test_notice_text_changes_per_format(self, selector):
-        """Notice text should reflect the specific format."""
-        selector.set_format_restriction({'bluesky_1'}, GIF_NOTICE)
-        assert 'GIF' in selector._format_notice.text()
-
-        selector.set_format_restriction({'bluesky_1'}, WEBP_NOTICE)
-        assert 'WEBP' in selector._format_notice.text()
-
 
 VIDEO_NOTICE = '\u26a0 Video attached \u2014 some platforms do not support this video format.'
 IMAGE_ON_VIDEO_ONLY = '\u26a0 Image attached \u2014 this platform only supports video.'
@@ -155,21 +133,6 @@ class TestVideoFormatRestriction:
         assert 'twitter_1' in selected
         assert 'snapchat_1' not in selected
 
-    def test_video_restriction_shows_notice(self, selector_with_snapchat):
-        """Video format restriction shows the notice label."""
-        sel = selector_with_snapchat
-        assert sel._format_notice.isHidden()
-        sel.set_format_restriction({'bluesky_1'}, VIDEO_NOTICE)
-        assert not sel._format_notice.isHidden()
-        assert 'video' in sel._format_notice.text().lower()
-
-    def test_image_on_video_only_notice(self, selector_with_snapchat):
-        """Image restriction on video-only platform shows correct notice."""
-        sel = selector_with_snapchat
-        sel.set_format_restriction({'snapchat_1'}, IMAGE_ON_VIDEO_ONLY)
-        assert not sel._format_notice.isHidden()
-        assert 'video' in sel._format_notice.text().lower()
-
     def test_video_restriction_prevents_checking(self, selector_with_snapchat):
         """Restricted platform cannot be checked."""
         sel = selector_with_snapchat
@@ -194,22 +157,6 @@ class TestCountRestriction:
         assert 'twitter_1' in selected
         assert 'bluesky_1' in selected
         assert 'snapchat_1' not in selected
-
-    def test_count_restriction_shows_notice(self, selector_with_snapchat):
-        """Count restriction shows the notice label."""
-        sel = selector_with_snapchat
-        assert sel._count_notice.isHidden()
-        sel.set_count_restriction({'snapchat_1'}, COUNT_NOTICE)
-        assert not sel._count_notice.isHidden()
-        assert 'attachments' in sel._count_notice.text().lower()
-
-    def test_clearing_count_restriction(self, selector_with_snapchat):
-        """Clearing count restriction hides the notice."""
-        sel = selector_with_snapchat
-        sel.set_count_restriction({'snapchat_1'}, COUNT_NOTICE)
-        assert not sel._count_notice.isHidden()
-        sel.set_count_restriction(set())
-        assert sel._count_notice.isHidden()
 
     def test_count_restriction_prevents_checking(self, selector_with_snapchat):
         """Count-restricted platform cannot be checked."""

@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QDialog, QLabel, QMessageBox
 
 from src.gui.main_window import MainWindow
-from src.utils.constants import AccountConfig
+from src.utils.constants import MAX_MEDIA_ATTACHMENTS, AccountConfig
 
 
 class DummyAuthManager:
@@ -729,6 +729,41 @@ def test_count_restriction_disables_snapchat_for_multiple_images(qtbot, monkeypa
     assert 'snapchat_1' in captured['restricted']
 
 
+def test_format_restriction_notice_shows_in_composer(qtbot, monkeypatch, tmp_path):
+    window = DummyMainWindow(
+        DummyConfig(selected=['twitter_1', 'snapchat_1']),
+        DummyAuthManager(True, False, snapchat=True),
+    )
+    qtbot.addWidget(window)
+
+    monkeypatch.setattr(window, '_detect_media_format', lambda _path: ('GIF', False))
+    monkeypatch.setattr('src.gui.main_window.is_animated_gif', lambda _path: True)
+
+    media = tmp_path / 'test.gif'
+    media.write_bytes(b'fake')
+    window._apply_format_restriction([media])
+
+    assert not window._composer._format_restriction_notice.isHidden()
+    assert 'Animated GIF' in window._composer._format_restriction_notice.text()
+
+
+def test_count_restriction_notice_shows_in_composer(qtbot, tmp_path):
+    window = DummyMainWindow(
+        DummyConfig(selected=['twitter_1', 'snapchat_1']),
+        DummyAuthManager(True, False, snapchat=True),
+    )
+    qtbot.addWidget(window)
+
+    media_1 = tmp_path / 'img1.png'
+    media_2 = tmp_path / 'img2.png'
+    media_1.write_bytes(b'fake1')
+    media_2.write_bytes(b'fake2')
+    window._apply_count_restriction([media_1, media_2])
+
+    assert not window._composer._count_restriction_notice.isHidden()
+    assert 'attachments' in window._composer._count_restriction_notice.text().lower()
+
+
 def test_show_message_box_applies_theme(qtbot, monkeypatch):
     apply_calls = []
 
@@ -932,6 +967,38 @@ def test_show_media_preview_missing_first_media_stays_missing(qtbot, monkeypatch
     assert len(window._processed_media['twitter']) == 1
     missing = window._get_missing_processed_platforms(['twitter_1'], expected_count=2)
     assert missing == ['twitter']
+
+
+def test_show_media_preview_caps_at_max_attachments(qtbot, monkeypatch, tmp_path):
+    seen_media = []
+
+    class PreviewDialog:
+        Accepted = 1
+
+        def __init__(self, image_path, _platforms, _parent=None, existing_paths=None):
+            self.had_errors = False
+            seen_media.append(image_path)
+
+        def exec(self):
+            return self.Accepted
+
+        def get_processed_paths(self):
+            return {}
+
+    monkeypatch.setattr('src.gui.main_window.ImagePreviewDialog', PreviewDialog)
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    media_paths = []
+    for i in range(MAX_MEDIA_ATTACHMENTS + 2):
+        p = tmp_path / f'image_{i}.png'
+        p.write_bytes(b'fake')
+        media_paths.append(p)
+
+    window._show_media_preview(media_paths, ['twitter_1'])
+
+    assert len(seen_media) == MAX_MEDIA_ATTACHMENTS
 
 
 def test_main_window_single_platform_enabled(qtbot):

@@ -195,3 +195,19 @@ class TestMultiAttachment:
         composer._clear_all_media()
         assert not composer._placeholder_label.isHidden()
         p.unlink(missing_ok=True)
+
+    def test_format_restriction_notice_toggle(self, composer):
+        composer.set_format_restriction_notice('\u26a0 Image attached')
+        assert not composer._format_restriction_notice.isHidden()
+        assert 'Image attached' in composer._format_restriction_notice.text()
+
+        composer.set_format_restriction_notice('')
+        assert composer._format_restriction_notice.isHidden()
+
+    def test_count_restriction_notice_toggle(self, composer):
+        composer.set_count_restriction_notice('\u26a0 4 attachments')
+        assert not composer._count_restriction_notice.isHidden()
+        assert 'attachments' in composer._count_restriction_notice.text()
+
+        composer.set_count_restriction_notice('')
+        assert composer._count_restriction_notice.isHidden()

@@ -28,6 +28,9 @@ class _FakePlatform:
     def has_valid_session(self):
         return self._detected
 
+    def is_session_cookie(self, _host, _cookie_name):
+        return self._detected
+
 
 def test_webview_login_dialog_detects_without_auto_close(qtbot):
     platform = _FakePlatform(detected=True)
@@ -39,6 +42,31 @@ def test_webview_login_dialog_detects_without_auto_close(qtbot):
 
     assert dialog.login_detected is True
     assert dialog.result() == 0  # not auto-accepted
+    assert 'Login detected' in dialog._status_banner.text()
+
+    dialog.close()
+
+
+def test_webview_login_dialog_detects_from_cookie_event(qtbot):
+    class _Cookie:
+        def __init__(self, domain: str, name: bytes):
+            self._domain = domain
+            self._name = name
+
+        def domain(self):
+            return self._domain
+
+        def name(self):
+            return self._name
+
+    platform = _FakePlatform(detected=True)
+    dialog = WebViewLoginDialog(platform, 'OnlyFans')
+    qtbot.addWidget(dialog)
+    dialog.show()
+
+    dialog._on_cookie_added(_Cookie('.onlyfans.com', b'sess'))
+
+    assert dialog.login_detected is True
     assert 'Login detected' in dialog._status_banner.text()
 
     dialog.close()

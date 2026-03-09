@@ -1,5 +1,7 @@
 """First-run setup wizard for credential configuration."""
 
+import contextlib
+
 from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QPalette
 from PyQt6.QtWidgets import (
@@ -659,6 +661,7 @@ class WebViewLoginDialog(QDialog):
         super().__init__(parent)
         self._platform = platform
         self.login_detected = False
+        self._cookie_store = None
         self.setWindowTitle(f'Log in to {platform_name}')
         self.setWindowFlags(
             Qt.WindowType.Window
@@ -689,6 +692,12 @@ class WebViewLoginDialog(QDialog):
 
         view = self._platform.create_webview(self)
         layout.addWidget(view, stretch=1)
+        page = view.page() if hasattr(view, 'page') else None
+        profile = page.profile() if page else None
+        if profile is not None:
+            self._cookie_store = profile.cookieStore()
+            if self._cookie_store is not None:
+                self._cookie_store.cookieAdded.connect(self._on_cookie_added)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
@@ -696,28 +705,49 @@ class WebViewLoginDialog(QDialog):
 
         self._platform.navigate_to_composer()
 
-        # Poll for successful login via cookie detection
+        # Poll as a lightweight fallback; primary detection is cookieAdded.
         self._login_timer = QTimer(self)
-        self._login_timer.setInterval(2000)
+        self._login_timer.setInterval(3000)
         self._login_timer.timeout.connect(self._check_login)
         self._login_timer.start()
 
     def _check_login(self):
         """Check if the user has successfully logged in."""
-        if self._platform.has_valid_session() and not self.login_detected:
-            self.login_detected = True
-            self._status_banner.setText(
-                '\u2713 Login detected. You can continue using this browser tab '
-                'or click Close when finished.'
-            )
-            self._status_banner.setStyleSheet(
-                'background-color: #E8F5E9; color: #2E7D32; font-weight: bold; '
-                'padding: 8px; border-radius: 4px;'
-            )
-            self._login_timer.stop()
+        if self.login_detected:
+            return
+        if self._platform.has_valid_session():
+            self._mark_login_detected()
+
+    def _on_cookie_added(self, cookie):
+        if self.login_detected:
+            return
+        host_raw = cookie.domain()
+        host = (
+            host_raw
+            if isinstance(host_raw, str)
+            else bytes(host_raw).decode('utf-8', errors='ignore')
+        )
+        cookie_name = bytes(cookie.name()).decode('utf-8', errors='ignore')
+        if self._platform.is_session_cookie(host, cookie_name):
+            self._mark_login_detected()
+
+    def _mark_login_detected(self):
+        self.login_detected = True
+        self._status_banner.setText(
+            '\u2713 Login detected. You can continue using this browser tab '
+            'or click Close when finished.'
+        )
+        self._status_banner.setStyleSheet(
+            'background-color: #E8F5E9; color: #2E7D32; font-weight: bold; '
+            'padding: 8px; border-radius: 4px;'
+        )
+        self._login_timer.stop()
 
     def closeEvent(self, event):  # noqa: N802
         self._login_timer.stop()
+        if self._cookie_store is not None:
+            with contextlib.suppress(TypeError, RuntimeError):
+                self._cookie_store.cookieAdded.disconnect(self._on_cookie_added)
         event.accept()
 
 

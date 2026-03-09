@@ -45,8 +45,8 @@ class BaseWebViewPlatform(BasePlatform):
     PREFILL_DELAY_MS: int = 200
     POLL_INTERVAL_MS: int = 500
     POLL_TIMEOUT_MS: int = 30000
-    COOKIE_CHECK_RETRIES: int = 5
-    COOKIE_CHECK_RETRY_DELAY_SECONDS: float = 0.25
+    COOKIE_DB_TIMEOUT_SECONDS: float = 0.01
+    COOKIE_NAME_SCAN_LIMIT: int = 250
 
     def __init__(
         self,
@@ -93,74 +93,120 @@ class BaseWebViewPlatform(BasePlatform):
         return self._get_profile_storage_path() / 'Cookies'
 
     def has_valid_session(self) -> bool:
-        """Check for platform auth cookies in the persisted cookie database."""
+        """Check for platform auth cookies in persisted cookies without blocking UI."""
         if not self.COOKIE_DOMAINS:
             return False
         cookie_path = self._get_cookie_db_path()
         if not cookie_path.exists():
             return False
         db_uri = f'file:{cookie_path}?mode=ro'
-        for attempt in range(self.COOKIE_CHECK_RETRIES):
-            try:
-                with sqlite3.connect(db_uri, uri=True, timeout=1.0) as conn:
-                    names = self._get_cookie_names_for_domains(conn)
-                    if not names:
-                        return False
-                    if self.AUTH_COOKIE_NAMES or self.AUTH_COOKIE_NAME_PATTERNS:
-                        return any(self._is_auth_cookie_name(name) for name in names)
-                    return True
-            except sqlite3.Error as exc:
-                if attempt < self.COOKIE_CHECK_RETRIES - 1:
-                    time.sleep(self.COOKIE_CHECK_RETRY_DELAY_SECONDS)
-                    continue
-                get_logger().debug(
-                    'Cookie session check failed',
-                    extra={
-                        'platform': self.get_platform_name(),
-                        'cookie_path': str(cookie_path),
-                        'error': str(exc),
-                    },
-                )
-                return False
-        return False
+        try:
+            with sqlite3.connect(
+                db_uri,
+                uri=True,
+                timeout=self.COOKIE_DB_TIMEOUT_SECONDS,
+            ) as conn:
+                return self._has_valid_session_in_db(conn)
+        except sqlite3.Error as exc:
+            get_logger().debug(
+                'Cookie session check failed',
+                extra={
+                    'platform': self.get_platform_name(),
+                    'cookie_path': str(cookie_path),
+                    'error': str(exc),
+                },
+            )
+            return False
 
-    def _get_cookie_names_for_domains(self, conn: sqlite3.Connection) -> list[str]:
+    def _has_valid_session_in_db(self, conn: sqlite3.Connection) -> bool:
         cursor = conn.cursor()
         cursor.execute('PRAGMA table_info(cookies)')
         columns = {row[1] for row in cursor.fetchall()}
         if 'host_key' not in columns:
-            return []
+            return False
 
         has_name = 'name' in columns
         has_expires = 'expires_utc' in columns
-        select_cols = ['host_key']
-        if has_name:
-            select_cols.append('name')
-        if has_expires:
-            select_cols.append('expires_utc')
-
-        where_parts = ['host_key LIKE ?'] * len(self.COOKIE_DOMAINS)
-        query = f'SELECT {", ".join(select_cols)} FROM cookies WHERE {" OR ".join(where_parts)}'
-        params = tuple(f'%{domain}' for domain in self.COOKIE_DOMAINS)
-        cursor.execute(query, params)
+        domain_where, domain_params = self._domain_where_clause()
+        if not domain_where:
+            return False
 
         now_chrome_us = int((time.time() + 11644473600) * 1_000_000)
-        names: list[str] = []
-        for row in cursor.fetchall():
-            idx = 0
-            _host_key = row[idx]
-            idx += 1
-            name = str(row[idx]) if has_name and row[idx] is not None else ''
-            if has_name:
-                idx += 1
-            expires_utc = int(row[idx]) if has_expires and row[idx] is not None else 0
-            if has_expires and expires_utc and expires_utc < now_chrome_us:
+        expiry_where = ''
+        expiry_params: tuple[object, ...] = ()
+        if has_expires:
+            expiry_where = ' AND (expires_utc = 0 OR expires_utc >= ?)'
+            expiry_params = (now_chrome_us,)
+
+        if not (self.AUTH_COOKIE_NAMES or self.AUTH_COOKIE_NAME_PATTERNS):
+            cursor.execute(
+                f'SELECT 1 FROM cookies WHERE ({domain_where}){expiry_where} LIMIT 1',
+                domain_params + expiry_params,
+            )
+            return cursor.fetchone() is not None
+
+        if not has_name:
+            return False
+
+        auth_names = [name.lower() for name in self.AUTH_COOKIE_NAMES]
+        if auth_names:
+            placeholders = ', '.join('?' for _ in auth_names)
+            cursor.execute(
+                (
+                    f'SELECT 1 FROM cookies WHERE ({domain_where})'
+                    f' AND lower(name) IN ({placeholders}){expiry_where} LIMIT 1'
+                ),
+                domain_params + tuple(auth_names) + expiry_params,
+            )
+            if cursor.fetchone() is not None:
+                return True
+
+        if not self.AUTH_COOKIE_NAME_PATTERNS:
+            return False
+
+        cursor.execute(
+            (
+                f'SELECT name FROM cookies WHERE ({domain_where}){expiry_where} '
+                f'LIMIT {self.COOKIE_NAME_SCAN_LIMIT}'
+            ),
+            domain_params + expiry_params,
+        )
+        return any(
+            self._is_auth_cookie_name(str(row[0]))
+            for row in cursor.fetchall()
+            if row and row[0] is not None
+        )
+
+    def _domain_where_clause(self) -> tuple[str, tuple[object, ...]]:
+        where_parts: list[str] = []
+        params: list[object] = []
+        for domain in self.COOKIE_DOMAINS:
+            normalized = domain.strip().lower().lstrip('.')
+            if not normalized:
                 continue
-            if name:
-                names.append(name)
-            elif not has_name:
-                names.append('__unknown__')
-        return names
+            where_parts.append('lower(host_key) LIKE ?')
+            params.append(f'%{normalized}')
+        return ' OR '.join(where_parts), tuple(params)
+
+    def is_session_cookie(self, host: str, cookie_name: str) -> bool:
+        """Whether a cookie should count as an authenticated session signal."""
+        if not self._matches_cookie_domain(host):
+            return False
+        if self.AUTH_COOKIE_NAMES or self.AUTH_COOKIE_NAME_PATTERNS:
+            return self._is_auth_cookie_name(cookie_name)
+        return True
+
+    def _matches_cookie_domain(self, host: str) -> bool:
+        normalized_host = host.strip().lower().lstrip('.')
+        if not normalized_host:
+            return False
+        for domain in self.COOKIE_DOMAINS:
+            normalized_domain = domain.strip().lower().lstrip('.')
+            if normalized_host == normalized_domain or normalized_host.endswith(
+                f'.{normalized_domain}'
+            ):
+                return True
+        return False
 
     def _is_auth_cookie_name(self, cookie_name: str) -> bool:
         normalized = cookie_name.strip().lower()

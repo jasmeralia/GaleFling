@@ -52,6 +52,7 @@ from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import (
     APP_NAME,
     APP_VERSION,
+    MAX_MEDIA_ATTACHMENTS,
     PLATFORM_SPECS_MAP,
     VIDEO_EXTENSIONS,
     PostResult,
@@ -443,6 +444,7 @@ class MainWindow(QMainWindow):
         self._refresh_platform_state()
 
     def _on_media_changed(self, media_paths):
+        media_paths = list(media_paths)[:MAX_MEDIA_ATTACHMENTS]
         self._cleanup_processed_media()
         if media_paths:
             get_logger().info(f'User attached media: {[str(p) for p in media_paths]}')
@@ -558,8 +560,10 @@ class MainWindow(QMainWindow):
                 extra={'restricted': sorted(restricted), 'has_video': has_video},
             )
             self._platform_selector.set_format_restriction(restricted, notice)
+            self._composer.set_format_restriction_notice(notice)
         else:
             self._platform_selector.set_format_restriction(set())
+            self._composer.set_format_restriction_notice('')
 
         self._sync_composer_platform_state()
 
@@ -585,14 +589,17 @@ class MainWindow(QMainWindow):
                 extra={'restricted': sorted(restricted), 'count': count},
             )
             self._platform_selector.set_count_restriction(restricted, notice)
+            self._composer.set_count_restriction_notice(notice)
         else:
             self._platform_selector.set_count_restriction(set())
+            self._composer.set_count_restriction_notice('')
 
         self._sync_composer_platform_state()
 
     def _clear_count_restriction(self):
         """Remove attachment count platform restrictions."""
         self._platform_selector.set_count_restriction(set())
+        self._composer.set_count_restriction_notice('')
         self._sync_composer_platform_state()
 
     def _sync_composer_platform_state(self):
@@ -603,6 +610,7 @@ class MainWindow(QMainWindow):
     def _clear_format_restriction(self):
         """Remove media format platform restrictions."""
         self._platform_selector.set_format_restriction(set())
+        self._composer.set_format_restriction_notice('')
         self._sync_composer_platform_state()
 
     def _on_preview_requested(self):
@@ -715,6 +723,7 @@ class MainWindow(QMainWindow):
         return missing
 
     def _show_media_preview(self, media_paths: list[Path], platforms: list[str]):
+        media_paths = media_paths[:MAX_MEDIA_ATTACHMENTS]
         groups = []
         seen = set()
         for platform in platforms:

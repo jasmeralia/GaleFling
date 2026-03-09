@@ -48,6 +48,10 @@ build/tmp/
 # Python caches
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+
+# Code coverage
 .coverage
 coverage.xml
 junit.xml
+htmlcov

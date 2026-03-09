@@ -1,6 +1,7 @@
 """Upload logs and screenshots to the remote endpoint."""
 
 import base64
+import contextlib
 import getpass
 import socket
 from datetime import UTC, datetime
@@ -99,6 +100,41 @@ class LogUploader:
                 upload_id = data.get('upload_id', 'unknown')
                 logger.info(f'Logs uploaded successfully. ID: {upload_id}')
                 return True, f'Logs sent successfully! (ID: {upload_id})', ''
+            if response.status_code == 426:
+                min_supported_version = 'unknown'
+                server_message = 'Client version is too old.'
+                with contextlib.suppress(ValueError, TypeError, AttributeError):
+                    data = response.json()
+                    min_supported_version = str(data.get('min_supported_version', 'unknown'))
+                    server_message = str(data.get('message', server_message))
+
+                user_message = (
+                    f'Your GaleFling version is too old for log submission. '
+                    f'Please upgrade to v{min_supported_version} or newer, retest the issue, '
+                    f'then send logs again.'
+                )
+                logger.warning(
+                    'Log upload rejected due to old client version',
+                    extra={
+                        'status_code': response.status_code,
+                        'min_supported_version': min_supported_version,
+                    },
+                )
+                return (
+                    False,
+                    user_message,
+                    self._format_error_details(
+                        'LOG-CLIENT-TOO-OLD',
+                        endpoint,
+                        server_message,
+                        installation_id=installation_id,
+                        hostname=hostname,
+                        username=username,
+                        os_info=os_info,
+                        ffmpeg_version=ffmpeg_version,
+                        response_text=response.text,
+                    ),
+                )
             logger.error(f'Log upload failed: HTTP {response.status_code}')
             error_code = f'LOG-HTTP-{response.status_code}'
             return (

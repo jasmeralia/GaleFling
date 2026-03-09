@@ -7,6 +7,7 @@ a notification email via SES.
 import base64
 import json
 import os
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -16,6 +17,24 @@ ses = boto3.client('ses')
 
 NOTIFY_EMAIL = os.environ.get('NOTIFY_EMAIL', 'morgan@windsofstorm.net')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'morgan@windsofstorm.net')
+MIN_SUPPORTED_VERSION = '1.5.1'
+
+
+def _parse_semver(version_text: str) -> tuple[int, int, int] | None:
+    """Parse semantic version text like 1.5.2 into an integer tuple."""
+    match = re.match(r'^\s*v?(\d+)\.(\d+)\.(\d+)', str(version_text))
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def _is_supported_version(app_version: str, min_supported_version: str) -> bool:
+    """Return whether the app version meets the minimum supported version."""
+    app_tuple = _parse_semver(app_version)
+    min_tuple = _parse_semver(min_supported_version)
+    if app_tuple is None or min_tuple is None:
+        return False
+    return app_tuple >= min_tuple
 
 
 def lambda_handler(event, context):
@@ -69,9 +88,24 @@ def lambda_handler(event, context):
             },
         )
 
+    app_version = body.get('app_version', 'unknown')
+    if not _is_supported_version(app_version, MIN_SUPPORTED_VERSION):
+        return _cors_response(
+            426,
+            {
+                'success': False,
+                'error_code': 'LOG-CLIENT-TOO-OLD',
+                'message': (
+                    'App version too old for log submission. '
+                    'Please upgrade, reproduce the issue, and retest before sending logs.'
+                ),
+                'min_supported_version': MIN_SUPPORTED_VERSION,
+                'app_version': app_version,
+            },
+        )
+
     upload_id = str(uuid.uuid4())[:12]
     timestamp = datetime.now(UTC).strftime('%Y%m%d_%H%M%S')
-    app_version = body.get('app_version', 'unknown')
     error_code = body.get('error_code', 'MANUAL')
     user_notes = body.get('user_notes', '')
     hostname = body.get('hostname', '')

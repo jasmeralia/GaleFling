@@ -120,6 +120,37 @@ def test_upload_http_error_returns_details(tmp_path, monkeypatch):
     assert 'server down' in details
 
 
+def test_upload_upgrade_required_returns_upgrade_message(tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    config.set('log_upload_enabled', True)
+
+    monkeypatch.setattr(log_uploader, 'get_logs_dir', lambda: tmp_path / 'logs')
+    monkeypatch.setattr(log_uploader, 'get_current_log_path', lambda: None)
+    monkeypatch.setattr(log_uploader, 'get_ffmpeg_version', lambda: '7.1.1-custom')
+
+    def fake_post(url, json, headers, timeout):
+        return SimpleNamespace(
+            status_code=426,
+            json=lambda: {
+                'error_code': 'LOG-CLIENT-TOO-OLD',
+                'message': 'App version too old for log submission.',
+                'min_supported_version': '1.5.1',
+            },
+            text='upgrade required',
+        )
+
+    monkeypatch.setattr(log_uploader.requests, 'post', fake_post)
+
+    uploader = LogUploader(config)
+    success, message, details = uploader.upload('notes')
+
+    assert not success
+    assert 'upgrade' in message.lower()
+    assert 'retest' in message.lower()
+    assert '1.5.1' in message
+    assert 'LOG-CLIENT-TOO-OLD' in details
+
+
 def test_upload_timeout_returns_error(tmp_path, monkeypatch):
     config = _make_config(tmp_path, monkeypatch)
     config.set('log_upload_enabled', True)

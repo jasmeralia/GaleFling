@@ -47,7 +47,7 @@ def test_user_notes_in_metadata_and_email(monkeypatch):
 
     event = _make_event(
         {
-            'app_version': '0.2.13',
+            'app_version': '1.5.2',
             'error_code': 'POST-FAILED',
             'user_id': 'abc',
             'user_notes': 'Attached an image and clicked OK',
@@ -81,7 +81,7 @@ def test_attachments_use_raw_email(monkeypatch):
 
     event = _make_event(
         {
-            'app_version': '0.2.13',
+            'app_version': '1.5.2',
             'error_code': 'POST-FAILED',
             'user_id': 'abc',
             'user_notes': 'Attached an image and clicked OK',
@@ -94,3 +94,48 @@ def test_attachments_use_raw_email(monkeypatch):
     result = lf.lambda_handler(event, None)
     assert result['statusCode'] == 200
     assert fake_ses.raw_sent
+
+
+def test_rejects_payload_when_app_version_below_cutoff(monkeypatch):
+    fake_ses = FakeSES()
+    monkeypatch.setattr(lf, 'ses', fake_ses)
+
+    event = _make_event(
+        {
+            'app_version': '1.5.0',
+            'error_code': 'POST-FAILED',
+            'user_id': 'abc',
+            'user_notes': 'Attached an image and clicked OK',
+            'log_files': [],
+            'screenshots': [],
+        }
+    )
+
+    result = lf.lambda_handler(event, None)
+    assert result['statusCode'] == 426
+    body = json.loads(result['body'])
+    assert body['error_code'] == 'LOG-CLIENT-TOO-OLD'
+    assert body['min_supported_version'] == '1.5.1'
+    assert 'upgrade' in body['message'].lower()
+    assert not fake_ses.sent
+    assert not fake_ses.raw_sent
+
+
+def test_accepts_payload_at_cutoff_version(monkeypatch):
+    fake_ses = FakeSES()
+    monkeypatch.setattr(lf, 'ses', fake_ses)
+
+    event = _make_event(
+        {
+            'app_version': '1.5.1',
+            'error_code': 'POST-FAILED',
+            'user_id': 'abc',
+            'user_notes': 'Attached an image and clicked OK',
+            'log_files': [],
+            'screenshots': [],
+        }
+    )
+
+    result = lf.lambda_handler(event, None)
+    assert result['statusCode'] == 200
+    assert fake_ses.sent

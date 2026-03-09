@@ -53,7 +53,7 @@ APIs:
   - requests + facebook-sdk (Instagram Graph API)
 Packaging: PyInstaller + NSIS installer
 Auth Storage: keyring (Windows Credential Manager) + accounts_config.json
-Current Version: 1.5.5 (active development)
+Current Version: 1.5.6 (active development)
 ```
 
 ### PyQt6 Notes
@@ -459,7 +459,7 @@ def detect_urls(text: str) -> list[dict]:
 ```
 
 ### Log Upload
-- **Endpoint:** `POST https://galepost.jasmer.tools/logs/upload`
+- **Endpoint:** `POST https://galefling.jasmer.tools/logs/upload`
 - **Infrastructure:** CloudFormation stack in `infrastructure/template.yaml`
 - **Email:** `morgan@windsofstorm.net` (SES sender + recipient)
 - User must provide a description via `LogSubmitDialog` before sending

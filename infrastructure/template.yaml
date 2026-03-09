@@ -2,18 +2,18 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   GaleFling - Log Upload Backend.
   Deploys Lambda, API Gateway (HTTP API) with custom domain
-  galepost.jasmer.tools, and SES email notifications.
+  galefling.jasmer.tools, and SES email notifications.
 
 Parameters:
   DomainName:
     Type: String
-    Default: galepost.jasmer.tools
+    Default: galefling.jasmer.tools
     Description: Custom domain for the API Gateway
 
   CertificateArn:
     Type: String
     Description: >
-      ARN of an ACM certificate for galepost.jasmer.tools.
+      ARN of an ACM certificate for galefling.jasmer.tools.
       Must be in the same region as this stack (or us-east-1 for
       edge-optimized endpoints).
 

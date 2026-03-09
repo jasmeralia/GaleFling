@@ -3,7 +3,7 @@
 #
 # Prerequisites:
 #   1. AWS CLI configured with credentials
-#   2. ACM certificate for galepost.jasmer.tools (note the ARN)
+#   2. ACM certificate for galefling.jasmer.tools (note the ARN)
 #   4. SES verified sender identity for morgan@windsofstorm.net
 #
 # Usage:
@@ -113,4 +113,4 @@ echo "         --output text) \\"
 echo "       --zip-file fileb://lambda.zip"
 echo ""
 echo "  2. Verify SES sender identity for morgan@windsofstorm.net"
-echo "  3. Test the endpoint: curl -X POST https://galepost.jasmer.tools/logs/upload"
+echo "  3. Test the endpoint: curl -X POST https://galefling.jasmer.tools/logs/upload"

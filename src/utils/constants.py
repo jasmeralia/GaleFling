@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 APP_NAME = 'GaleFling'
-APP_VERSION = '1.5.5'
+APP_VERSION = '1.5.6'
 APP_ORG = 'Winds of Storm'
-LOG_UPLOAD_ENDPOINT = 'https://galepost.jasmer.tools/logs/upload'
+LOG_UPLOAD_ENDPOINT = 'https://galefling.jasmer.tools/logs/upload'
 
 DRAFT_AUTO_SAVE_INTERVAL_SECONDS = 30
 

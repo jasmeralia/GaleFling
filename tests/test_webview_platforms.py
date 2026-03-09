@@ -1,5 +1,8 @@
 """Tests for concrete WebView platform implementations."""
 
+import sqlite3
+from pathlib import Path
+
 from src.platforms.fansly import FanslyPlatform
 from src.platforms.fetlife import FetLifePlatform
 from src.platforms.onlyfans import OnlyFansPlatform
@@ -36,6 +39,40 @@ def test_snapchat_is_webview():
     result = p.post('Hello')
     assert result.success is False
     assert result.error_code == 'WV-PREFILL-FAILED'
+
+
+def _write_cookie(path: Path, host: str, name: str, expires_utc: int):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'CREATE TABLE IF NOT EXISTS cookies (host_key TEXT, name TEXT, expires_utc INTEGER)'
+        )
+        cursor.execute(
+            'INSERT INTO cookies (host_key, name, expires_utc) VALUES (?, ?, ?)',
+            (host, name, expires_utc),
+        )
+        conn.commit()
+
+
+def test_snapchat_session_requires_auth_cookie(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+    platform = SnapchatPlatform(account_id='snapchat_1')
+    cookie_path = tmp_path / 'webprofiles' / 'snapchat_1' / 'Cookies'
+
+    future_expiry = 20_000_000_000_000_000
+    _write_cookie(cookie_path, '.snapchat.com', '_ga', future_expiry)
+    assert platform.has_valid_session() is False
+
+    _write_cookie(
+        cookie_path,
+        'accounts.snapchat.com',
+        '__Host-sc-a-auth-session',
+        future_expiry,
+    )
+    assert platform.has_valid_session() is True
 
 
 # ── OnlyFans ────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import contextlib
 import json
 import re
 import sqlite3
+import time
 from pathlib import Path
 
 from PyQt6.QtCore import QTimer, QUrl
@@ -39,9 +40,13 @@ class BaseWebViewPlatform(BasePlatform):
     SUCCESS_SELECTOR: str = ''
     PERMALINK_SELECTOR: str = ''
     COOKIE_DOMAINS: list[str] = []
+    AUTH_COOKIE_NAMES: list[str] = []
+    AUTH_COOKIE_NAME_PATTERNS: list[str] = []
     PREFILL_DELAY_MS: int = 200
     POLL_INTERVAL_MS: int = 500
     POLL_TIMEOUT_MS: int = 30000
+    COOKIE_CHECK_RETRIES: int = 5
+    COOKIE_CHECK_RETRY_DELAY_SECONDS: float = 0.25
 
     def __init__(
         self,
@@ -88,25 +93,85 @@ class BaseWebViewPlatform(BasePlatform):
         return self._get_profile_storage_path() / 'Cookies'
 
     def has_valid_session(self) -> bool:
-        """Check for domain-specific cookies to validate a saved session."""
+        """Check for platform auth cookies in the persisted cookie database."""
         if not self.COOKIE_DOMAINS:
             return False
         cookie_path = self._get_cookie_db_path()
         if not cookie_path.exists():
             return False
-        try:
-            with sqlite3.connect(cookie_path) as conn:
-                cursor = conn.cursor()
-                for domain in self.COOKIE_DOMAINS:
-                    cursor.execute(
-                        'SELECT host_key FROM cookies WHERE host_key LIKE ? LIMIT 1',
-                        (f'%{domain}',),
-                    )
-                    if cursor.fetchone():
-                        return True
-        except sqlite3.Error:
-            return False
+        db_uri = f'file:{cookie_path}?mode=ro'
+        for attempt in range(self.COOKIE_CHECK_RETRIES):
+            try:
+                with sqlite3.connect(db_uri, uri=True, timeout=1.0) as conn:
+                    names = self._get_cookie_names_for_domains(conn)
+                    if not names:
+                        return False
+                    if self.AUTH_COOKIE_NAMES or self.AUTH_COOKIE_NAME_PATTERNS:
+                        return any(self._is_auth_cookie_name(name) for name in names)
+                    return True
+            except sqlite3.Error as exc:
+                if attempt < self.COOKIE_CHECK_RETRIES - 1:
+                    time.sleep(self.COOKIE_CHECK_RETRY_DELAY_SECONDS)
+                    continue
+                get_logger().debug(
+                    'Cookie session check failed',
+                    extra={
+                        'platform': self.get_platform_name(),
+                        'cookie_path': str(cookie_path),
+                        'error': str(exc),
+                    },
+                )
+                return False
         return False
+
+    def _get_cookie_names_for_domains(self, conn: sqlite3.Connection) -> list[str]:
+        cursor = conn.cursor()
+        cursor.execute('PRAGMA table_info(cookies)')
+        columns = {row[1] for row in cursor.fetchall()}
+        if 'host_key' not in columns:
+            return []
+
+        has_name = 'name' in columns
+        has_expires = 'expires_utc' in columns
+        select_cols = ['host_key']
+        if has_name:
+            select_cols.append('name')
+        if has_expires:
+            select_cols.append('expires_utc')
+
+        where_parts = ['host_key LIKE ?'] * len(self.COOKIE_DOMAINS)
+        query = f'SELECT {", ".join(select_cols)} FROM cookies WHERE {" OR ".join(where_parts)}'
+        params = tuple(f'%{domain}' for domain in self.COOKIE_DOMAINS)
+        cursor.execute(query, params)
+
+        now_chrome_us = int((time.time() + 11644473600) * 1_000_000)
+        names: list[str] = []
+        for row in cursor.fetchall():
+            idx = 0
+            _host_key = row[idx]
+            idx += 1
+            name = str(row[idx]) if has_name and row[idx] is not None else ''
+            if has_name:
+                idx += 1
+            expires_utc = int(row[idx]) if has_expires and row[idx] is not None else 0
+            if has_expires and expires_utc and expires_utc < now_chrome_us:
+                continue
+            if name:
+                names.append(name)
+            elif not has_name:
+                names.append('__unknown__')
+        return names
+
+    def _is_auth_cookie_name(self, cookie_name: str) -> bool:
+        normalized = cookie_name.strip().lower()
+        if not normalized:
+            return False
+        if any(normalized == n.lower() for n in self.AUTH_COOKIE_NAMES):
+            return True
+        return any(
+            re.search(pattern, normalized, flags=re.IGNORECASE)
+            for pattern in self.AUTH_COOKIE_NAME_PATTERNS
+        )
 
     def get_webview(self) -> QWebEngineView | None:
         """Return the existing WebEngineView, if created."""

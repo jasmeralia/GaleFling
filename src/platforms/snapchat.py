@@ -11,6 +11,7 @@ class SnapchatPlatform(BaseWebViewPlatform):
     TEXT_SELECTOR = 'div[contenteditable="true"]'
     SUCCESS_URL_PATTERN = ''  # SPA — URL capture unlikely
     COOKIE_DOMAINS = ['snapchat.com']
+    AUTH_COOKIE_NAMES = ['__Host-sc-a-auth-session']
     PREFILL_DELAY_MS = 500  # Snapchat SPA loads slowly
 
     def get_platform_name(self) -> str:

@@ -178,6 +178,29 @@ def test_base_webview_has_valid_session_corrupt_db(monkeypatch, tmp_path):
     assert platform.has_valid_session() is False
 
 
+def test_base_webview_has_valid_session_retries_locked_db(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+    platform = ConcreteWebViewPlatform(account_id='test_1')
+    cookie_path = tmp_path / 'webprofiles' / 'test_1' / 'Cookies'
+    _write_cookie_db(cookie_path, '.example.com')
+
+    real_connect = sqlite3.connect
+    state = {'first': True}
+
+    def flaky_connect(*args, **kwargs):
+        if state['first']:
+            state['first'] = False
+            raise sqlite3.OperationalError('database is locked')
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(base_webview.sqlite3, 'connect', flaky_connect)
+    monkeypatch.setattr(base_webview.time, 'sleep', lambda _seconds: None)
+
+    assert platform.has_valid_session() is True
+
+
 def test_base_webview_prepare_post():
     platform = ConcreteWebViewPlatform(account_id='test_1')
     platform._post_confirmed = True

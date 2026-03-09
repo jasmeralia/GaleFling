@@ -629,17 +629,13 @@ class WebViewPlatformSetupPage(QWizardPage):
         dialog = WebViewLoginDialog(platform, self._platform_name, self)
         dialog.exec()
         if dialog.login_detected:
-            # Trust the dialog's detection — cookies may not be flushed to
-            # disk yet when QWebEngineProfile is still being torn down.
             self._status_label.setText(
                 '<span style="color: #4CAF50; font-weight: bold;">\u2713 Login detected</span>'
             )
-            if self._profile_name.text().strip():
-                wizard = self.wizard()
-                if wizard:
-                    wizard.next()
         else:
-            self._update_login_status()
+            self._status_label.setText('Checking login status...')
+            # QWebEngine may flush persistent cookies shortly after dialog close.
+            QTimer.singleShot(1200, self._update_login_status)
 
     def validatePage(self) -> bool:  # noqa: N802
         name = self._profile_name.text().strip()
@@ -676,10 +672,17 @@ class WebViewLoginDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
+        self._status_banner = QLabel('\u23f3 Waiting for login detection...')
+        self._status_banner.setStyleSheet(
+            'background-color: #FFF3CD; color: #8A6D3B; font-weight: bold; '
+            'padding: 8px; border-radius: 4px;'
+        )
+        self._status_banner.setWordWrap(True)
+        layout.addWidget(self._status_banner)
         info = QLabel(
-            'Log in to your account below. This window will close automatically '
-            'once login is detected. Your session cookies are stored locally for '
-            'future posts.'
+            'Log in to your account below. The banner above updates when login '
+            'is detected. Your session cookies are stored locally for future '
+            'posts. Close this window when you are done.'
         )
         info.setWordWrap(True)
         layout.addWidget(info)
@@ -701,10 +704,17 @@ class WebViewLoginDialog(QDialog):
 
     def _check_login(self):
         """Check if the user has successfully logged in."""
-        if self._platform.has_valid_session():
-            self._login_timer.stop()
+        if self._platform.has_valid_session() and not self.login_detected:
             self.login_detected = True
-            self.accept()
+            self._status_banner.setText(
+                '\u2713 Login detected. You can continue using this browser tab '
+                'or click Close when finished.'
+            )
+            self._status_banner.setStyleSheet(
+                'background-color: #E8F5E9; color: #2E7D32; font-weight: bold; '
+                'padding: 8px; border-radius: 4px;'
+            )
+            self._login_timer.stop()
 
     def closeEvent(self, event):  # noqa: N802
         self._login_timer.stop()

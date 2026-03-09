@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.8] - 2026-03-09
+
+### Changed
+- Setup wizard WebView login dialog behavior updated: login detection now updates a visible banner but does not auto-close the dialog, so users can continue interacting with the page and close it manually.
+- Setup wizard Snapchat login status now performs a delayed refresh after closing the login dialog to reduce false negatives caused by cookie-write timing.
+- WebView session detection now supports retrying cookie DB reads to reduce transient `database is locked` false negatives during profile teardown.
+
+### Fixed
+- Snapchat session detection now keys off the auth-session cookie (`__Host-sc-a-auth-session`) instead of treating any Snapchat-domain cookie as a valid login.
+
+### Added
+- Tests for non-auto-closing WebView login dialog UX and delayed status refresh behavior.
+- Tests for Snapchat auth-cookie-based session detection and locked-cookie-DB retry handling.
+
 ## [1.5.7] - 2026-03-09
 
 ### Changed

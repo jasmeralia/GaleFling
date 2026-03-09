@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
 from src.gui.settings_dialog import SettingsDialog
-from src.utils.constants import AccountConfig
+from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
 
 
 def _make_config(tmp_path, monkeypatch) -> ConfigManager:
@@ -24,6 +25,34 @@ def _make_auth(tmp_path, monkeypatch) -> AuthManager:
     monkeypatch.setattr(auth_manager, 'get_app_data_dir', lambda: tmp_path)
     monkeypatch.setattr(AuthManager, '_find_dev_auth_dir', lambda self: None)
     return AuthManager()
+
+
+def _write_cookie_db(path, rows: list[tuple]):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'CREATE TABLE IF NOT EXISTS cookies ('
+            'host_key TEXT, '
+            'name TEXT, '
+            'path TEXT, '
+            'value TEXT, '
+            'encrypted_value BLOB, '
+            'expires_utc INTEGER, '
+            'is_secure INTEGER, '
+            'is_httponly INTEGER, '
+            'samesite INTEGER, '
+            'creation_utc INTEGER, '
+            'last_access_utc INTEGER'
+            ')'
+        )
+        cursor.executemany(
+            'INSERT INTO cookies (host_key, name, path, value, encrypted_value, '
+            'expires_utc, is_secure, is_httponly, samesite, creation_utc, last_access_utc) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            rows,
+        )
+        conn.commit()
 
 
 def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
@@ -365,3 +394,51 @@ def test_settings_dialog_has_per_platform_tabs(qtbot, tmp_path, monkeypatch):
     assert 'FetLife' in tab_names
     assert 'Advanced' in tab_names
     assert 'Accounts' not in tab_names
+
+
+def test_settings_dialog_builds_webview_cookie_export_data(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    auth.add_account(
+        AccountConfig(platform_id='snapchat', account_id='snapchat_1', profile_name='snap-user')
+    )
+    monkeypatch.setattr('src.gui.settings_dialog.get_app_data_dir', lambda: tmp_path)
+
+    cookie_db = tmp_path / 'webprofiles' / 'snapchat_1' / 'Cookies'
+    _write_cookie_db(
+        cookie_db,
+        [
+            ('.snapchat.com', 'ssid', '/', 'abc', b'\x00\x01', 0, 1, 1, 0, 1, 2),
+            ('.other.com', 'other', '/', 'zzz', b'', 0, 0, 0, 0, 1, 2),
+        ],
+    )
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+    data = dialog._build_webview_cookie_export_data('snapchat', PLATFORM_SPECS_MAP['snapchat'])
+
+    assert data['platform_id'] == 'snapchat'
+    assert data['platform_name'] == 'Snapchat'
+    account_1 = next(a for a in data['accounts'] if a['account_id'] == 'snapchat_1')
+    assert account_1['cookie_db_exists'] is True
+    assert account_1['cookie_count'] == 1
+    assert account_1['cookies'][0]['host_key'] == '.snapchat.com'
+    assert account_1['profile_name'] == 'snap-user'
+
+
+def test_settings_dialog_export_webview_cookies_no_db_shows_notice(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    monkeypatch.setattr('src.gui.settings_dialog.get_app_data_dir', lambda: tmp_path)
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+    calls = []
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.QMessageBox.information',
+        lambda *_args: calls.append(True),
+    )
+
+    dialog._export_webview_cookies('fetlife', PLATFORM_SPECS_MAP['fetlife'])
+
+    assert calls

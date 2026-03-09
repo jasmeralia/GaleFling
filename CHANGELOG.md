@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.4] - 2026-03-09
+
+### Added
+- WebView cookie export support in Settings for Snapchat, OnlyFans, Fansly, and FetLife.
+- Per-platform JSON export with account-level cookie DB path, filtered cookie rows for platform domains, cookie counts, and export timestamp.
+
+### Changed
+- Added tests for WebView cookie export data construction and no-cookie warning behavior.
+
 ## [1.5.3] - 2026-03-09
 
 ### Added

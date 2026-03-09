@@ -1,6 +1,8 @@
 """Settings dialog for debug mode, updates, and log configuration."""
 
 import json
+import sqlite3
+from datetime import UTC, datetime
 from typing import cast
 
 from PyQt6.QtCore import QUrl
@@ -25,12 +27,24 @@ from PyQt6.QtWidgets import (
 from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
 from src.core.logger import get_logger
+from src.platforms.fansly import FanslyPlatform
+from src.platforms.fetlife import FetLifePlatform
+from src.platforms.onlyfans import OnlyFansPlatform
+from src.platforms.snapchat import SnapchatPlatform
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
+from src.utils.helpers import get_app_data_dir
 
 
 class SettingsDialog(QDialog):
     """Application settings with tabs for general, per-platform accounts, and debug."""
+
+    _WEBVIEW_COOKIE_DOMAIN_MAP: dict[str, list[str]] = {
+        'snapchat': SnapchatPlatform.COOKIE_DOMAINS,
+        'onlyfans': OnlyFansPlatform.COOKIE_DOMAINS,
+        'fansly': FanslyPlatform.COOKIE_DOMAINS,
+        'fetlife': FetLifePlatform.COOKIE_DOMAINS,
+    }
 
     def __init__(self, config: ConfigManager, auth_manager: AuthManager, parent=None):
         super().__init__(parent)
@@ -321,6 +335,12 @@ class SettingsDialog(QDialog):
             self._webview_profile_edits[account_id] = name_edit
 
         layout.addWidget(group)
+
+        export_btn = QPushButton(f'Export {specs.platform_name} Cookies')
+        export_btn.clicked.connect(
+            lambda _=False, pid=platform_id, ps=specs: self._export_webview_cookies(pid, ps)
+        )
+        layout.addWidget(export_btn)
 
         layout.addStretch()
         scroll.setWidget(widget)
@@ -614,6 +634,125 @@ class SettingsDialog(QDialog):
                 self,
                 'Export Successful',
                 f'Twitter credentials exported to:\n{path}',
+            )
+        except OSError as e:
+            QMessageBox.warning(
+                self,
+                'Export Failed',
+                f'Failed to write file: {e}',
+            )
+
+    def _read_webview_cookies(
+        self, cookie_db_path, cookie_domains: list[str]
+    ) -> tuple[list[dict], str | None]:
+        if not cookie_db_path.exists():
+            return [], None
+        try:
+            with sqlite3.connect(cookie_db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('PRAGMA table_info(cookies)')
+                available_columns = {str(row[1]) for row in cursor.fetchall()}
+                if not available_columns:
+                    return [], 'Cookies table not available.'
+
+                preferred_columns = [
+                    'host_key',
+                    'name',
+                    'path',
+                    'value',
+                    'encrypted_value',
+                    'expires_utc',
+                    'is_secure',
+                    'is_httponly',
+                    'samesite',
+                    'creation_utc',
+                    'last_access_utc',
+                ]
+                selected_columns = [c for c in preferred_columns if c in available_columns]
+                if not selected_columns:
+                    return [], 'No readable cookie columns found.'
+
+                query = f'SELECT {", ".join(selected_columns)} FROM cookies'
+                params: tuple[str, ...] = ()
+                if cookie_domains and 'host_key' in available_columns:
+                    where_parts = ['host_key LIKE ?'] * len(cookie_domains)
+                    query += f' WHERE {" OR ".join(where_parts)}'
+                    params = tuple(f'%{domain}' for domain in cookie_domains)
+                if 'host_key' in available_columns and 'name' in available_columns:
+                    query += ' ORDER BY host_key, name'
+
+                rows = cursor.execute(query, params).fetchall()
+                cookies: list[dict] = []
+                for row in rows:
+                    item = {}
+                    for idx, key in enumerate(selected_columns):
+                        value = row[idx]
+                        if isinstance(value, bytes):
+                            item[key] = value.hex()
+                        else:
+                            item[key] = value
+                    cookies.append(item)
+                return cookies, None
+        except sqlite3.Error as exc:
+            return [], f'Failed to read cookie database: {exc}'
+
+    def _build_webview_cookie_export_data(self, platform_id: str, specs) -> dict:
+        domains = self._WEBVIEW_COOKIE_DOMAIN_MAP.get(platform_id, [])
+        accounts = []
+        for n in range(1, specs.max_accounts + 1):
+            account_id = f'{platform_id}_{n}'
+            account = self._auth_manager.get_account(account_id)
+            profile_name = account.profile_name if account else ''
+            cookie_db_path = get_app_data_dir() / 'webprofiles' / account_id / 'Cookies'
+            cookies, warning = self._read_webview_cookies(cookie_db_path, domains)
+            account_data = {
+                'account_id': account_id,
+                'profile_name': profile_name,
+                'cookie_db_path': str(cookie_db_path),
+                'cookie_db_exists': cookie_db_path.exists(),
+                'cookie_domains': domains,
+                'cookie_count': len(cookies),
+                'cookies': cookies,
+            }
+            if warning:
+                account_data['warning'] = warning
+            accounts.append(account_data)
+        return {
+            'platform_id': platform_id,
+            'platform_name': specs.platform_name,
+            'generated_at_utc': datetime.now(UTC).isoformat(),
+            'accounts': accounts,
+        }
+
+    def _export_webview_cookies(self, platform_id: str, specs):
+        get_logger().info(f'User selected Settings > Export {specs.platform_name} Cookies')
+        export_data = self._build_webview_cookie_export_data(platform_id, specs)
+        if not any(
+            account_data.get('cookie_db_exists') or account_data.get('cookie_count', 0) > 0
+            for account_data in export_data['accounts']
+        ):
+            QMessageBox.information(
+                self,
+                'No Cookies Found',
+                f'No {specs.platform_name} cookie database files were found to export.',
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            f'Export {specs.platform_name} Cookies',
+            f'{platform_id}_cookies.json',
+            'JSON Files (*.json)',
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'w') as f:
+                json.dump(export_data, f, indent=2)
+            QMessageBox.information(
+                self,
+                'Export Successful',
+                f'{specs.platform_name} cookies exported to:\n{path}',
             )
         except OSError as e:
             QMessageBox.warning(

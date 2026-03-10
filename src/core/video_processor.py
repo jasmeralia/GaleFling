@@ -12,6 +12,19 @@ from pathlib import Path
 from src.core.logger import get_logger
 from src.utils.constants import PlatformSpecs
 
+_SNAPCHAT_LANDSCAPE_MODE = 'crop'
+
+
+def _normalize_snapchat_landscape_mode(mode: str) -> str:
+    normalized = mode.strip().lower()
+    return normalized if normalized in {'crop', 'rotate'} else 'crop'
+
+
+def set_snapchat_landscape_mode(mode: str) -> None:
+    """Set runtime Snapchat landscape handling mode ('crop' or 'rotate')."""
+    global _SNAPCHAT_LANDSCAPE_MODE
+    _SNAPCHAT_LANDSCAPE_MODE = _normalize_snapchat_landscape_mode(mode)
+
 
 def get_ffmpeg_path() -> str:
     """Return path to the bundled ffmpeg binary."""
@@ -321,6 +334,7 @@ def process_video(
     video_path: Path,
     specs: PlatformSpecs,
     progress_cb: Callable[[int], None] | None = None,
+    snapchat_landscape_mode: str | None = None,
 ) -> ProcessedVideo:
     """Resize and compress a video to meet platform specs.
 
@@ -358,6 +372,7 @@ def process_video(
         max_dims = specs.max_video_dimensions
         needs_resize = False
         target_w, target_h = original_info.width, original_info.height
+        video_filter: str | None = None
 
         if max_dims:
             max_w, max_h = max_dims
@@ -369,6 +384,66 @@ def process_video(
         # Ensure even dimensions (required by H.264)
         target_w = target_w - (target_w % 2)
         target_h = target_h - (target_h % 2)
+
+        snapchat_mode = _normalize_snapchat_landscape_mode(
+            snapchat_landscape_mode or _SNAPCHAT_LANDSCAPE_MODE
+        )
+
+        # Snapchat web posting expects portrait framing for landscape sources.
+        if (
+            max_dims
+            and specs.platform_name.lower() == 'snapchat'
+            and original_info.width > original_info.height
+        ):
+            max_w, max_h = max_dims
+            desired_aspect = max_w / max_h
+            orig_w = max(2, original_info.width - (original_info.width % 2))
+            orig_h = max(2, original_info.height - (original_info.height % 2))
+            filters: list[str] = []
+            scale_w, scale_h = orig_w, orig_h
+
+            if snapchat_mode == 'rotate':
+                filters.append('transpose=1')
+                scale_w, scale_h = orig_h, orig_w
+
+                if scale_w > max_w or scale_h > max_h:
+                    ratio = min(max_w / scale_w, max_h / scale_h)
+                    scale_w = int(scale_w * ratio)
+                    scale_h = int(scale_h * ratio)
+                    scale_w = max(2, scale_w - (scale_w % 2))
+                    scale_h = max(2, scale_h - (scale_h % 2))
+                if scale_w != orig_h or scale_h != orig_w:
+                    filters.append(f'scale={scale_w}:{scale_h}')
+            else:
+                current_aspect = orig_w / orig_h
+                crop_w, crop_h = orig_w, orig_h
+                if abs(current_aspect - desired_aspect) > 0.01:
+                    if current_aspect > desired_aspect:
+                        crop_w = int(orig_h * desired_aspect)
+                        crop_h = orig_h
+                    else:
+                        crop_w = orig_w
+                        crop_h = int(orig_w / desired_aspect)
+                    crop_w = max(2, crop_w - (crop_w % 2))
+                    crop_h = max(2, crop_h - (crop_h % 2))
+
+                scale_w, scale_h = crop_w, crop_h
+                if scale_w > max_w or scale_h > max_h:
+                    ratio = min(max_w / scale_w, max_h / scale_h)
+                    scale_w = int(scale_w * ratio)
+                    scale_h = int(scale_h * ratio)
+                    scale_w = max(2, scale_w - (scale_w % 2))
+                    scale_h = max(2, scale_h - (scale_h % 2))
+
+                if crop_w != orig_w or crop_h != orig_h:
+                    filters.append(f'crop={crop_w}:{crop_h}')
+                if scale_w != crop_w or scale_h != crop_h:
+                    filters.append(f'scale={scale_w}:{scale_h}')
+
+            if filters:
+                video_filter = ','.join(filters)
+                needs_resize = True
+                target_w, target_h = scale_w, scale_h
 
         needs_trim = False
         target_duration = original_info.duration_seconds
@@ -438,7 +513,11 @@ def process_video(
                 ]
             )
 
-            if needs_resize or target_w != original_info.width or target_h != original_info.height:
+            if video_filter:
+                cmd.extend(['-vf', video_filter])
+            elif (
+                needs_resize or target_w != original_info.width or target_h != original_info.height
+            ):
                 cmd.extend(['-vf', f'scale={target_w}:{target_h}'])
 
             cmd.extend(

@@ -223,6 +223,112 @@ class TestProcessVideo:
         assert result.processed_info == info
         assert result.meets_requirements
 
+    def test_snapchat_landscape_crop_mode_uses_crop_filter(self, tmp_path, monkeypatch):
+        source = tmp_path / 'landscape.mp4'
+        source.write_bytes(b'video-bytes')
+        commands: list[list[str]] = []
+
+        source_info = VideoInfo(
+            width=640,
+            height=360,
+            duration_seconds=12.0,
+            codec='h264',
+            file_size=4 * 1024 * 1024,
+            format_name='mp4',
+        )
+        processed_info = VideoInfo(
+            width=202,
+            height=360,
+            duration_seconds=12.0,
+            codec='h264',
+            file_size=2 * 1024 * 1024,
+            format_name='mp4',
+        )
+
+        def fake_info(path: Path):
+            return source_info if path == source else processed_info
+
+        def fake_run(cmd: list[str], timeout: int):
+            commands.append(cmd)
+            Path(cmd[-1]).write_bytes(b'processed-bytes')
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout='', stderr='')
+
+        monkeypatch.setattr('src.core.video_processor.get_video_info', fake_info)
+        monkeypatch.setattr('src.core.video_processor._run_subprocess', fake_run)
+
+        result = process_video(source, SNAPCHAT_SPECS, snapchat_landscape_mode='crop')
+
+        assert result.path != source
+        assert commands
+        vf = commands[0][commands[0].index('-vf') + 1]
+        assert 'crop=' in vf
+        assert 'transpose' not in vf
+
+    def test_snapchat_landscape_rotate_mode_uses_rotate_filter(self, tmp_path, monkeypatch):
+        source = tmp_path / 'landscape.mp4'
+        source.write_bytes(b'video-bytes')
+        commands: list[list[str]] = []
+
+        source_info = VideoInfo(
+            width=640,
+            height=360,
+            duration_seconds=12.0,
+            codec='h264',
+            file_size=4 * 1024 * 1024,
+            format_name='mp4',
+        )
+        processed_info = VideoInfo(
+            width=360,
+            height=640,
+            duration_seconds=12.0,
+            codec='h264',
+            file_size=2 * 1024 * 1024,
+            format_name='mp4',
+        )
+
+        def fake_info(path: Path):
+            return source_info if path == source else processed_info
+
+        def fake_run(cmd: list[str], timeout: int):
+            commands.append(cmd)
+            Path(cmd[-1]).write_bytes(b'processed-bytes')
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout='', stderr='')
+
+        monkeypatch.setattr('src.core.video_processor.get_video_info', fake_info)
+        monkeypatch.setattr('src.core.video_processor._run_subprocess', fake_run)
+
+        result = process_video(source, SNAPCHAT_SPECS, snapchat_landscape_mode='rotate')
+
+        assert result.path != source
+        assert commands
+        vf = commands[0][commands[0].index('-vf') + 1]
+        assert 'transpose=1' in vf
+
+    def test_snapchat_vertical_source_skips_reencode(self, tmp_path, monkeypatch):
+        source = tmp_path / 'vertical.mp4'
+        source.write_bytes(b'video-bytes')
+        info = VideoInfo(
+            width=360,
+            height=640,
+            duration_seconds=15.0,
+            codec='h264',
+            file_size=3 * 1024 * 1024,
+            format_name='mp4',
+        )
+        monkeypatch.setattr('src.core.video_processor.get_video_info', lambda _path: info)
+        monkeypatch.setattr(
+            'src.core.video_processor._run_subprocess',
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError('ffmpeg should not run for already-vertical Snapchat video')
+            ),
+        )
+
+        result = process_video(source, SNAPCHAT_SPECS, snapchat_landscape_mode='rotate')
+
+        assert result.path == source
+        assert result.processed_info == info
+        assert result.meets_requirements
+
 
 class TestExtractThumbnail:
     def test_extracts_first_frame(self, small_mp4):

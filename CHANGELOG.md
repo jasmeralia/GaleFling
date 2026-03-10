@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.14] - 2026-03-10
+
+### Added
+- Composer-level Snapchat landscape handling control (`Crop to vertical` or `Rotate to vertical`) that appears when Snapchat is selected with a single landscape video.
+- Persisted Snapchat landscape mode preference in app config, while keeping the control directly in the composer.
+- Richer video preview change summary reporting whether output length was clipped, resolution changed, file size changed, and format changed.
+
+### Changed
+- Snapchat landscape-video processing now applies the selected mode:
+  - `crop`: center-crops to portrait framing.
+  - `rotate`: rotates to portrait framing.
+- Already-vertical source videos skip Snapchat reframing and keep no-op behavior when otherwise within limits.
+
+### Fixed
+- Video preview details now make conversion differences explicit instead of only showing before/after metadata blocks.
+
 ## [1.5.13] - 2026-03-10
 
 ### Added

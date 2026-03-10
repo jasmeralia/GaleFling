@@ -5,6 +5,7 @@ from pathlib import Path
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QPalette
 from PyQt6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -30,6 +31,7 @@ class PostComposer(QWidget):
     # Keep old signal name as alias for backward compatibility in tests/connections
     image_changed = pyqtSignal(object)  # emitted alongside media_changed
     preview_requested = pyqtSignal()
+    snapchat_landscape_mode_changed = pyqtSignal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -43,6 +45,9 @@ class PostComposer(QWidget):
         self._media_item_rows: list[QWidget] = []
         self._format_restriction_notice: QLabel | None = None
         self._count_restriction_notice: QLabel | None = None
+        self._snapchat_landscape_row: QWidget | None = None
+        self._snapchat_landscape_combo: QComboBox | None = None
+        self._video_landscape_cache: dict[Path, bool] = {}
         self._init_ui()
 
     def set_last_image_dir(self, path: str) -> None:
@@ -146,6 +151,23 @@ class PostComposer(QWidget):
         self._count_restriction_notice.setWordWrap(True)
         self._count_restriction_notice.setVisible(False)
         notice_col.addWidget(self._count_restriction_notice)
+
+        self._snapchat_landscape_row = QWidget()
+        snapchat_mode_layout = QHBoxLayout(self._snapchat_landscape_row)
+        snapchat_mode_layout.setContentsMargins(0, 0, 0, 0)
+        snapchat_mode_layout.setSpacing(6)
+        snapchat_mode_layout.addWidget(QLabel('Snapchat landscape handling:'))
+        self._snapchat_landscape_combo = QComboBox()
+        self._snapchat_landscape_combo.addItem('Crop to vertical', 'crop')
+        self._snapchat_landscape_combo.addItem('Rotate to vertical', 'rotate')
+        self._snapchat_landscape_combo.currentIndexChanged.connect(
+            self._on_snapchat_landscape_mode_changed
+        )
+        snapchat_mode_layout.addWidget(self._snapchat_landscape_combo)
+        snapchat_mode_layout.addStretch()
+        self._snapchat_landscape_row.setVisible(False)
+        notice_col.addWidget(self._snapchat_landscape_row)
+
         notice_col.addStretch()
         media_body.addLayout(notice_col, 1)
 
@@ -163,6 +185,7 @@ class PostComposer(QWidget):
         has_targets = bool(self._enabled_platforms and self._selected_platforms)
         self._update_add_btn_state()
         self._preview_btn.setEnabled(bool(self._media_paths and has_targets))
+        self._update_snapchat_landscape_mode_visibility()
         self._update_counters()
 
     def _update_add_btn_state(self) -> None:
@@ -297,6 +320,7 @@ class PostComposer(QWidget):
 
         if self._media_paths:
             self._last_image_dir = str(self._media_paths[-1].parent)
+        self._video_landscape_cache.clear()
 
         self._refresh_media_list()
         self._emit_media_changed()
@@ -305,11 +329,13 @@ class PostComposer(QWidget):
         """Remove a single media attachment by index."""
         if 0 <= index < len(self._media_paths):
             self._media_paths.pop(index)
+        self._video_landscape_cache.clear()
         self._refresh_media_list()
         self._emit_media_changed()
 
     def _clear_all_media(self):
         self._media_paths.clear()
+        self._video_landscape_cache.clear()
         self._refresh_media_list()
         self._emit_media_changed()
 
@@ -318,6 +344,7 @@ class PostComposer(QWidget):
         self._clear_btn.setEnabled(bool(self._media_paths))
         self._preview_btn.setEnabled(bool(self._media_paths and has_targets))
         self._update_add_btn_state()
+        self._update_snapchat_landscape_mode_visibility()
         self.media_changed.emit(list(self._media_paths))
         # Emit on legacy signal for backward compat
         self.image_changed.emit(self._media_paths[0] if self._media_paths else None)
@@ -366,6 +393,22 @@ class PostComposer(QWidget):
         """Return all attached media paths."""
         return list(self._media_paths)
 
+    def get_snapchat_landscape_mode(self) -> str:
+        if self._snapchat_landscape_combo is None:
+            return 'crop'
+        mode = self._snapchat_landscape_combo.currentData()
+        if isinstance(mode, str) and mode in {'crop', 'rotate'}:
+            return mode
+        return 'crop'
+
+    def set_snapchat_landscape_mode(self, mode: str) -> None:
+        if self._snapchat_landscape_combo is None:
+            return
+        normalized = mode if mode in {'crop', 'rotate'} else 'crop'
+        index = self._snapchat_landscape_combo.findData(normalized)
+        if index >= 0:
+            self._snapchat_landscape_combo.setCurrentIndex(index)
+
     def set_image_path(self, path: Path | None):
         """Set a single media path (backward compat)."""
         if path and path.exists():
@@ -378,6 +421,7 @@ class PostComposer(QWidget):
     def set_media_paths(self, paths: list[Path]):
         """Set multiple media paths."""
         self._media_paths = [p for p in paths if p.exists()][:MAX_MEDIA_ATTACHMENTS]
+        self._video_landscape_cache.clear()
         self._refresh_media_list()
         self._emit_media_changed()
 
@@ -400,3 +444,44 @@ class PostComposer(QWidget):
     # Kept for backward compat with draft save/restore
     def _clear_image(self):
         self._clear_all_media()
+
+    def _is_snapchat_selected(self) -> bool:
+        for account_id in self._selected_platforms & self._enabled_platforms:
+            platform_id = self._account_platform_map.get(account_id, account_id)
+            if platform_id == 'snapchat':
+                return True
+        return False
+
+    def _is_landscape_video(self, video_path: Path) -> bool:
+        if video_path in self._video_landscape_cache:
+            return self._video_landscape_cache[video_path]
+        try:
+            from src.core.video_processor import get_video_info
+
+            info = get_video_info(video_path)
+            landscape = info.width > info.height
+        except Exception:
+            landscape = False
+        self._video_landscape_cache[video_path] = landscape
+        return landscape
+
+    def _update_snapchat_landscape_mode_visibility(self) -> None:
+        if self._snapchat_landscape_row is None:
+            return
+        if len(self._media_paths) != 1:
+            self._snapchat_landscape_row.setVisible(False)
+            return
+
+        media_path = self._media_paths[0]
+        if media_path.suffix.lower() not in VIDEO_EXTENSIONS:
+            self._snapchat_landscape_row.setVisible(False)
+            return
+
+        if not self._is_snapchat_selected():
+            self._snapchat_landscape_row.setVisible(False)
+            return
+
+        self._snapchat_landscape_row.setVisible(self._is_landscape_video(media_path))
+
+    def _on_snapchat_landscape_mode_changed(self, _index: int) -> None:
+        self.snapchat_landscape_mode_changed.emit(self.get_snapchat_landscape_mode())

@@ -31,7 +31,11 @@ from src.core.image_processor import is_animated_gif
 from src.core.log_uploader import LogUploader
 from src.core.logger import get_current_log_path, get_logger, reset_log_file
 from src.core.update_checker import check_for_updates
-from src.core.video_processor import convert_image_to_video, get_ffmpeg_version
+from src.core.video_processor import (
+    convert_image_to_video,
+    get_ffmpeg_version,
+    set_snapchat_landscape_mode,
+)
 from src.gui.image_preview_tabs import ImagePreviewDialog
 from src.gui.log_submit_dialog import LogSubmitDialog
 from src.gui.platform_selector import PlatformSelector
@@ -230,6 +234,13 @@ class MainWindow(QMainWindow):
         self._composer.set_last_image_dir(self._config.last_image_directory)
         self._composer.media_changed.connect(self._on_media_changed)
         self._composer.preview_requested.connect(self._on_preview_requested)
+        self._composer.snapchat_landscape_mode_changed.connect(
+            self._on_snapchat_landscape_mode_changed
+        )
+        self._composer.set_snapchat_landscape_mode(
+            getattr(self._config, 'snapchat_landscape_mode', 'crop')
+        )
+        set_snapchat_landscape_mode(self._composer.get_snapchat_landscape_mode())
         layout.addWidget(self._composer)
 
         # Platform selector
@@ -714,6 +725,7 @@ class MainWindow(QMainWindow):
         return missing
 
     def _show_media_preview(self, media_paths: list[Path], platforms: list[str]):
+        set_snapchat_landscape_mode(self._composer.get_snapchat_landscape_mode())
         media_paths = media_paths[:MAX_MEDIA_ATTACHMENTS]
         groups = []
         seen = set()
@@ -795,6 +807,13 @@ class MainWindow(QMainWindow):
                 if reply == QMessageBox.StandardButton.Yes:
                     self._send_logs()
                 return  # Don't continue if there were errors
+
+    def _on_snapchat_landscape_mode_changed(self, mode: str):
+        if hasattr(self._config, 'snapchat_landscape_mode'):
+            self._config.snapchat_landscape_mode = mode
+        else:
+            self._config.set('snapchat_landscape_mode', mode)
+        set_snapchat_landscape_mode(mode)
 
     def _test_connections(self):
         get_logger().info('User clicked Test Connections')

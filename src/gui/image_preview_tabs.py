@@ -58,6 +58,59 @@ def _is_video(path: Path) -> bool:
     return path.suffix.lower() in VIDEO_EXTENSIONS
 
 
+def _describe_video_changes(original, processed) -> list[str]:
+    """Return human-readable change summaries for a processed video."""
+    changes: list[str] = []
+
+    if abs(processed.duration_seconds - original.duration_seconds) >= 0.05:
+        if processed.duration_seconds < original.duration_seconds:
+            changes.append(
+                f'Length clipped: {_format_duration(original.duration_seconds)} '
+                f'-> {_format_duration(processed.duration_seconds)}.'
+            )
+        else:
+            changes.append(
+                f'Length increased: {_format_duration(original.duration_seconds)} '
+                f'-> {_format_duration(processed.duration_seconds)}.'
+            )
+    else:
+        changes.append(f'Length unchanged: {_format_duration(processed.duration_seconds)}.')
+
+    if (original.width, original.height) != (processed.width, processed.height):
+        changes.append(
+            f'Resolution changed: {original.width}x{original.height} '
+            f'-> {processed.width}x{processed.height}.'
+        )
+    else:
+        changes.append(f'Resolution unchanged: {processed.width}x{processed.height}.')
+
+    size_delta = processed.file_size - original.file_size
+    if abs(size_delta) >= 1024 and original.file_size > 0:
+        delta_pct = (abs(size_delta) / original.file_size) * 100
+        if size_delta < 0:
+            changes.append(
+                f'File size reduced: {_format_size(original.file_size)} '
+                f'-> {_format_size(processed.file_size)} ({delta_pct:.1f}% smaller).'
+            )
+        else:
+            changes.append(
+                f'File size increased: {_format_size(original.file_size)} '
+                f'-> {_format_size(processed.file_size)} ({delta_pct:.1f}% larger).'
+            )
+    else:
+        changes.append(f'File size unchanged: {_format_size(processed.file_size)}.')
+
+    original_format = (original.format_name or '').upper()
+    processed_format = (processed.format_name or '').upper()
+    if original_format and processed_format and original_format != processed_format:
+        changes.append(f'Format changed: {original_format} -> {processed_format}.')
+    else:
+        shown_format = processed_format or 'UNKNOWN'
+        changes.append(f'Format unchanged: {shown_format}.')
+
+    return changes
+
+
 class ImagePreviewTab(QWidget):
     """Single platform preview tab with lazy loading."""
 
@@ -385,6 +438,7 @@ class VideoPreviewTab(QWidget):
             if processed.path == self._video_path
             else 'Converted to fit platform limits.'
         )
+        changes_html = '<br>'.join(f'- {line}' for line in _describe_video_changes(orig, proc))
 
         if processed.meets_requirements:
             status = (
@@ -400,7 +454,8 @@ class VideoPreviewTab(QWidget):
             f'<b>Original:</b> {orig_res} ({orig_size}), {orig_dur}, {orig.codec}<br>'
             f'<b>Processed:</b> {proc_res} ({proc_size}), {proc_dur}<br>'
             f'<b>Format:</b> {proc_fmt} ({proc.codec})<br>'
-            f'<b>Output:</b> {conversion_note}<br><br>'
+            f'<b>Output:</b> {conversion_note}<br>'
+            f'<b>Changes:</b><br>{changes_html}<br><br>'
             f'{status}'
         )
         self._status_label.setText(f'Video preview for {self._specs.platform_name}')

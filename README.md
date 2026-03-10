@@ -1,13 +1,13 @@
 # GaleFling
 
 ![CI](https://github.com/jasmeralia/GaleFling/actions/workflows/ci.yml/badge.svg?branch=master)
-![Release Build](https://img.shields.io/github/actions/workflow/status/jasmeralia/GaleFling/release.yml?event=push&branch=v1.5.13&label=Release%20Build)
+![Release Build](https://img.shields.io/github/actions/workflow/status/jasmeralia/GaleFling/release.yml?event=push&branch=v1.5.14&label=Release%20Build)
 ![Release](https://img.shields.io/github/v/release/jasmeralia/GaleFling?include_prereleases&sort=semver&label=Release)
 ![Coverage](https://codecov.io/gh/jasmeralia/GaleFling/branch/master/graph/badge.svg)
 
 GaleFling is a Windows desktop app for posting to multiple social platforms at once. It’s designed for non-technical creators, with clear guidance, robust error handling, and one-click log sharing for support.
 
-**Current Version:** 1.5.13
+**Current Version:** 1.5.14
 
 Docs: [Changelog](CHANGELOG.md) | [Roadmap](docs/ROADMAP.md) | [Contributing](docs/CONTRIBUTING.md) | [Twitter Setup](docs/TWITTER.md) | [Instagram Setup](docs/INSTAGRAM.md)
 

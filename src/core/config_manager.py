@@ -14,6 +14,7 @@ DEFAULT_CONFIG = {
     'allow_prerelease_updates': False,
     'theme_mode': 'system',
     'webview_compatibility_mode': False,
+    'snapchat_landscape_mode': 'crop',
     'log_upload_endpoint': LOG_UPLOAD_ENDPOINT,
     'log_upload_enabled': True,
     'window_geometry': {
@@ -130,6 +131,18 @@ class ConfigManager:
     @webview_compatibility_mode.setter
     def webview_compatibility_mode(self, value: bool) -> None:
         self.set('webview_compatibility_mode', value)
+
+    @property
+    def snapchat_landscape_mode(self) -> str:
+        mode = self._config.get('snapchat_landscape_mode', 'crop')
+        if isinstance(mode, str) and mode in {'crop', 'rotate'}:
+            return mode
+        return 'crop'
+
+    @snapchat_landscape_mode.setter
+    def snapchat_landscape_mode(self, value: str) -> None:
+        mode = value if value in {'crop', 'rotate'} else 'crop'
+        self.set('snapchat_landscape_mode', mode)
 
     @property
     def auto_save_draft(self) -> bool:

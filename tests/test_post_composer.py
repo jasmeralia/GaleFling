@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from src.core.video_processor import VideoInfo
 from src.gui.post_composer import PostComposer
 from src.utils.constants import MAX_MEDIA_ATTACHMENTS
 
@@ -231,3 +232,60 @@ class TestMultiAttachment:
 
         composer.set_count_restriction_notice('')
         assert composer._count_restriction_notice.isHidden()
+
+
+class TestSnapchatLandscapeMode:
+    def test_mode_visible_for_snapchat_landscape_video(self, composer, monkeypatch):
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f:
+            video = Path(f.name)
+
+        monkeypatch.setattr(
+            'src.core.video_processor.get_video_info',
+            lambda _p: VideoInfo(
+                width=1280,
+                height=720,
+                duration_seconds=10.0,
+                codec='h264',
+                file_size=1024,
+                format_name='mp4',
+            ),
+        )
+
+        composer.set_media_paths([video])
+        composer.set_platform_state(selected=['snapchat_1'], enabled=['snapchat_1'])
+
+        assert composer._snapchat_landscape_row is not None
+        assert not composer._snapchat_landscape_row.isHidden()
+        video.unlink(missing_ok=True)
+
+    def test_mode_hidden_for_vertical_video(self, composer, monkeypatch):
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f:
+            video = Path(f.name)
+
+        monkeypatch.setattr(
+            'src.core.video_processor.get_video_info',
+            lambda _p: VideoInfo(
+                width=720,
+                height=1280,
+                duration_seconds=10.0,
+                codec='h264',
+                file_size=1024,
+                format_name='mp4',
+            ),
+        )
+
+        composer.set_media_paths([video])
+        composer.set_platform_state(selected=['snapchat_1'], enabled=['snapchat_1'])
+
+        assert composer._snapchat_landscape_row is not None
+        assert composer._snapchat_landscape_row.isHidden()
+        video.unlink(missing_ok=True)
+
+    def test_mode_changes_emit_signal(self, composer):
+        seen = []
+        composer.snapchat_landscape_mode_changed.connect(seen.append)
+
+        composer.set_snapchat_landscape_mode('rotate')
+
+        assert composer.get_snapchat_landscape_mode() == 'rotate'
+        assert 'rotate' in seen

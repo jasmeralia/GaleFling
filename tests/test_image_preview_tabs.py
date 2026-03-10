@@ -8,10 +8,12 @@ from PIL import Image
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QLabel
 
+from src.core.video_processor import VideoInfo
 from src.gui.image_preview_tabs import (
     ImagePreviewDialog,
     ImagePreviewTab,
     VideoPreviewTab,
+    _describe_video_changes,
     _format_size,
 )
 from src.utils.constants import SNAPCHAT_SPECS, TWITTER_SPECS
@@ -119,9 +121,11 @@ def test_cached_preview_scales_with_resize(qtbot, tmp_path):
     assert resized.height() <= tab._preview_label.height()
 
 
-def test_video_preview_tab_has_playback_controls(qtbot, tmp_path):
+def test_video_preview_tab_has_playback_controls(qtbot, tmp_path, monkeypatch):
     video_path = tmp_path / 'sample.mp4'
     video_path.write_bytes(b'fake')
+    monkeypatch.setattr('src.gui.image_preview_tabs.QtMultimediaModule', None)
+    monkeypatch.setattr('src.gui.image_preview_tabs.QtMultimediaWidgetsModule', None)
 
     tab = VideoPreviewTab(video_path, SNAPCHAT_SPECS, cached_path=video_path)
     qtbot.addWidget(tab)
@@ -147,3 +151,29 @@ def test_preview_dialog_info_text_uses_platform_limit_wording(qtbot, tmp_path):
         'Aspect ratios are preserved as best as possible within platform limitations.' in text
         for text in labels
     )
+
+
+def test_describe_video_changes_reports_key_differences():
+    original = VideoInfo(
+        width=1920,
+        height=1080,
+        duration_seconds=65.0,
+        codec='h264',
+        file_size=40 * 1024 * 1024,
+        format_name='mov',
+    )
+    processed = VideoInfo(
+        width=1080,
+        height=1920,
+        duration_seconds=60.0,
+        codec='h264',
+        file_size=20 * 1024 * 1024,
+        format_name='mp4',
+    )
+
+    changes = _describe_video_changes(original, processed)
+
+    assert any('Length clipped' in line for line in changes)
+    assert any('Resolution changed' in line for line in changes)
+    assert any('File size reduced' in line for line in changes)
+    assert any('Format changed' in line for line in changes)

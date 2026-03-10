@@ -99,6 +99,7 @@ class DummyConfig:
         self.allow_prerelease_updates = False
         self.theme_mode = 'system'
         self.window_geometry = {'x': 0, 'y': 0, 'width': 800, 'height': 600}
+        self.snapchat_landscape_mode = 'crop'
         self.log_upload_endpoint = 'https://example.invalid'
         self.log_upload_enabled = True
         self.debug_mode = False
@@ -1082,3 +1083,13 @@ def test_main_window_disable_when_unchecked(qtbot):
     assert not window._post_btn.isEnabled()
     assert not window._test_btn.isEnabled()
     assert not window._composer._choose_btn.isEnabled()
+
+
+def test_snapchat_landscape_mode_persists_from_composer(qtbot):
+    config = DummyConfig(selected=['twitter_1'])
+    window = DummyMainWindow(config, DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window._composer.set_snapchat_landscape_mode('rotate')
+
+    assert config.snapchat_landscape_mode == 'rotate'

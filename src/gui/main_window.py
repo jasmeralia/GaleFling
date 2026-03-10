@@ -647,6 +647,8 @@ class MainWindow(QMainWindow):
         # Determine which accounts have valid credentials
         enabled = []
         for account in accounts:
+            if not account.enabled:
+                continue
             platform = self._platforms.get(account.account_id)
             if not platform:
                 continue
@@ -801,6 +803,7 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
 
         results = []
+        failed_accounts: list[str] = []
         selected = self._get_selected_enabled_platforms()
 
         for name in selected:
@@ -809,6 +812,15 @@ class MainWindow(QMainWindow):
                 success, error = platform.test_connection()
                 display_name = self._get_platform_display_name(name)
                 results.append((display_name, success, error))
+                if not success:
+                    failed_accounts.append(name)
+
+        disabled_accounts = []
+        for account_id in failed_accounts:
+            if self._set_account_enabled(account_id, False):
+                disabled_accounts.append(account_id)
+        if disabled_accounts:
+            self._refresh_platform_state()
 
         # Show results
         msg_parts = []
@@ -817,12 +829,35 @@ class MainWindow(QMainWindow):
                 msg_parts.append(f'\u2714\ufe0f {pname} connected.')
             else:
                 msg_parts.append(f'\u274c\ufe0f {pname} failed to connect: {error}')
+        if disabled_accounts:
+            msg_parts.append('')
+            msg_parts.append('Failed platforms were disabled. Re-authenticate to re-enable them.')
 
         self._show_message_box(
             'Connection Test', '\n'.join(msg_parts), QMessageBox.Icon.Information
         )
         self._test_btn.setEnabled(True)
         self._status_bar.showMessage('Ready')
+
+    def _set_account_enabled(self, account_id: str, enabled: bool) -> bool:
+        """Persist an account enabled flag if the auth manager supports it."""
+        setter = getattr(self._auth_manager, 'set_account_enabled', None)
+        if callable(setter):
+            return bool(setter(account_id, enabled))
+
+        get_account = getattr(self._auth_manager, 'get_account', None)
+        if not callable(get_account):
+            return False
+        account = get_account(account_id)
+        if account is None:
+            return False
+        account.enabled = enabled
+
+        add_account = getattr(self._auth_manager, 'add_account', None)
+        if callable(add_account):
+            add_account(account)
+            return True
+        return False
 
     def _get_platform_display_name(self, account_id: str) -> str:
         platform = self._platforms.get(account_id)

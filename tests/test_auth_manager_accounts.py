@@ -176,3 +176,25 @@ def test_accounts_persisted_to_file(fresh_auth_dir, monkeypatch):
     accounts = manager2.get_accounts()
     assert len(accounts) == 1
     assert accounts[0].account_id == 'fetlife_1'
+
+
+def test_set_account_enabled_persists(fresh_auth_dir, monkeypatch):
+    """Test toggling account enabled state persists to accounts_config.json."""
+    monkeypatch.setattr('src.core.auth_manager.get_auth_dir', lambda: fresh_auth_dir)
+    monkeypatch.setattr('src.core.auth_manager.get_app_data_dir', lambda: fresh_auth_dir)
+    monkeypatch.setattr(AuthManager, '_find_dev_auth_dir', lambda self: None)
+    manager = AuthManager()
+
+    account = AccountConfig(
+        platform_id='fetlife',
+        account_id='fetlife_1',
+        profile_name='fetuser',
+    )
+    manager.add_account(account)
+    assert manager.set_account_enabled('fetlife_1', False) is True
+    assert manager.set_account_enabled('missing_1', False) is False
+
+    manager2 = AuthManager()
+    reloaded = manager2.get_account('fetlife_1')
+    assert reloaded is not None
+    assert reloaded.enabled is False

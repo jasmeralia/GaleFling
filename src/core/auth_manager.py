@@ -149,6 +149,21 @@ class AuthManager:
         self._accounts = [a for a in self._accounts if a.account_id != account_id]
         self._save_accounts()
 
+    def set_account_enabled(self, account_id: str, enabled: bool) -> bool:
+        """Set an account's enabled flag and persist.
+
+        Returns True when the account exists (whether changed or already in the
+        requested state), otherwise False.
+        """
+        account = self.get_account(account_id)
+        if not account:
+            return False
+        if account.enabled == enabled:
+            return True
+        account.enabled = enabled
+        self._save_accounts()
+        return True
+
     # ── Account-based credential storage ────────────────────────────
 
     def get_account_credentials(self, account_id: str) -> dict[str, Any] | None:

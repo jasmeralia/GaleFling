@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.12] - 2026-03-10
+
+### Changed
+- `Test Connections` now disables any platform account that fails its connection test, so failed accounts are immediately removed from enabled/selected posting targets.
+
+### Fixed
+- WebView/API connection failures no longer leave the corresponding platform visually enabled after a failed test run.
+- Account `enabled` state is now respected when computing platform availability in the main composer view.
+
+### Added
+- Persisted account enable/disable support in `AuthManager` via `set_account_enabled`.
+- Tests covering account-enabled persistence and connection-test-driven platform disabling.
+
 ## [1.5.11] - 2026-03-10
 
 ### Added

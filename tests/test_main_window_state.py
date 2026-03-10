@@ -541,6 +541,63 @@ def test_test_connections_message_includes_usernames(qtbot, monkeypatch):
     )
 
 
+def test_test_connections_disables_failed_platforms(qtbot, monkeypatch):
+    class MutableAuthManager(DummyAuthManager):
+        def __init__(self):
+            super().__init__(True, False)
+            self._accounts = [
+                AccountConfig(
+                    platform_id='twitter',
+                    account_id='twitter_1',
+                    profile_name='jasmeralia',
+                )
+            ]
+
+        def get_accounts(self) -> list[AccountConfig]:
+            return list(self._accounts)
+
+        def get_account(self, account_id):
+            for account in self._accounts:
+                if account.account_id == account_id:
+                    return account
+            return None
+
+        def get_account_credentials(self, account_id):
+            if account_id == 'twitter_1':
+                return {'access_token': 'token'}
+            return None
+
+        def set_account_enabled(self, account_id: str, enabled: bool) -> bool:
+            account = self.get_account(account_id)
+            if account is None:
+                return False
+            account.enabled = enabled
+            return True
+
+    class DummyPlatform:
+        def test_connection(self):
+            return False, 'TW-AUTH-EXPIRED'
+
+        def get_platform_name(self):
+            return 'Twitter (jasmeralia)'
+
+    auth = MutableAuthManager()
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), auth)
+    qtbot.addWidget(window)
+    window._platforms['twitter_1'] = DummyPlatform()
+
+    monkeypatch.setattr('src.gui.main_window.MainWindow._show_message_box', lambda *_a, **_k: 0)
+
+    assert 'twitter_1' in window._platform_selector.get_enabled()
+    assert 'twitter_1' in window._platform_selector.get_selected()
+
+    window._test_connections()
+
+    assert auth.get_account('twitter_1').enabled is False
+    assert 'twitter_1' not in window._platform_selector.get_enabled()
+    assert 'twitter_1' not in window._platform_selector.get_selected()
+
+
 def test_download_update_applies_theme_to_progress(qtbot, monkeypatch, tmp_path):
     class DummyProgress:
         def __init__(self, *_args, **_kwargs):

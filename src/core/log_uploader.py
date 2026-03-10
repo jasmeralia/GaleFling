@@ -3,8 +3,11 @@
 import base64
 import contextlib
 import getpass
+import os
 import socket
+import sys
 from datetime import UTC, datetime
+from pathlib import Path
 
 import requests
 
@@ -73,6 +76,7 @@ class LogUploader:
         try:
             log_files = self._collect_log_files()
             screenshots = self._collect_screenshots()
+            wer_reports = self._collect_wer_reports()
 
             payload = {
                 'app_version': APP_VERSION,
@@ -86,6 +90,7 @@ class LogUploader:
                 'ffmpeg_version': ffmpeg_version,
                 'log_files': log_files,
                 'screenshots': screenshots,
+                'wer_reports': wer_reports,
             }
 
             response = requests.post(
@@ -302,3 +307,59 @@ class LogUploader:
             )
 
         return screenshots
+
+    def _collect_wer_reports(self) -> list[dict]:
+        """Collect recent GaleFling WER report files on Windows."""
+        if sys.platform != 'win32':
+            return []
+
+        roots: list[Path] = []
+        local_app_data = os.environ.get('LOCALAPPDATA')
+        if local_app_data:
+            local_wer = Path(local_app_data) / 'Microsoft' / 'Windows' / 'WER'
+            roots.extend([local_wer / 'ReportArchive', local_wer / 'ReportQueue'])
+
+        program_data = os.environ.get('PROGRAMDATA', r'C:\ProgramData')
+        program_wer = Path(program_data) / 'Microsoft' / 'Windows' / 'WER'
+        roots.extend([program_wer / 'ReportArchive', program_wer / 'ReportQueue'])
+
+        candidates: list[Path] = []
+        seen_reports: set[Path] = set()
+        patterns = ['AppCrash_GaleFling.exe*', 'AppHang_GaleFling.exe*']
+        for root in roots:
+            if not root.exists():
+                continue
+            for pattern in patterns:
+                for report_dir in root.glob(pattern):
+                    report = report_dir / 'Report.wer'
+                    if not report.exists():
+                        continue
+                    try:
+                        resolved = report.resolve()
+                    except Exception:
+                        resolved = report
+                    if resolved in seen_reports:
+                        continue
+                    seen_reports.add(resolved)
+                    candidates.append(report)
+
+        reports: list[dict[str, str]] = []
+
+        def _mtime(path: Path) -> float:
+            with contextlib.suppress(Exception):
+                return path.stat().st_mtime
+            return 0
+
+        for report in sorted(candidates, key=_mtime, reverse=True)[:5]:
+            try:
+                content = report.read_bytes()
+            except Exception:
+                continue
+            filename = f'{report.parent.name}_{report.name}'
+            reports.append(
+                {
+                    'filename': filename,
+                    'content': base64.b64encode(content).decode('ascii'),
+                }
+            )
+        return reports

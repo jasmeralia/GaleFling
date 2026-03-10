@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-03-10
+
+### Added
+- Qt message handler instrumentation at startup, so Qt warnings/critical/fatal messages are captured in GaleFling logs for post-crash diagnostics.
+- WER report collection for `Send Logs to Jas`, including both user-level (`%LOCALAPPDATA%`) and machine-level (`%PROGRAMDATA%`) WER archives/queues.
+- Lambda attachment handling for `wer_reports`, allowing WER payloads to be included with log bundles.
+
+### Changed
+- Preview dialog shutdown is now non-blocking with a timeout fallback, so closing preview no longer waits indefinitely when background preview workers are still winding down.
+
+### Fixed
+- Crash diagnostics now retain more native context around Qt/WebEngine/QtMultimedia failures, improving supportability for uncaught native exceptions.
+
 ## [1.6.1] - 2026-03-10
 
 ### Fixed

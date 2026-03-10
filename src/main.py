@@ -11,6 +11,7 @@ from datetime import datetime
 # Ensure src is importable when running from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -45,6 +46,8 @@ def _abort_if_elevated():
 
 _FAULT_LOG_FILE = None
 _FAULT_LOG_STACK = contextlib.ExitStack()
+_QT_MSG_HANDLER_INSTALLED = False
+_QT_MSG_PREVIOUS_HANDLER = None
 
 
 class CrashLogWriter:
@@ -146,6 +149,7 @@ def _apply_webview_compatibility_flags(enabled: bool) -> None:
 def _install_exception_logging():
     logger = get_logger()
     _enable_fault_handler()
+    _install_qt_message_logging()
 
     def handle_exception(exc_type, exc, tb):
         logger.error('Unhandled exception', exc_info=(exc_type, exc, tb))
@@ -168,6 +172,54 @@ def _install_exception_logging():
     sys.excepthook = handle_exception
     if hasattr(threading, 'excepthook'):
         threading.excepthook = handle_thread_exception
+
+
+def _install_qt_message_logging() -> None:
+    global _QT_MSG_HANDLER_INSTALLED, _QT_MSG_PREVIOUS_HANDLER
+    if _QT_MSG_HANDLER_INSTALLED:
+        return
+
+    logger = get_logger()
+
+    def handle_qt_message(msg_type, context, message):
+        try:
+            text = str(message).strip()
+            if not text:
+                return
+
+            details = {
+                'qt_message_type': getattr(msg_type, 'value', str(msg_type)),
+                'qt_category': getattr(context, 'category', ''),
+                'qt_file': getattr(context, 'file', ''),
+                'qt_line': getattr(context, 'line', 0),
+                'qt_function': getattr(context, 'function', ''),
+            }
+
+            if msg_type == QtMsgType.QtDebugMsg:
+                logger.debug('Qt message: %s', text, extra=details)
+            elif msg_type == QtMsgType.QtInfoMsg:
+                logger.info('Qt message: %s', text, extra=details)
+            elif msg_type == QtMsgType.QtWarningMsg:
+                logger.warning('Qt warning: %s', text, extra=details)
+            elif msg_type == QtMsgType.QtCriticalMsg:
+                logger.error('Qt critical: %s', text, extra=details)
+            elif msg_type == QtMsgType.QtFatalMsg:
+                logger.critical('Qt fatal: %s', text, extra=details)
+                _flush_logger(logger)
+                _write_fatal_marker(f'Qt fatal: {text}')
+            else:
+                logger.info('Qt message: %s', text, extra=details)
+        except Exception:
+            return
+        finally:
+            previous_handler = _QT_MSG_PREVIOUS_HANDLER
+            if previous_handler is not None:
+                with contextlib.suppress(Exception):
+                    previous_handler(msg_type, context, message)
+
+    _QT_MSG_PREVIOUS_HANDLER = qInstallMessageHandler(handle_qt_message)
+    _QT_MSG_HANDLER_INSTALLED = True
+    logger.info('Qt message logging hook installed')
 
 
 def _apply_app_icon(app: QApplication) -> None:

@@ -1,9 +1,11 @@
 """Tabbed platform-specific media preview dialog (images and videos)."""
 
+import contextlib
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
-from PyQt6.QtCore import QObject, Qt, QThread, QUrl, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
@@ -155,6 +157,8 @@ class ImagePreviewTab(QWidget):
         self._thread: QThread | None = None
         self._worker: _ImageProcessWorker | None = None
         self._source_pixmap: QPixmap | None = None
+        self._shutting_down = False
+        self._shutdown_callbacks: list[Callable[[], None]] = []
 
         layout = QVBoxLayout(self)
         self._status_label = QLabel('Click this tab to generate preview...')
@@ -199,23 +203,25 @@ class ImagePreviewTab(QWidget):
         self._worker.progress.connect(self._progress.setValue)
         self._worker.finished.connect(self._on_preview_ready)
         self._worker.error.connect(self._on_preview_error)
-        self._worker.finished.connect(self._cleanup_worker)
-        self._worker.error.connect(self._cleanup_worker)
+        self._worker.finished.connect(self._thread.quit)
+        self._worker.error.connect(self._thread.quit)
+        self._thread.finished.connect(self._on_thread_finished)
 
         self._thread.start()
 
-    def _cleanup_worker(self):
-        if self._thread is None:
-            return
-        self._thread.quit()
-        self._thread.wait()
-        self._thread.deleteLater()
+    def _on_thread_finished(self):
+        thread = self._thread
         self._thread = None
         if self._worker is not None:
             self._worker.deleteLater()
             self._worker = None
+        if thread is not None:
+            thread.deleteLater()
+        self._emit_shutdown_callbacks()
 
     def _on_preview_ready(self, result: ProcessedImage):
+        if self._shutting_down:
+            return
         self._result = result
         self._result_path = result.path
 
@@ -247,6 +253,8 @@ class ImagePreviewTab(QWidget):
         self.preview_done.emit(True)
 
     def _on_preview_error(self, message: str):
+        if self._shutting_down:
+            return
         self._progress.setValue(0)
         self._status_label.setText(f'Error: {message}')
         get_logger().error(
@@ -305,6 +313,28 @@ class ImagePreviewTab(QWidget):
         super().resizeEvent(event)
         self._update_preview_pixmap()
 
+    def has_active_worker(self) -> bool:
+        return self._thread is not None and self._thread.isRunning()
+
+    def begin_shutdown(self, on_done: Callable[[], None] | None = None) -> None:
+        self._shutting_down = True
+        if on_done is not None:
+            self._shutdown_callbacks.append(on_done)
+        thread = self._thread
+        if thread is None or not thread.isRunning():
+            self._emit_shutdown_callbacks()
+            return
+        with contextlib.suppress(RuntimeError):
+            thread.requestInterruption()
+            thread.quit()
+
+    def _emit_shutdown_callbacks(self) -> None:
+        callbacks = self._shutdown_callbacks
+        self._shutdown_callbacks = []
+        for callback in callbacks:
+            with contextlib.suppress(Exception):
+                callback()
+
 
 class VideoPreviewTab(QWidget):
     """Single platform video preview tab with lazy loading."""
@@ -332,6 +362,8 @@ class VideoPreviewTab(QWidget):
         self._media_player = None
         self._audio_output = None
         self._video_widget = None
+        self._shutting_down = False
+        self._shutdown_callbacks: list[Callable[[], None]] = []
 
         layout = QVBoxLayout(self)
         self._status_label = QLabel('Click this tab to generate preview...')
@@ -412,24 +444,26 @@ class VideoPreviewTab(QWidget):
         self._worker.progress.connect(self._progress.setValue)
         self._worker.finished.connect(self._on_preview_ready)
         self._worker.error.connect(self._on_preview_error)
-        self._worker.finished.connect(self._cleanup_worker)
-        self._worker.error.connect(self._cleanup_worker)
+        self._worker.finished.connect(self._thread.quit)
+        self._worker.error.connect(self._thread.quit)
+        self._thread.finished.connect(self._on_thread_finished)
 
         self._thread.start()
 
-    def _cleanup_worker(self):
-        if self._thread is None:
-            return
-        self._thread.quit()
-        self._thread.wait()
-        self._thread.deleteLater()
+    def _on_thread_finished(self):
+        thread = self._thread
         self._thread = None
         if self._worker is not None:
             self._worker.deleteLater()
             self._worker = None
+        if thread is not None:
+            thread.deleteLater()
+        self._emit_shutdown_callbacks()
 
     def _on_preview_ready(self, result: dict):
         """Handle video processing completion."""
+        if self._shutting_down:
+            return
         from src.core.video_processor import ProcessedVideo
 
         processed: ProcessedVideo = result['processed']
@@ -490,6 +524,8 @@ class VideoPreviewTab(QWidget):
         self.preview_done.emit(True)
 
     def _on_preview_error(self, message: str):
+        if self._shutting_down:
+            return
         self._progress.setValue(0)
         self._status_label.setText(f'Error: {message}')
         get_logger().error(
@@ -652,9 +688,63 @@ class VideoPreviewTab(QWidget):
     def _on_fullscreen_changed(self, is_fullscreen: bool):
         self._fullscreen_btn.setText('Exit Fullscreen' if is_fullscreen else 'Fullscreen')
 
+    def has_active_worker(self) -> bool:
+        return self._thread is not None and self._thread.isRunning()
+
+    def begin_shutdown(self, on_done: Callable[[], None] | None = None) -> None:
+        self._shutting_down = True
+        if on_done is not None:
+            self._shutdown_callbacks.append(on_done)
+        self._shutdown_media_player()
+        thread = self._thread
+        if thread is None or not thread.isRunning():
+            self._emit_shutdown_callbacks()
+            return
+        with contextlib.suppress(RuntimeError):
+            thread.requestInterruption()
+            thread.quit()
+
+    def _shutdown_media_player(self) -> None:
+        if not self._has_media_player():
+            return
+        assert self._media_player is not None
+        with contextlib.suppress(TypeError, RuntimeError):
+            self._media_player.positionChanged.disconnect(self._on_position_changed)
+        with contextlib.suppress(TypeError, RuntimeError):
+            self._media_player.durationChanged.disconnect(self._on_duration_changed)
+        with contextlib.suppress(TypeError, RuntimeError):
+            self._media_player.playbackStateChanged.disconnect(self._on_playback_state_changed)
+        with contextlib.suppress(Exception):
+            self._media_player.stop()
+        with contextlib.suppress(Exception):
+            self._media_player.setSource(QUrl())
+        with contextlib.suppress(Exception):
+            self._media_player.setVideoOutput(None)
+        if self._audio_output is not None:
+            self._audio_output.deleteLater()
+            self._audio_output = None
+        self._media_player.deleteLater()
+        self._media_player = None
+        if self._video_widget is not None:
+            with contextlib.suppress(TypeError, RuntimeError):
+                self._video_widget.fullScreenChanged.disconnect(self._on_fullscreen_changed)
+            with contextlib.suppress(Exception):
+                self._video_widget.setFullScreen(False)
+            self._video_widget.hide()
+
+    def _emit_shutdown_callbacks(self) -> None:
+        callbacks = self._shutdown_callbacks
+        self._shutdown_callbacks = []
+        for callback in callbacks:
+            with contextlib.suppress(Exception):
+                callback()
+
 
 class ImagePreviewDialog(QDialog):
     """Tabbed dialog showing per-platform media previews."""
+
+    _retained_dialogs: list['ImagePreviewDialog'] = []
+    SHUTDOWN_CLOSE_TIMEOUT_MS = 1500
 
     def __init__(
         self,
@@ -676,6 +766,13 @@ class ImagePreviewDialog(QDialog):
         self._existing_paths = self._normalize_existing_paths(existing_paths)
         self._is_video = all(_is_video(path) for path in self._media_paths)
         self._has_video_tabs = self._is_video
+        self._closing = False
+        self._pending_close_code = QDialog.DialogCode.Rejected
+        self._pending_shutdown_tabs = 0
+        self._close_done = False
+        self._shutdown_timeout_timer = QTimer(self)
+        self._shutdown_timeout_timer.setSingleShot(True)
+        self._shutdown_timeout_timer.timeout.connect(self._on_shutdown_timeout)
 
         title = 'Video Preview' if self._is_video else 'Media Preview'
         self.setWindowTitle(title)
@@ -769,11 +866,12 @@ class ImagePreviewDialog(QDialog):
         self._ok_btn = QPushButton('OK')
         self._ok_btn.setMinimumWidth(100)
         self._ok_btn.setEnabled(False)
-        self._ok_btn.clicked.connect(self.accept)
+        self._ok_btn.clicked.connect(lambda: self._request_close(QDialog.DialogCode.Accepted))
         btn_layout.addWidget(self._ok_btn)
         cancel_btn = QPushButton('Cancel')
         cancel_btn.setMinimumWidth(100)
-        cancel_btn.clicked.connect(self.reject)
+        cancel_btn.clicked.connect(lambda: self._request_close(QDialog.DialogCode.Rejected))
+        self._cancel_btn = cancel_btn
         btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
 
@@ -860,6 +958,83 @@ class ImagePreviewDialog(QDialog):
     @property
     def had_errors(self) -> bool:
         return self._had_errors
+
+    def _request_close(self, code: QDialog.DialogCode) -> None:
+        if self._closing:
+            return
+        self._closing = True
+        self._pending_close_code = code
+        self._ok_btn.setEnabled(False)
+        self._cancel_btn.setEnabled(False)
+
+        all_tabs = [tab for tabs in self._tabs.values() for tab in tabs]
+        active_tabs = [tab for tab in all_tabs if tab.has_active_worker()]
+        self._pending_shutdown_tabs = len(all_tabs)
+        get_logger().info(
+            'Preview dialog close requested',
+            extra={
+                'close_code': int(code),
+                'active_worker_tabs': len(active_tabs),
+                'total_tabs': len(all_tabs),
+            },
+        )
+        if not all_tabs:
+            self._finalize_close()
+            return
+
+        self.hide()
+        self._retain_for_shutdown()
+        for tab in all_tabs:
+            tab.begin_shutdown(self._on_tab_shutdown_complete)
+        self._shutdown_timeout_timer.start(self.SHUTDOWN_CLOSE_TIMEOUT_MS)
+
+        if self._pending_shutdown_tabs == 0:
+            self._finalize_close()
+
+    def _on_tab_shutdown_complete(self) -> None:
+        self._pending_shutdown_tabs = max(0, self._pending_shutdown_tabs - 1)
+        if self._pending_shutdown_tabs == 0:
+            self._finalize_close()
+
+    def _on_shutdown_timeout(self) -> None:
+        if self._pending_shutdown_tabs == 0:
+            return
+        get_logger().warning(
+            'Preview dialog shutdown timed out; closing dialog while background cleanup continues',
+            extra={
+                'pending_tabs': self._pending_shutdown_tabs,
+                'close_code': int(self._pending_close_code),
+            },
+        )
+        self._close_modal_loop()
+
+    def _close_modal_loop(self) -> None:
+        if self._close_done:
+            return
+        self._close_done = True
+        self.done(int(self._pending_close_code))
+
+    def _finalize_close(self) -> None:
+        self._shutdown_timeout_timer.stop()
+        self._close_modal_loop()
+        if self._pending_shutdown_tabs == 0:
+            self._release_shutdown_retention()
+            self.deleteLater()
+
+    def _retain_for_shutdown(self) -> None:
+        if self not in self.__class__._retained_dialogs:
+            self.__class__._retained_dialogs.append(self)
+
+    def _release_shutdown_retention(self) -> None:
+        retained = self.__class__._retained_dialogs
+        self.__class__._retained_dialogs = [dialog for dialog in retained if dialog is not self]
+
+    def closeEvent(self, event):  # noqa: N802
+        if not self._closing:
+            event.ignore()
+            self._request_close(QDialog.DialogCode.Rejected)
+            return
+        super().closeEvent(event)
 
 
 class _ImageProcessWorker(QObject):

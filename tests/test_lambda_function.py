@@ -1,5 +1,6 @@
 """Tests for the log upload Lambda."""
 
+import base64
 import json
 import sys
 import types
@@ -162,6 +163,35 @@ def test_attachments_use_raw_email(monkeypatch):
     result = lf.lambda_handler(event, None)
     assert result['statusCode'] == 200
     assert fake_ses.raw_sent
+
+
+def test_wer_reports_are_included_as_attachments(monkeypatch):
+    fake_ses = FakeSES()
+    monkeypatch.setattr(lf, 'ses', fake_ses)
+
+    event = _make_event(
+        {
+            'app_version': '1.5.2',
+            'error_code': 'POST-FAILED',
+            'user_id': 'abc',
+            'user_notes': 'Attached diagnostics',
+            'log_files': [],
+            'screenshots': [],
+            'wer_reports': [
+                {
+                    'filename': 'AppCrash_GaleFling.exe_001_Report.wer',
+                    'content': base64.b64encode(b'wer content').decode('ascii'),
+                }
+            ],
+        }
+    )
+
+    result = lf.lambda_handler(event, None)
+    assert result['statusCode'] == 200
+    assert fake_ses.raw_sent
+    raw_body = fake_ses.raw_sent[0]['RawMessage']['Data'].decode('utf-8', errors='ignore')
+    assert 'AppCrash_GaleFling.exe_001_Report.wer' in raw_body
+    assert 'wer content' not in raw_body  # attachment content should remain base64-encoded
 
 
 def test_rejects_payload_when_app_version_below_cutoff(monkeypatch):

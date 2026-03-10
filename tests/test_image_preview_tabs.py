@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PIL import Image
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QLabel
+from PyQt6.QtWidgets import QDialog, QLabel
 
 from src.core.video_processor import VideoInfo
 from src.gui.image_preview_tabs import (
@@ -251,3 +251,50 @@ def test_preview_dialog_video_attachment_header_includes_metadata(qtbot, tmp_pat
     assert any(
         'sample.mp4' in text and '1280x720' in text and '29.97 fps' in text for text in labels
     )
+
+
+def test_preview_dialog_close_timeout_unblocks_modal_loop(qtbot, tmp_path):
+    original = _write_image(tmp_path / 'original.png')
+    cached = _write_image(tmp_path / 'cached.png')
+    dialog = ImagePreviewDialog(original, ['twitter'], existing_paths={'twitter': cached})
+    qtbot.addWidget(dialog)
+
+    tab = dialog._tabs['twitter'][0]
+    callbacks: list[object] = []
+
+    tab.has_active_worker = lambda: True  # type: ignore[assignment]
+
+    def delayed_shutdown(on_done=None):
+        if on_done is not None:
+            callbacks.append(on_done)
+
+    tab.begin_shutdown = delayed_shutdown  # type: ignore[assignment]
+    dialog.SHUTDOWN_CLOSE_TIMEOUT_MS = 10
+    ImagePreviewDialog._retained_dialogs = []
+
+    dialog._request_close(QDialog.DialogCode.Rejected)
+
+    qtbot.waitUntil(lambda: dialog.result() == int(QDialog.DialogCode.Rejected), timeout=1000)
+    assert dialog in ImagePreviewDialog._retained_dialogs
+    assert len(callbacks) == 1
+
+    callbacks[0]()
+    qtbot.waitUntil(lambda: dialog not in ImagePreviewDialog._retained_dialogs, timeout=1000)
+
+
+def test_preview_dialog_close_releases_retention_after_immediate_shutdown(qtbot, tmp_path):
+    original = _write_image(tmp_path / 'original.png')
+    cached = _write_image(tmp_path / 'cached.png')
+    dialog = ImagePreviewDialog(original, ['twitter'], existing_paths={'twitter': cached})
+    qtbot.addWidget(dialog)
+
+    tab = dialog._tabs['twitter'][0]
+    tab.has_active_worker = lambda: False  # type: ignore[assignment]
+    tab.begin_shutdown = lambda on_done=None: on_done() if on_done is not None else None  # type: ignore[assignment]
+    dialog.SHUTDOWN_CLOSE_TIMEOUT_MS = 10
+    ImagePreviewDialog._retained_dialogs = []
+
+    dialog._request_close(QDialog.DialogCode.Accepted)
+
+    qtbot.waitUntil(lambda: dialog.result() == int(QDialog.DialogCode.Accepted), timeout=1000)
+    assert dialog not in ImagePreviewDialog._retained_dialogs

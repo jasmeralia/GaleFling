@@ -72,7 +72,8 @@ def lambda_handler(event, context):
         "os_platform": "Windows-11-10.0.26100-SP0",
         "ffmpeg_version": "7.1-full_build-www.gyan.dev",
         "log_files": [{"filename": "...", "content": "base64..."}],
-        "screenshots": [{"filename": "...", "content": "base64..."}]
+        "screenshots": [{"filename": "...", "content": "base64..."}],
+        "wer_reports": [{"filename": "...", "content": "base64..."}]
     }
     """
     # Handle CORS preflight
@@ -258,6 +259,13 @@ def _collect_attachments(body: dict) -> tuple[list[dict], list[str]]:
             screenshot.get('filename', 'unknown.png'),
             screenshot.get('content', ''),
             'image/png',
+        )
+
+    for wer_report in body.get('wer_reports', []):
+        add_attachment(
+            wer_report.get('filename', 'unknown.wer'),
+            wer_report.get('content', ''),
+            'text/plain',
         )
 
     return attachments, skipped

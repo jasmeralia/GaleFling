@@ -181,6 +181,18 @@ def test_install_exception_logging_handles_thread_exceptions(monkeypatch: pytest
         def error(self, message, **_kwargs):
             self.errors.append(message)
 
+        def info(self, *_args, **_kwargs):
+            return None
+
+        def debug(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def critical(self, *_args, **_kwargs):
+            return None
+
     logger = DummyLogger()
     crash_contexts: list[str] = []
 
@@ -211,6 +223,108 @@ def test_install_exception_logging_handles_thread_exceptions(monkeypatch: pytest
 
     assert 'Unhandled thread exception' in logger.errors
     assert 'thread' in crash_contexts
+
+
+def test_install_qt_message_logging_installs_once(monkeypatch: pytest.MonkeyPatch):
+    handlers = []
+
+    class DummyLogger:
+        def __init__(self):
+            self.handlers = []
+            self.infos: list[str] = []
+
+        def info(self, message, *_args, **_kwargs):
+            self.infos.append(message)
+
+        def debug(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, *_args, **_kwargs):
+            return None
+
+        def error(self, *_args, **_kwargs):
+            return None
+
+        def critical(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(main_module, '_QT_MSG_HANDLER_INSTALLED', False)
+    monkeypatch.setattr(main_module, '_QT_MSG_PREVIOUS_HANDLER', None)
+    monkeypatch.setattr(main_module, 'get_logger', lambda: DummyLogger())
+    monkeypatch.setattr(
+        main_module, 'qInstallMessageHandler', lambda handler: handlers.append(handler)
+    )
+
+    main_module._install_qt_message_logging()
+    main_module._install_qt_message_logging()
+
+    assert len(handlers) == 1
+
+
+def test_qt_message_handler_logs_and_writes_fatal_marker(monkeypatch: pytest.MonkeyPatch):
+    installed = {}
+    previous_calls: list[tuple[object, object, object]] = []
+    fatal_markers: list[str] = []
+
+    def previous_handler(msg_type, context, message):
+        previous_calls.append((msg_type, context, message))
+
+    class DummyLogger:
+        def __init__(self):
+            self.handlers = []
+            self.warning_messages: list[str] = []
+            self.critical_messages: list[str] = []
+            self.info_messages: list[str] = []
+
+        def info(self, message, *_args, **_kwargs):
+            self.info_messages.append(message)
+
+        def debug(self, *_args, **_kwargs):
+            return None
+
+        def warning(self, message, *_args, **_kwargs):
+            self.warning_messages.append(message)
+
+        def error(self, *_args, **_kwargs):
+            return None
+
+        def critical(self, message, *_args, **_kwargs):
+            self.critical_messages.append(message)
+
+    logger = DummyLogger()
+    monkeypatch.setattr(main_module, '_QT_MSG_HANDLER_INSTALLED', False)
+    monkeypatch.setattr(main_module, '_QT_MSG_PREVIOUS_HANDLER', None)
+    monkeypatch.setattr(main_module, 'get_logger', lambda: logger)
+
+    def install_handler(handler):
+        installed['handler'] = handler
+        return previous_handler
+
+    monkeypatch.setattr(
+        main_module,
+        'qInstallMessageHandler',
+        install_handler,
+    )
+    monkeypatch.setattr(main_module, '_flush_logger', lambda _logger: None)
+    monkeypatch.setattr(
+        main_module, '_write_fatal_marker', lambda label: fatal_markers.append(label)
+    )
+
+    main_module._install_qt_message_logging()
+
+    context = types.SimpleNamespace(
+        category='qt.test',
+        file='test.cpp',
+        line=12,
+        function='f',
+    )
+    installed['handler'](main_module.QtMsgType.QtWarningMsg, context, 'warn message')
+    installed['handler'](main_module.QtMsgType.QtFatalMsg, context, 'fatal message')
+
+    assert any('Qt warning:' in msg for msg in logger.warning_messages)
+    assert any('Qt fatal:' in msg for msg in logger.critical_messages)
+    assert fatal_markers == ['Qt fatal: fatal message']
+    assert len(previous_calls) == 2
 
 
 def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):

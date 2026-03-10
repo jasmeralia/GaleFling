@@ -72,14 +72,14 @@ def test_fetlife_specs(large_image):
     assert result.processed_size[1] <= FETLIFE_SPECS.max_image_dimensions[1]
 
 
-def test_instagram_validation_webp_rejected(tmp_path):
-    """Test that Instagram rejects WEBP format."""
+def test_instagram_validation_webp_accepted(tmp_path):
+    """Test that Instagram accepts WEBP — PIL auto-converts static images to a supported format."""
     img = Image.new('RGB', (100, 100), color='red')
     path = tmp_path / 'test.webp'
     img.save(path, 'WEBP')
 
     error = validate_image(path, INSTAGRAM_SPECS)
-    assert error == 'IMG-INVALID-FORMAT'
+    assert error is None
 
 
 def test_onlyfans_accepts_webp(tmp_path):

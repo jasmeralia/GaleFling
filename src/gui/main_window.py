@@ -503,6 +503,11 @@ class MainWindow(QMainWindow):
             return False
         return not is_animated_gif(media_path)
 
+    @staticmethod
+    def _can_auto_convert_video_format(specs) -> bool:
+        """Return True when ffmpeg can convert the video format to MP4 for this platform."""
+        return 'MP4' in specs.supported_video_formats
+
     def _can_auto_convert_image_to_video(
         self,
         media_paths: list[Path],
@@ -586,6 +591,8 @@ class MainWindow(QMainWindow):
                     continue
                 if is_video:
                     if fmt_upper not in specs.supported_video_formats:
+                        if self._can_auto_convert_video_format(specs):
+                            continue
                         restricted.add(account_id)
                         unsupported_fmts.add(fmt_upper)
                 else:

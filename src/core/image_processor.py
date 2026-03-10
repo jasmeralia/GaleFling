@@ -50,7 +50,9 @@ def validate_image(image_path: Path, specs: PlatformSpecs) -> str | None:
     try:
         with Image.open(image_path) as img:
             fmt = img.format
-            if fmt and fmt.upper() not in specs.supported_formats:
+            # Animated GIFs cannot be silently converted without losing animation.
+            # Static images are auto-converted by PIL to a supported format.
+            if fmt and fmt.upper() not in specs.supported_formats and is_animated_gif(image_path):
                 return 'IMG-INVALID-FORMAT'
     except Exception as exc:
         get_logger().exception(

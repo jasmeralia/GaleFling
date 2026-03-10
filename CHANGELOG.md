@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-03-10
+
+### Fixed
+- Attaching a MOV video no longer disables most platforms. Any video format that ffmpeg can convert to MP4 (MOV, AVI, MKV, WEBM) is now treated as compatible with any MP4-supporting platform — conversion happens automatically at post time, as it already did for MP4 with dimension/duration issues.
+- `validate_video` no longer rejects convertible video formats for platforms that support MP4.
+- `validate_image` no longer rejects static images by source format; PIL auto-converts to a supported format during processing. Animated GIFs on non-GIF platforms are still correctly rejected.
+
 ## [1.6.0] - 2026-03-10
 
 ### Added

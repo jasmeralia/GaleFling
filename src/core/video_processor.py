@@ -264,7 +264,7 @@ def validate_video(video_path: Path, specs: PlatformSpecs) -> str | None:
         return 'VID-NOT-FOUND'
 
     ext = video_path.suffix.lstrip('.').upper()
-    if ext not in specs.supported_video_formats:
+    if ext not in specs.supported_video_formats and 'MP4' not in specs.supported_video_formats:
         return 'VID-INVALID-FORMAT'
 
     try:

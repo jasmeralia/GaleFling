@@ -167,11 +167,12 @@ class TestValidateVideo:
         missing = tmp_path / 'nonexistent.mp4'
         assert validate_video(missing, TWITTER_SPECS) == 'VID-NOT-FOUND'
 
-    def test_unsupported_format(self, tmp_path):
-        # Create a file with wrong extension
+    def test_convertible_format_not_rejected(self, tmp_path):
+        # AVI passes format check for Twitter (MP4-supporting platform) — ffmpeg converts it.
+        # The fake content causes a corruption error, not a format error.
         bad = tmp_path / 'bad.avi'
         bad.write_bytes(b'fake')
-        assert validate_video(bad, TWITTER_SPECS) == 'VID-INVALID-FORMAT'
+        assert validate_video(bad, TWITTER_SPECS) == 'VID-CORRUPT'
 
     def test_corrupt_file(self, tmp_path):
         corrupt = tmp_path / 'corrupt.mp4'

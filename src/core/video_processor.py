@@ -3,6 +3,7 @@
 import contextlib
 import json
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -38,12 +39,7 @@ def get_ffmpeg_version() -> str:
     logger = get_logger()
     try:
         ffmpeg = get_ffmpeg_path()
-        result = subprocess.run(
-            [ffmpeg, '-version'],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+        result = _run_subprocess([ffmpeg, '-version'], timeout=10)
         output = (result.stdout or result.stderr or '').strip()
         if not output:
             return 'unknown'
@@ -88,6 +84,31 @@ def _emit_progress(progress_cb: Callable[[int], None] | None, value: int):
         progress_cb(value)
 
 
+def _run_subprocess(cmd: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+    """Run ffmpeg/ffprobe without showing a console window on Windows."""
+    if sys.platform.startswith('win'):
+        creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        startupinfo_cls = getattr(subprocess, 'STARTUPINFO', None)
+        startupinfo = None
+        if startupinfo_cls is not None:
+            startupinfo = startupinfo_cls()
+            use_show_window = getattr(subprocess, 'STARTF_USESHOWWINDOW', 0)
+            if use_show_window:
+                startupinfo.dwFlags |= use_show_window
+            if hasattr(startupinfo, 'wShowWindow'):
+                startupinfo.wShowWindow = getattr(subprocess, 'SW_HIDE', 0)
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            creationflags=creationflags,
+            startupinfo=startupinfo,
+        )
+
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+
 def get_video_info(video_path: Path) -> VideoInfo:
     """Extract video metadata using ffprobe/ffmpeg."""
     logger = get_logger()
@@ -98,7 +119,7 @@ def get_video_info(video_path: Path) -> VideoInfo:
         # Try ffprobe first (may be alongside ffmpeg binary)
         ffprobe = get_ffprobe_path()
         if ffprobe != str(Path(ffmpeg)):
-            probe_result = subprocess.run(
+            probe_result = _run_subprocess(
                 [
                     ffprobe,
                     '-v',
@@ -111,8 +132,6 @@ def get_video_info(video_path: Path) -> VideoInfo:
                     'v:0',
                     str(video_path),
                 ],
-                capture_output=True,
-                text=True,
                 timeout=30,
             )
             probe_data = None
@@ -143,12 +162,7 @@ def get_video_info(video_path: Path) -> VideoInfo:
                 )
 
         # Fallback: parse ffmpeg -i stderr output
-        result = subprocess.run(
-            [ffmpeg, '-i', str(video_path)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        result = _run_subprocess([ffmpeg, '-i', str(video_path)], timeout=30)
         stderr = result.stderr or ''
         return _parse_ffmpeg_stderr(stderr, file_size, video_path)
     except subprocess.TimeoutExpired:
@@ -286,12 +300,7 @@ def convert_image_to_video(
     )
     _emit_progress(progress_cb, 0)
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    result = _run_subprocess(cmd, timeout=120)
     if result.returncode != 0:
         output_path.unlink(missing_ok=True)
         logger.error(
@@ -374,10 +383,14 @@ def process_video(
         if specs.max_video_file_size_mb is not None:
             max_bytes = int(specs.max_video_file_size_mb * 1024 * 1024)
 
-        needs_reencode = needs_resize or needs_trim or original_info.codec != 'h264'
+        source_format = video_path.suffix.lstrip('.').upper()
+        supported_formats = set(specs.supported_video_formats)
+        format_supported = not supported_formats or source_format in supported_formats
+        size_too_large = max_bytes is not None and original_info.file_size > max_bytes
+        needs_reencode = needs_resize or needs_trim or size_too_large or not format_supported
 
         # If no processing needed and file size is OK, just copy
-        if not needs_reencode and (max_bytes is None or original_info.file_size <= max_bytes):
+        if not needs_reencode:
             _emit_progress(progress_cb, 100)
             return ProcessedVideo(
                 path=video_path,
@@ -446,12 +459,7 @@ def process_video(
                 },
             )
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=600,
-            )
+            result = _run_subprocess(cmd, timeout=600)
 
             if result.returncode != 0:
                 logger.error(
@@ -526,7 +534,7 @@ def extract_thumbnail(video_path: Path, max_size: int = 400) -> Path | None:
         with tempfile.NamedTemporaryFile(suffix='_vthumb.png', delete=False) as tmp:
             thumb_path = Path(tmp.name)
 
-        result = subprocess.run(
+        result = _run_subprocess(
             [
                 ffmpeg,
                 '-y',
@@ -538,8 +546,6 @@ def extract_thumbnail(video_path: Path, max_size: int = 400) -> Path | None:
                 f'scale={max_size}:{max_size}:force_original_aspect_ratio=decrease',
                 str(thumb_path),
             ],
-            capture_output=True,
-            text=True,
             timeout=30,
         )
 

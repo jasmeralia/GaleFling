@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+import src.core.video_processor as video_processor
 from src.core.video_processor import (
+    VideoInfo,
+    _run_subprocess,
     convert_image_to_video,
     extract_thumbnail,
     get_ffmpeg_path,
@@ -15,13 +18,13 @@ from src.core.video_processor import (
     process_video,
     validate_video,
 )
-from src.utils.constants import BLUESKY_SPECS, SNAPCHAT_SPECS, TWITTER_SPECS
+from src.utils.constants import BLUESKY_SPECS, ONLYFANS_SPECS, SNAPCHAT_SPECS, TWITTER_SPECS
 
 
 def _make_test_video(path: Path, width=320, height=240, duration=2, fps=10):
     """Create a minimal test video using ffmpeg."""
     ffmpeg = get_ffmpeg_path()
-    subprocess.run(
+    _run_subprocess(
         [
             ffmpeg,
             '-y',
@@ -48,7 +51,6 @@ def _make_test_video(path: Path, width=320, height=240, duration=2, fps=10):
             '-shortest',
             str(path),
         ],
-        capture_output=True,
         timeout=30,
     )
     return path
@@ -93,6 +95,44 @@ class TestGetFfmpegVersion:
             lambda: (_ for _ in ()).throw(RuntimeError('missing')),
         )
         assert get_ffmpeg_version() == 'unknown'
+
+
+class TestRunSubprocess:
+    def test_windows_uses_hidden_process_flags(self, monkeypatch):
+        seen = {}
+
+        class DummyStartupInfo:
+            def __init__(self):
+                self.dwFlags = 0
+                self.wShowWindow = 0
+
+        monkeypatch.setattr(video_processor.sys, 'platform', 'win32')
+        monkeypatch.setattr(
+            video_processor.subprocess, 'CREATE_NO_WINDOW', 0x08000000, raising=False
+        )
+        monkeypatch.setattr(
+            video_processor.subprocess, 'STARTUPINFO', DummyStartupInfo, raising=False
+        )
+        monkeypatch.setattr(
+            video_processor.subprocess, 'STARTF_USESHOWWINDOW', 0x00000001, raising=False
+        )
+        monkeypatch.setattr(video_processor.subprocess, 'SW_HIDE', 0, raising=False)
+
+        def fake_run(cmd, **kwargs):
+            seen['cmd'] = cmd
+            seen['kwargs'] = kwargs
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout='', stderr='')
+
+        monkeypatch.setattr(video_processor.subprocess, 'run', fake_run)
+
+        _run_subprocess(['ffmpeg', '-version'], timeout=5)
+
+        assert seen['cmd'] == ['ffmpeg', '-version']
+        assert seen['kwargs']['creationflags'] == 0x08000000
+        assert seen['kwargs']['capture_output'] is True
+        assert seen['kwargs']['text'] is True
+        assert seen['kwargs']['timeout'] == 5
+        assert isinstance(seen['kwargs']['startupinfo'], DummyStartupInfo)
 
 
 class TestGetVideoInfo:
@@ -156,6 +196,32 @@ class TestProcessVideo:
         assert result.meets_requirements
         assert 0 in progress_values
         assert 100 in progress_values
+
+    def test_supported_video_within_limits_skips_reencode(self, tmp_path, monkeypatch):
+        source = tmp_path / 'clip.mov'
+        source.write_bytes(b'video-bytes')
+
+        info = VideoInfo(
+            width=1280,
+            height=720,
+            duration_seconds=30.0,
+            codec='hevc',
+            file_size=3 * 1024 * 1024,
+            format_name='mov',
+        )
+        monkeypatch.setattr('src.core.video_processor.get_video_info', lambda _path: info)
+        monkeypatch.setattr(
+            'src.core.video_processor._run_subprocess',
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError('ffmpeg should not run for no-op processing')
+            ),
+        )
+
+        result = process_video(source, ONLYFANS_SPECS)
+
+        assert result.path == source
+        assert result.processed_info == info
+        assert result.meets_requirements
 
 
 class TestExtractThumbnail:

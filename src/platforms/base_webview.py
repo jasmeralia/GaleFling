@@ -89,6 +89,7 @@ class BaseWebViewPlatform(BasePlatform):
         )
 
         page = _LoggingWebEnginePage(self._profile, self, parent)
+        self._configure_webview_page(page)
         self._view = QWebEngineView(parent)
         self._view.setPage(page)
 
@@ -223,6 +224,10 @@ class BaseWebViewPlatform(BasePlatform):
     def _get_profile_storage_path(self) -> Path:
         profile_name = self._account_id or 'default'
         return get_app_data_dir() / 'webprofiles' / profile_name
+
+    def _configure_webview_page(self, page: QWebEnginePage) -> None:
+        """Allow subclasses to tweak per-page WebEngine settings."""
+        return
 
     def _get_cookie_db_path(self) -> Path:
         return self._get_profile_storage_path() / 'Cookies'

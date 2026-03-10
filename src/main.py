@@ -22,6 +22,8 @@ from src.utils.constants import APP_NAME, APP_ORG
 from src.utils.helpers import get_logs_dir, get_resource_path
 from src.utils.theme import apply_theme
 
+_WEBVIEW_COMPAT_FLAGS = ['--disable-gpu']
+
 
 def _abort_if_elevated():
     if sys.platform != 'win32':
@@ -94,6 +96,7 @@ class GaleFlingApplication(QApplication):
 def main():
     # Initialize config first
     config = ConfigManager()
+    _apply_webview_compatibility_flags(config.webview_compatibility_mode)
 
     # Set up logging
     setup_logging(debug_mode=config.debug_mode)
@@ -120,6 +123,24 @@ def main():
     window.check_for_updates_on_startup()
 
     sys.exit(app.exec())
+
+
+def _apply_webview_compatibility_flags(enabled: bool) -> None:
+    """Update QTWEBENGINE_CHROMIUM_FLAGS for compatibility mode."""
+    existing = os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '').strip()
+    flags = [flag for flag in existing.split() if flag]
+
+    if enabled:
+        for flag in _WEBVIEW_COMPAT_FLAGS:
+            if flag not in flags:
+                flags.append(flag)
+    else:
+        flags = [flag for flag in flags if flag not in _WEBVIEW_COMPAT_FLAGS]
+
+    if flags:
+        os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = ' '.join(flags)
+    else:
+        os.environ.pop('QTWEBENGINE_CHROMIUM_FLAGS', None)
 
 
 def _install_exception_logging():

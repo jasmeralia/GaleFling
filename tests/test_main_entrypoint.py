@@ -217,6 +217,7 @@ def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
     class DummyConfig:
         debug_mode = True
         theme_mode = 'system'
+        webview_compatibility_mode = False
 
     class DummyApp:
         def __init__(self, _args):
@@ -287,3 +288,23 @@ def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
     assert window.shown is True
     assert window.restored is True
     assert window.checked is True
+
+
+def test_apply_webview_compatibility_flags_enabled(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setitem(main_module.os.environ, 'QTWEBENGINE_CHROMIUM_FLAGS', '--foo')
+    main_module._apply_webview_compatibility_flags(True)
+    flags = main_module.os.environ['QTWEBENGINE_CHROMIUM_FLAGS'].split()
+    assert '--foo' in flags
+    assert '--disable-gpu' in flags
+
+
+def test_apply_webview_compatibility_flags_disabled(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setitem(
+        main_module.os.environ,
+        'QTWEBENGINE_CHROMIUM_FLAGS',
+        '--foo --disable-gpu',
+    )
+    main_module._apply_webview_compatibility_flags(False)
+    flags = main_module.os.environ['QTWEBENGINE_CHROMIUM_FLAGS'].split()
+    assert '--foo' in flags
+    assert '--disable-gpu' not in flags

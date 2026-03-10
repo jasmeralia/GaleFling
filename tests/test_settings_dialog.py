@@ -59,6 +59,7 @@ def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)
     auth.save_account_credentials('twitter_1', {'access_token': 't', 'access_token_secret': 'ts'})
+    monkeypatch.setattr('src.gui.settings_dialog.QMessageBox.information', lambda *_a, **_k: 0)
 
     dialog = SettingsDialog(config, auth)
     qtbot.addWidget(dialog)
@@ -66,6 +67,7 @@ def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
     dialog._auto_update_cb.setChecked(False)
     dialog._prerelease_update_cb.setChecked(True)
     dialog._auto_save_cb.setChecked(False)
+    dialog._webview_compatibility_cb.setChecked(True)
     dialog._debug_cb.setChecked(True)
     dialog._log_upload_cb.setChecked(False)
     dialog._endpoint_edit.setText('https://example.com/logs')
@@ -84,6 +86,7 @@ def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
     assert config.auto_check_updates is False
     assert config.allow_prerelease_updates is True
     assert config.auto_save_draft is False
+    assert config.webview_compatibility_mode is True
     assert config.debug_mode is True
     assert config.log_upload_enabled is False
     assert config.log_upload_endpoint == 'https://example.com/logs'
@@ -137,6 +140,17 @@ def test_settings_dialog_blocks_duplicate_bluesky(qtbot, tmp_path, monkeypatch):
 
     assert warnings
     assert not (tmp_path / 'auth' / 'bluesky_auth_alt.json').exists()
+
+
+def test_settings_dialog_default_size_increased(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    assert dialog.minimumWidth() >= 760
+    assert dialog.minimumHeight() >= 680
 
 
 def test_settings_dialog_logout_clears_auth(qtbot, tmp_path, monkeypatch):

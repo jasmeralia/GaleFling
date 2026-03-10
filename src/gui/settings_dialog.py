@@ -56,7 +56,8 @@ class SettingsDialog(QDialog):
         self._twitter_pin_handlers: dict[str, object] = {}
 
         self.setWindowTitle('Settings')
-        self.setMinimumSize(500, 500)
+        self.setMinimumSize(760, 680)
+        self.resize(900, 760)
 
         layout = QVBoxLayout(self)
 
@@ -372,6 +373,21 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        # WebView compatibility
+        webview_group = QGroupBox('WebView')
+        webview_layout = QVBoxLayout(webview_group)
+        self._webview_compatibility_cb = QCheckBox(
+            'Use compatibility mode (disables GPU acceleration for embedded browsers)'
+        )
+        self._webview_compatibility_cb.setChecked(self._config.webview_compatibility_mode)
+        webview_layout.addWidget(self._webview_compatibility_cb)
+        webview_layout.addWidget(
+            QLabel(
+                '<i>Requires app restart to take effect. May improve stability on some systems.</i>'
+            )
+        )
+        layout.addWidget(webview_group)
+
         # Debug
         debug_group = QGroupBox('Debug')
         debug_layout = QVBoxLayout(debug_group)
@@ -401,12 +417,15 @@ class SettingsDialog(QDialog):
     def _save_and_close(self):
         if not self._validate_bluesky_accounts():
             return
+        webview_compatibility_before = self._config.webview_compatibility_mode
+
         # General
         self._config.set('auto_check_updates', self._auto_update_cb.isChecked())
         self._config.set('allow_prerelease_updates', self._prerelease_update_cb.isChecked())
         self._config.set('auto_save_draft', self._auto_save_cb.isChecked())
 
         # Advanced
+        self._config.webview_compatibility_mode = self._webview_compatibility_cb.isChecked()
         self._config.debug_mode = self._debug_cb.isChecked()
         self._config.set('log_upload_enabled', self._log_upload_cb.isChecked())
         self._config.set('log_upload_endpoint', self._endpoint_edit.text())
@@ -494,6 +513,12 @@ class SettingsDialog(QDialog):
                 )
 
         self._config.save()
+        if webview_compatibility_before != self._config.webview_compatibility_mode:
+            QMessageBox.information(
+                self,
+                'Restart Required',
+                'WebView compatibility mode changes will apply after restarting GaleFling.',
+            )
         self.accept()
 
     def _validate_bluesky_accounts(self) -> bool:

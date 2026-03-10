@@ -35,6 +35,8 @@ a = Analysis(
         'atproto',
         'PyQt6.QtWebEngineWidgets',
         'PyQt6.QtWebEngineCore',
+        'PyQt6.QtMultimedia',
+        'PyQt6.QtMultimediaWidgets',
         'imageio_ffmpeg',
         'ffmpeg',
     ],

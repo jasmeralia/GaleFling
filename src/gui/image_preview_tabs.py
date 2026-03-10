@@ -1,8 +1,9 @@
 """Tabbed platform-specific media preview dialog (images and videos)."""
 
 from pathlib import Path
+from types import ModuleType
 
-from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, QUrl, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
@@ -11,6 +12,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QSlider,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -24,6 +26,15 @@ from src.core.image_processor import (
 )
 from src.core.logger import get_logger
 from src.utils.constants import PLATFORM_SPECS_MAP, VIDEO_EXTENSIONS, PlatformSpecs
+
+QtMultimediaModule: ModuleType | None
+QtMultimediaWidgetsModule: ModuleType | None
+try:
+    from PyQt6 import QtMultimedia as QtMultimediaModule
+    from PyQt6 import QtMultimediaWidgets as QtMultimediaWidgetsModule
+except Exception:  # pragma: no cover - runtime fallback when multimedia isn't available
+    QtMultimediaModule = None
+    QtMultimediaWidgetsModule = None
 
 
 def _format_size(size_bytes: int) -> str:
@@ -241,6 +252,11 @@ class VideoPreviewTab(QWidget):
         self._thread: QThread | None = None
         self._worker: _VideoProcessWorker | None = None
         self._source_pixmap: QPixmap | None = None
+        self._duration_ms = 0
+        self._seeking = False
+        self._media_player = None
+        self._audio_output = None
+        self._video_widget = None
 
         layout = QVBoxLayout(self)
         self._status_label = QLabel('Click this tab to generate preview...')
@@ -261,9 +277,41 @@ class VideoPreviewTab(QWidget):
         )
         layout.addWidget(self._preview_label)
 
+        if QtMultimediaWidgetsModule is not None:
+            self._video_widget = QtMultimediaWidgetsModule.QVideoWidget(self)
+            self._video_widget.setMinimumSize(220, 220)
+            self._video_widget.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+            self._video_widget.hide()
+            layout.addWidget(self._video_widget)
+
+        controls_layout = QHBoxLayout()
+        self._play_btn = QPushButton('Play')
+        self._play_btn.clicked.connect(self._toggle_playback)
+        controls_layout.addWidget(self._play_btn)
+
+        self._position_slider = QSlider(Qt.Orientation.Horizontal)
+        self._position_slider.setRange(0, 0)
+        self._position_slider.sliderPressed.connect(self._on_slider_pressed)
+        self._position_slider.sliderReleased.connect(self._on_slider_released)
+        self._position_slider.sliderMoved.connect(self._on_slider_moved)
+        controls_layout.addWidget(self._position_slider, 1)
+
+        self._time_label = QLabel('0:00 / 0:00')
+        controls_layout.addWidget(self._time_label)
+
+        self._fullscreen_btn = QPushButton('Fullscreen')
+        self._fullscreen_btn.clicked.connect(self._toggle_fullscreen)
+        controls_layout.addWidget(self._fullscreen_btn)
+        layout.addLayout(controls_layout)
+
         self._details_label = QLabel()
         self._details_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._details_label)
+
+        self._init_media_player()
+        self._set_controls_visible(False)
 
     def load_preview(self):
         """Generate and display the video preview (lazy loaded)."""
@@ -278,7 +326,11 @@ class VideoPreviewTab(QWidget):
         self._progress.setValue(0)
 
         self._thread = QThread(self)
-        self._worker = _VideoProcessWorker(self._video_path, self._specs)
+        self._worker = _VideoProcessWorker(
+            self._video_path,
+            self._specs,
+            generate_thumbnail=not self._has_media_player(),
+        )
         self._worker.moveToThread(self._thread)
 
         self._thread.started.connect(self._worker.run)
@@ -309,11 +361,13 @@ class VideoPreviewTab(QWidget):
         thumb_path: Path | None = result.get('thumbnail')
         self._result_path = processed.path
 
-        # Show thumbnail
-        if thumb_path and thumb_path.exists():
-            self._set_preview_pixmap(QPixmap(str(thumb_path)))
-        else:
-            self._preview_label.setText('(no thumbnail available)')
+        video_loaded = self._load_video_source(processed.path)
+        if not video_loaded:
+            # Fallback preview when QtMultimedia backend is unavailable
+            if thumb_path and thumb_path.exists():
+                self._set_preview_pixmap(QPixmap(str(thumb_path)))
+            else:
+                self._preview_label.setText('(no thumbnail available)')
 
         orig = processed.original_info
         proc = processed.processed_info
@@ -323,6 +377,14 @@ class VideoPreviewTab(QWidget):
         proc_size = _format_size(proc.file_size)
         orig_dur = _format_duration(orig.duration_seconds)
         proc_dur = _format_duration(proc.duration_seconds)
+        proc_fmt = (
+            proc.format_name.upper() if proc.format_name else processed.path.suffix.lstrip('.')
+        )
+        conversion_note = (
+            'No conversion required.'
+            if processed.path == self._video_path
+            else 'Converted to fit platform limits.'
+        )
 
         if processed.meets_requirements:
             status = (
@@ -337,7 +399,8 @@ class VideoPreviewTab(QWidget):
         self._details_label.setText(
             f'<b>Original:</b> {orig_res} ({orig_size}), {orig_dur}, {orig.codec}<br>'
             f'<b>Processed:</b> {proc_res} ({proc_size}), {proc_dur}<br>'
-            f'<b>Format:</b> MP4 (H.264)<br><br>'
+            f'<b>Format:</b> {proc_fmt} ({proc.codec})<br>'
+            f'<b>Output:</b> {conversion_note}<br><br>'
             f'{status}'
         )
         self._status_label.setText(f'Video preview for {self._specs.platform_name}')
@@ -365,13 +428,14 @@ class VideoPreviewTab(QWidget):
         if not self._cached_path:
             return
         self._loaded = True
-        from src.core.video_processor import extract_thumbnail
+        if not self._load_video_source(self._cached_path):
+            from src.core.video_processor import extract_thumbnail
 
-        thumb = extract_thumbnail(self._cached_path)
-        if thumb and thumb.exists():
-            self._set_preview_pixmap(QPixmap(str(thumb)))
-        else:
-            self._preview_label.setText('(cached video)')
+            thumb = extract_thumbnail(self._cached_path)
+            if thumb and thumb.exists():
+                self._set_preview_pixmap(QPixmap(str(thumb)))
+            else:
+                self._preview_label.setText('(cached video)')
         proc_size = _format_size(self._cached_path.stat().st_size)
         self._details_label.setText(
             f'<b>Cached:</b> ({proc_size})<br>'
@@ -405,6 +469,105 @@ class VideoPreviewTab(QWidget):
     def resizeEvent(self, event):  # noqa: N802
         super().resizeEvent(event)
         self._update_preview_pixmap()
+
+    def _init_media_player(self):
+        if QtMultimediaModule is None or self._video_widget is None:
+            return
+        self._media_player = QtMultimediaModule.QMediaPlayer(self)
+        self._audio_output = QtMultimediaModule.QAudioOutput(self)
+        self._audio_output.setVolume(0.0)
+        self._media_player.setAudioOutput(self._audio_output)
+        self._media_player.setVideoOutput(self._video_widget)
+        self._media_player.positionChanged.connect(self._on_position_changed)
+        self._media_player.durationChanged.connect(self._on_duration_changed)
+        self._media_player.playbackStateChanged.connect(self._on_playback_state_changed)
+        self._video_widget.fullScreenChanged.connect(self._on_fullscreen_changed)
+
+    def _has_media_player(self) -> bool:
+        return self._media_player is not None and self._video_widget is not None
+
+    def _set_controls_visible(self, visible: bool):
+        self._play_btn.setVisible(visible)
+        self._position_slider.setVisible(visible)
+        self._time_label.setVisible(visible)
+        self._fullscreen_btn.setVisible(visible)
+        self._play_btn.setEnabled(visible)
+        self._position_slider.setEnabled(visible)
+        self._fullscreen_btn.setEnabled(visible)
+
+    def _load_video_source(self, video_path: Path) -> bool:
+        if not self._has_media_player():
+            self._set_controls_visible(False)
+            return False
+        assert self._media_player is not None
+        assert self._video_widget is not None
+        self._preview_label.hide()
+        self._video_widget.show()
+        self._set_controls_visible(True)
+        self._duration_ms = 0
+        self._position_slider.setRange(0, 0)
+        self._time_label.setText('0:00 / 0:00')
+        self._media_player.setSource(QUrl.fromLocalFile(str(video_path)))
+        self._media_player.pause()
+        self._media_player.setPosition(0)
+        return True
+
+    def _toggle_playback(self):
+        if not self._has_media_player():
+            return
+        assert self._media_player is not None
+        playing_state = type(self._media_player).PlaybackState.PlayingState
+        if self._media_player.playbackState() == playing_state:
+            self._media_player.pause()
+        else:
+            self._media_player.play()
+
+    def _on_duration_changed(self, duration_ms: int):
+        self._duration_ms = max(0, duration_ms)
+        self._position_slider.setRange(0, self._duration_ms)
+        self._time_label.setText(
+            f'{_format_duration(0)} / {_format_duration(self._duration_ms / 1000)}'
+        )
+
+    def _on_position_changed(self, position_ms: int):
+        if not self._seeking:
+            self._position_slider.setValue(max(0, position_ms))
+        self._time_label.setText(
+            f'{_format_duration(max(0, position_ms) / 1000)} / '
+            f'{_format_duration(self._duration_ms / 1000)}'
+        )
+
+    def _on_playback_state_changed(self, state):
+        if self._media_player is None:
+            return
+        playing_state = type(self._media_player).PlaybackState.PlayingState
+        if state == playing_state:
+            self._play_btn.setText('Pause')
+        else:
+            self._play_btn.setText('Play')
+
+    def _on_slider_pressed(self):
+        self._seeking = True
+
+    def _on_slider_released(self):
+        self._seeking = False
+        if self._has_media_player():
+            assert self._media_player is not None
+            self._media_player.setPosition(self._position_slider.value())
+
+    def _on_slider_moved(self, value: int):
+        self._time_label.setText(
+            f'{_format_duration(max(0, value) / 1000)} / '
+            f'{_format_duration(self._duration_ms / 1000)}'
+        )
+
+    def _toggle_fullscreen(self):
+        if self._video_widget is None:
+            return
+        self._video_widget.setFullScreen(not self._video_widget.isFullScreen())
+
+    def _on_fullscreen_changed(self, is_fullscreen: bool):
+        self._fullscreen_btn.setText('Exit Fullscreen' if is_fullscreen else 'Fullscreen')
 
 
 class ImagePreviewDialog(QDialog):
@@ -470,7 +633,8 @@ class ImagePreviewDialog(QDialog):
         if self._is_video:
             info_text = (
                 '<i>Videos are automatically resized and compressed for each platform. '
-                'Aspect ratios are preserved. Output format is MP4 (H.264).</i>'
+                'Aspect ratios are preserved as best as possible within platform limitations. '
+                'Output format is MP4 (H.264).</i>'
             )
         elif self._has_video_tabs:
             info_text = (
@@ -480,7 +644,7 @@ class ImagePreviewDialog(QDialog):
         else:
             info_text = (
                 '<i>Images are automatically optimized for each platform. '
-                'Aspect ratios are preserved.</i>'
+                'Aspect ratios are preserved as best as possible within platform limitations.</i>'
             )
         info = QLabel(info_text)
         info.setWordWrap(True)
@@ -600,10 +764,11 @@ class _VideoProcessWorker(QObject):
     error = pyqtSignal(str)
     progress = pyqtSignal(int)
 
-    def __init__(self, video_path: Path, specs: PlatformSpecs):
+    def __init__(self, video_path: Path, specs: PlatformSpecs, generate_thumbnail: bool = True):
         super().__init__()
         self._video_path = video_path
         self._specs = specs
+        self._generate_thumbnail = generate_thumbnail
 
     def run(self):
         from src.core.video_processor import extract_thumbnail, process_video
@@ -618,7 +783,7 @@ class _VideoProcessWorker(QObject):
                 },
             )
             processed = process_video(self._video_path, self._specs, progress_cb=self.progress.emit)
-            thumbnail = extract_thumbnail(self._video_path)
+            thumbnail = extract_thumbnail(processed.path) if self._generate_thumbnail else None
             logger.info(
                 'Video preview processing finished',
                 extra={

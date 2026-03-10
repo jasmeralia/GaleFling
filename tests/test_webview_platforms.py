@@ -41,6 +41,39 @@ def test_snapchat_is_webview():
     assert result.error_code == 'WV-PREFILL-FAILED'
 
 
+def test_snapchat_configures_safe_webview_settings(monkeypatch):
+    class DummySettings:
+        def __init__(self):
+            self.calls = []
+
+        def setAttribute(self, attr, value):  # noqa: N802
+            self.calls.append((attr, value))
+
+    class DummyPage:
+        def __init__(self, settings):
+            self._settings = settings
+
+        def settings(self):
+            return self._settings
+
+    class DummyWebAttribute:
+        WebGLEnabled = 'webgl'
+        Accelerated2dCanvasEnabled = 'canvas2d'
+
+    class DummyQWebEngineSettings:
+        WebAttribute = DummyWebAttribute
+
+    monkeypatch.setattr('src.platforms.snapchat.QWebEngineSettings', DummyQWebEngineSettings)
+    settings = DummySettings()
+    page = DummyPage(settings)
+
+    p = SnapchatPlatform(account_id='snapchat_1')
+    p._configure_webview_page(page)
+
+    assert ('webgl', False) in settings.calls
+    assert ('canvas2d', False) in settings.calls
+
+
 def _write_cookie(path: Path, host: str, name: str, expires_utc: int):
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as conn:

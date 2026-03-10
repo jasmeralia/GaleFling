@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.13] - 2026-03-10
+
+### Added
+- Video preview playback controls (play/pause, seek slider, time display, and fullscreen toggle) when Qt multimedia playback is available.
+- Advanced setting `WebView compatibility mode` to disable GPU acceleration at startup (`QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu`) for unstable Chromium environments.
+- Snapchat-specific WebView page safety tuning that disables WebGL and accelerated 2D canvas in the embedded browser page.
+- Coverage for compatibility-mode startup flags, Snapchat safe page settings, and no-op video conversion behavior.
+
+### Changed
+- Video processing now skips conversion when media already meets the target platform's format, dimensions, duration, and file-size limits.
+- Settings dialog default size increased to better fit expanded per-platform controls.
+- Preview helper text now says aspect ratios are preserved as best as possible within platform limitations.
+
+### Fixed
+- ffmpeg/ffprobe commands now run with hidden process flags on Windows to prevent terminal window popups during processing.
+- Video test fixture generation now uses the same hidden ffmpeg invocation path, avoiding transient ffmpeg flashes during local test runs on Windows.
+
 ## [1.5.12] - 2026-03-10
 
 ### Changed

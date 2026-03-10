@@ -13,6 +13,7 @@ DEFAULT_CONFIG = {
     'auto_check_updates': True,
     'allow_prerelease_updates': False,
     'theme_mode': 'system',
+    'webview_compatibility_mode': False,
     'log_upload_endpoint': LOG_UPLOAD_ENDPOINT,
     'log_upload_enabled': True,
     'window_geometry': {
@@ -121,6 +122,14 @@ class ConfigManager:
     @theme_mode.setter
     def theme_mode(self, value: str) -> None:
         self.set('theme_mode', value)
+
+    @property
+    def webview_compatibility_mode(self) -> bool:
+        return self._config.get('webview_compatibility_mode', False)
+
+    @webview_compatibility_mode.setter
+    def webview_compatibility_mode(self, value: bool) -> None:
+        self.set('webview_compatibility_mode', value)
 
     @property
     def auto_save_draft(self) -> bool:

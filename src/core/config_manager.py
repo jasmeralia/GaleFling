@@ -30,12 +30,12 @@ DEFAULT_CONFIG = {
 class ConfigManager:
     """Manage application configuration with JSON persistence."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._config_path = get_app_data_dir() / 'app_config.json'
         self._config: dict[str, Any] = {}
         self.load()
 
-    def load(self):
+    def load(self) -> None:
         """Load config from disk, falling back to defaults."""
         if self._config_path.exists():
             try:
@@ -49,7 +49,7 @@ class ConfigManager:
             if key not in self._config:
                 self._config[key] = value
 
-    def save(self):
+    def save(self) -> None:
         """Persist config to disk."""
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self._config_path, 'w') as f:
@@ -58,7 +58,7 @@ class ConfigManager:
     def get(self, key: str, default: Any = None) -> Any:
         return self._config.get(key, default)
 
-    def set(self, key: str, value: Any):
+    def set(self, key: str, value: Any) -> None:
         self._config[key] = value
         self.save()
 
@@ -67,15 +67,15 @@ class ConfigManager:
         return self._config.get('debug_mode', False)
 
     @debug_mode.setter
-    def debug_mode(self, value: bool):
+    def debug_mode(self, value: bool) -> None:
         self.set('debug_mode', value)
 
     @property
-    def last_selected_platforms(self):
+    def last_selected_platforms(self) -> list[str]:
         return self._config.get('last_selected_platforms', ['twitter', 'bluesky'])
 
     @last_selected_platforms.setter
-    def last_selected_platforms(self, value):
+    def last_selected_platforms(self, value: list[str]) -> None:
         self.set('last_selected_platforms', value)
 
     @property
@@ -83,7 +83,7 @@ class ConfigManager:
         return self._config.get('window_geometry', DEFAULT_CONFIG['window_geometry'])
 
     @window_geometry.setter
-    def window_geometry(self, value: dict):
+    def window_geometry(self, value: dict[str, int]) -> None:
         self.set('window_geometry', value)
 
     @property
@@ -91,7 +91,7 @@ class ConfigManager:
         return self._config.get('last_image_directory', '')
 
     @last_image_directory.setter
-    def last_image_directory(self, value: str):
+    def last_image_directory(self, value: str) -> None:
         self.set('last_image_directory', value)
 
     @property
@@ -111,7 +111,7 @@ class ConfigManager:
         return self._config.get('allow_prerelease_updates', False)
 
     @allow_prerelease_updates.setter
-    def allow_prerelease_updates(self, value: bool):
+    def allow_prerelease_updates(self, value: bool) -> None:
         self.set('allow_prerelease_updates', value)
 
     @property
@@ -119,7 +119,7 @@ class ConfigManager:
         return self._config.get('theme_mode', 'system')
 
     @theme_mode.setter
-    def theme_mode(self, value: str):
+    def theme_mode(self, value: str) -> None:
         self.set('theme_mode', value)
 
     @property
@@ -135,5 +135,5 @@ class ConfigManager:
         return self._config.get('last_selected_accounts', [])
 
     @last_selected_accounts.setter
-    def last_selected_accounts(self, value: list[str]):
+    def last_selected_accounts(self, value: list[str]) -> None:
         self.set('last_selected_accounts', value)

@@ -8,7 +8,7 @@ Windows GUI application for posting to multiple social media platforms simultane
 
 ## Current Status
 - **Phase 0** (v0.2.118): Complete — Twitter and Bluesky working
-- **Phase 1** (v1.0.0–v1.4.0): **Active development** — Multi-account, 7 platforms, WebView integration, PyQt6 migration, media processing (animated GIFs, video support)
+- **Phase 1** (v1.0.0–v1.x.x): **Active development** — Multi-account, 7 platforms, WebView integration, PyQt6 migration, media processing (animated GIFs, video support)
 
 ### Phase 1 Progress (All Steps Complete)
 - [x] **Step 1: PyQt5 → PyQt6 migration** — All source and test files migrated, 288 tests passing
@@ -18,11 +18,9 @@ Windows GUI application for posting to multiple social media platforms simultane
 - [x] **Step 5: Instagram platform** — Instagram Graph API fully implemented with tests
 - [x] **Step 6: WebView platforms** — Snapchat, OnlyFans, Fansly, FetLife all implemented with tests
 - [x] **Step 7: GUI updates** — Platform selector, setup wizard, settings, results dialog, main window all updated for multi-account
-- [x] **Step 8: Error codes finalization** — All IG-* and WV-* codes defined, SuicideGirls deferred
+- [x] **Step 8: Error codes finalization** — All IG-* and WV-* codes defined
 - [x] **Step 9: Testing & polish** — 288 tests passing, 71% coverage, lint clean
 - [x] **Step 10: Build & release** — Version bump to 1.0.0, CHANGELOG updated, all checks passing
-
-**Note:** SuicideGirls support is deferred to future phases.
 
 ---
 
@@ -53,7 +51,7 @@ APIs:
   - requests + facebook-sdk (Instagram Graph API)
 Packaging: PyInstaller + NSIS installer
 Auth Storage: keyring (Windows Credential Manager) + accounts_config.json
-Current Version: 1.5.10 (active development)
+Current Version: 1.5.11 (active development)
 ```
 
 ### PyQt6 Notes

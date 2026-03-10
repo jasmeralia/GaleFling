@@ -2,15 +2,16 @@
 
 import contextlib
 import json
+import logging
 import re
 import sqlite3
 import time
 from pathlib import Path
 
-from PyQt6.QtCore import QTimer, QUrl
+from PyQt6.QtCore import QEventLoop, QTimer, QUrl
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.logger import get_logger
 from src.platforms.base import BasePlatform
@@ -39,12 +40,19 @@ class BaseWebViewPlatform(BasePlatform):
     SUCCESS_URL_PATTERN: str = ''
     SUCCESS_SELECTOR: str = ''
     PERMALINK_SELECTOR: str = ''
+    LOGIN_URL: str = ''
+    LOGIN_URL_PATTERNS: list[str] = [
+        r'/login(?:[/?#]|$)',
+        r'/sign[-_]?in(?:[/?#]|$)',
+        r'/auth(?:[/?#]|$)',
+    ]
     COOKIE_DOMAINS: list[str] = []
     AUTH_COOKIE_NAMES: list[str] = []
     AUTH_COOKIE_NAME_PATTERNS: list[str] = []
     PREFILL_DELAY_MS: int = 200
     POLL_INTERVAL_MS: int = 500
     POLL_TIMEOUT_MS: int = 30000
+    CONNECTION_TEST_TIMEOUT_MS: int = 12000
     COOKIE_DB_TIMEOUT_SECONDS: float = 0.01
     COOKIE_NAME_SCAN_LIMIT: int = 250
 
@@ -63,6 +71,10 @@ class BaseWebViewPlatform(BasePlatform):
         self._image_path: Path | None = None
         self._poll_timer: QTimer | None = None
         self._poll_elapsed_ms: int = 0
+        self._last_url: str = ''
+        self._pending_nav_target: str | None = None
+        self._pending_nav_source: str = 'unknown'
+        self._pending_nav_type: str = 'unknown'
 
     # ── Profile & view management ───────────────────────────────────
 
@@ -76,14 +88,137 @@ class BaseWebViewPlatform(BasePlatform):
             QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
         )
 
-        page = QWebEnginePage(self._profile, parent)
+        page = _LoggingWebEnginePage(self._profile, self, parent)
         self._view = QWebEngineView(parent)
         self._view.setPage(page)
 
-        # Connect URL change monitoring
+        # Connect WebView lifecycle and navigation monitoring
         page.urlChanged.connect(self._on_url_changed)
+        page.loadStarted.connect(self._on_page_load_started)
+        page.loadProgress.connect(self._on_page_load_progress)
+        page.loadFinished.connect(self._on_page_load_finished_debug)
+        page.renderProcessTerminated.connect(self._on_render_process_terminated)
+        page.windowCloseRequested.connect(self._on_page_window_close_requested)
+        with contextlib.suppress(AttributeError, TypeError):
+            page.renderProcessPidChanged.connect(self._on_render_process_pid_changed)
+        with contextlib.suppress(AttributeError, TypeError):
+            self._view.renderProcessTerminated.connect(self._on_view_render_process_terminated)
+
+        self._log_webview_debug(
+            'WebView created',
+            account_id=self._account_id or 'default',
+            profile_path=str(storage_path),
+        )
 
         return self._view
+
+    def _log_webview_debug(self, message: str, **fields: object):
+        logger = get_logger()
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+        suffix = ''
+        if fields:
+            details = ' '.join(f'{key}={value!r}' for key, value in fields.items())
+            suffix = f' {details}'
+        logger.debug(f'{self.get_platform_name()} [webview]: {message}{suffix}')
+
+    @staticmethod
+    def _enum_label(value) -> str:
+        name = getattr(value, 'name', None)
+        if isinstance(name, str) and name:
+            return name
+        try:
+            return str(int(value))
+        except Exception:
+            return str(value)
+
+    @staticmethod
+    def _navigation_source(nav_type_label: str) -> str:
+        if nav_type_label == 'NavigationTypeLinkClicked':
+            return 'user-click'
+        if nav_type_label == 'NavigationTypeFormSubmitted':
+            return 'form-submit'
+        if nav_type_label == 'NavigationTypeBackForward':
+            return 'history-navigation'
+        if nav_type_label == 'NavigationTypeReload':
+            return 'reload'
+        if nav_type_label == 'NavigationTypeTyped':
+            return 'typed-or-programmatic'
+        if nav_type_label == 'NavigationTypeOther':
+            return 'other-or-redirect'
+        return 'unknown'
+
+    def _on_navigation_request(
+        self,
+        url: QUrl,
+        nav_type,
+        is_main_frame: bool,
+        accepted: bool,
+    ):
+        url_string = url.toString()
+        nav_label = self._enum_label(nav_type)
+        nav_source = self._navigation_source(nav_label)
+
+        if is_main_frame and accepted:
+            self._pending_nav_target = url_string
+            self._pending_nav_source = nav_source
+            self._pending_nav_type = nav_label
+
+        self._log_webview_debug(
+            'Navigation request',
+            accepted=accepted,
+            main_frame=is_main_frame,
+            type=nav_label,
+            source=nav_source,
+            from_url=self._last_url or '(none)',
+            to_url=url_string,
+        )
+
+    def _on_page_load_started(self):
+        self._log_webview_debug(
+            'Page load started',
+            url=self._pending_nav_target or self._last_url or '(unknown)',
+            source=self._pending_nav_source,
+        )
+
+    def _on_page_load_progress(self, progress: int):
+        if progress in {0, 25, 50, 75, 100}:
+            self._log_webview_debug('Page load progress', progress_percent=progress)
+
+    def _on_page_load_finished_debug(self, ok: bool):
+        current_url = self._view.url().toString() if self._view else ''
+        self._log_webview_debug(
+            'Page load finished',
+            ok=ok,
+            url=current_url,
+            source=self._pending_nav_source,
+        )
+
+    def _on_page_window_close_requested(self):
+        current_url = self._view.url().toString() if self._view else ''
+        self._log_webview_debug(
+            'Page requested window close',
+            url=current_url,
+        )
+
+    def _on_render_process_terminated(self, termination_status, exit_code: int):
+        status = self._enum_label(termination_status)
+        current_url = self._view.url().toString() if self._view else ''
+        get_logger().error(
+            f'{self.get_platform_name()} [webview]: Render process terminated '
+            f'(status={status}, exit_code={exit_code}, url="{current_url}")'
+        )
+
+    def _on_view_render_process_terminated(self, termination_status, exit_code: int):
+        status = self._enum_label(termination_status)
+        current_url = self._view.url().toString() if self._view else ''
+        get_logger().error(
+            f'{self.get_platform_name()} [webview]: View render process terminated '
+            f'(status={status}, exit_code={exit_code}, url="{current_url}")'
+        )
+
+    def _on_render_process_pid_changed(self, pid: int):
+        self._log_webview_debug('Render process PID changed', pid=pid)
 
     def _get_profile_storage_path(self) -> Path:
         profile_name = self._account_id or 'default'
@@ -219,6 +354,161 @@ class BaseWebViewPlatform(BasePlatform):
             for pattern in self.AUTH_COOKIE_NAME_PATTERNS
         )
 
+    def _get_connection_test_url(self) -> str:
+        """Return a representative composer URL for live session testing."""
+        return self.COMPOSER_URL or self.get_composer_url()
+
+    @staticmethod
+    def _sanitize_url_for_log(url_string: str) -> str:
+        """Return a privacy-safe URL string for logs (no query values or fragments)."""
+        if not url_string:
+            return ''
+        parsed = QUrl(url_string)
+        scheme = parsed.scheme().strip()
+        host = parsed.host().strip()
+        path = parsed.path().strip() or '/'
+        if not scheme or not host:
+            return url_string
+        base = f'{scheme}://{host}{path}'
+        if parsed.hasQuery():
+            return f'{base}?...'
+        return base
+
+    def _is_login_redirect_url(self, url_string: str) -> bool:
+        """Return True when URL appears to be a login page for this platform."""
+        if not url_string:
+            return False
+        candidate = QUrl(url_string)
+        host = candidate.host().strip().lower()
+        login_host = QUrl(self.LOGIN_URL).host().strip().lower() if self.LOGIN_URL else ''
+        if (
+            host
+            and not self._matches_cookie_domain(host)
+            and (not login_host or host != login_host)
+        ):
+            return False
+
+        normalized = url_string.lower()
+        login_url = self.LOGIN_URL.strip().lower()
+        if login_url and normalized.startswith(login_url):
+            return True
+
+        path_and_query = f'{candidate.path()}?{candidate.query()}#{candidate.fragment()}'.lower()
+        return any(re.search(pattern, path_and_query) for pattern in self.LOGIN_URL_PATTERNS)
+
+    def _run_live_connection_test(self) -> tuple[bool, str | None]:
+        """Load a composer page with persisted cookies and ensure no login redirect occurs."""
+        test_url = self._get_connection_test_url()
+        if not test_url:
+            return False, 'WV-LOAD-FAILED'
+
+        storage_path = self._get_profile_storage_path()
+        profile = QWebEngineProfile(f'{storage_path.name}_conn_test', None)
+        profile.setPersistentStoragePath(str(storage_path))
+        profile.setPersistentCookiesPolicy(
+            QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
+        )
+        page = _LoggingWebEnginePage(profile, self, None)
+
+        state: dict[str, object] = {
+            'ok': False,
+            'error': 'WV-LOAD-FAILED',
+            'redirected_to_login': False,
+            'final_url': '',
+        }
+        loop = QEventLoop()
+        timeout = QTimer()
+        timeout.setSingleShot(True)
+
+        def _finish(ok: bool, error: str | None):
+            state['ok'] = ok
+            state['error'] = error
+            if loop.isRunning():
+                loop.quit()
+
+        def _on_timeout():
+            get_logger().warning(
+                f'{self.get_platform_name()} connection test timed out '
+                f'(url={self._sanitize_url_for_log(test_url)}, timeout_ms={self.CONNECTION_TEST_TIMEOUT_MS})'
+            )
+            self._log_webview_debug(
+                'Live connection test timed out',
+                url=test_url,
+                timeout_ms=self.CONNECTION_TEST_TIMEOUT_MS,
+            )
+            _finish(False, 'WV-LOAD-FAILED')
+
+        def _on_url_changed(url: QUrl):
+            current = url.toString()
+            state['final_url'] = current
+            get_logger().info(
+                f'{self.get_platform_name()} connection test page hit: '
+                f'{self._sanitize_url_for_log(current)}'
+            )
+            if self._is_login_redirect_url(current):
+                state['redirected_to_login'] = True
+                get_logger().warning(
+                    f'{self.get_platform_name()} connection test redirected to login: '
+                    f'{self._sanitize_url_for_log(current)}'
+                )
+                self._log_webview_debug(
+                    'Live connection test detected login redirect',
+                    url=current,
+                )
+                _finish(False, 'WV-SESSION-EXPIRED')
+
+        def _on_load_finished(ok: bool):
+            current = page.url().toString()
+            state['final_url'] = current
+            if not ok:
+                _finish(False, 'WV-LOAD-FAILED')
+                return
+            if bool(state.get('redirected_to_login')) or self._is_login_redirect_url(current):
+                _finish(False, 'WV-SESSION-EXPIRED')
+                return
+            _finish(True, None)
+
+        page.urlChanged.connect(_on_url_changed)
+        page.loadFinished.connect(_on_load_finished)
+        timeout.timeout.connect(_on_timeout)
+
+        try:
+            get_logger().info(
+                f'{self.get_platform_name()} connection test starting '
+                f'(target={self._sanitize_url_for_log(test_url)})'
+            )
+            self._log_webview_debug('Live connection test started', url=test_url)
+            timeout.start(self.CONNECTION_TEST_TIMEOUT_MS)
+            page.load(QUrl(test_url))
+            loop.exec()
+            get_logger().info(
+                f'{self.get_platform_name()} connection test finished '
+                f'(ok={bool(state["ok"])}, error={state["error"]}, '
+                f'final_url={self._sanitize_url_for_log(str(state["final_url"]))})'
+            )
+            self._log_webview_debug(
+                'Live connection test finished',
+                ok=bool(state['ok']),
+                error=state['error'],
+                final_url=state['final_url'],
+            )
+            return bool(state['ok']), state['error'] if isinstance(state['error'], str) else None
+        finally:
+            timeout.stop()
+            with contextlib.suppress(TypeError, RuntimeError):
+                page.urlChanged.disconnect(_on_url_changed)
+            with contextlib.suppress(TypeError, RuntimeError):
+                page.loadFinished.disconnect(_on_load_finished)
+            with contextlib.suppress(TypeError, RuntimeError):
+                timeout.timeout.disconnect(_on_timeout)
+            page.deleteLater()
+            profile.deleteLater()
+
+    def _can_run_live_connection_test(self) -> bool:
+        """Whether a live WebEngine-based connection test can run in this process."""
+        app = QApplication.instance()
+        return app is not None and hasattr(app, 'processEvents')
+
     def get_webview(self) -> QWebEngineView | None:
         """Return the existing WebEngineView, if created."""
         return self._view
@@ -264,7 +554,11 @@ class BaseWebViewPlatform(BasePlatform):
         if not self._view:
             return
         if not ok:
-            get_logger().warning(f'{self.get_platform_name()}: Page load failed')
+            current_url = self._view.url().toString()
+            get_logger().warning(
+                f'{self.get_platform_name()}: Page load failed '
+                f'(url="{current_url}", source={self._pending_nav_source})'
+            )
             return
 
         view = self._view
@@ -321,6 +615,25 @@ class BaseWebViewPlatform(BasePlatform):
     def _on_url_changed(self, url: QUrl):
         """Monitor URL changes for post-submission redirects."""
         url_string = url.toString()
+        prev_url = self._last_url
+        source = self._pending_nav_source
+        nav_type = self._pending_nav_type
+        if self._pending_nav_target and self._pending_nav_target != url_string:
+            source = f'redirect-or-script-after-{self._pending_nav_source}'
+
+        self._log_webview_debug(
+            'URL changed',
+            from_url=prev_url or '(none)',
+            to_url=url_string,
+            source=source,
+            type=nav_type,
+        )
+
+        self._last_url = url_string
+        self._pending_nav_target = None
+        self._pending_nav_source = 'unknown'
+        self._pending_nav_type = 'unknown'
+
         if self.SUCCESS_URL_PATTERN and re.search(self.SUCCESS_URL_PATTERN, url_string):
             self._captured_post_url = url_string
             self._post_confirmed = True
@@ -464,7 +777,13 @@ class BaseWebViewPlatform(BasePlatform):
     def test_connection(self) -> tuple[bool, str | None]:
         """WebView platforms can't easily test connections programmatically."""
         if self.has_valid_session():
-            return True, None
+            # In the running GUI app, perform a real page-load probe using stored cookies.
+            if not self._can_run_live_connection_test():
+                self._log_webview_debug(
+                    'Skipping live connection test (no QApplication instance available)'
+                )
+                return True, None
+            return self._run_live_connection_test()
         return False, 'WV-SESSION-EXPIRED'
 
     def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
@@ -480,3 +799,43 @@ class BaseWebViewPlatform(BasePlatform):
             account_id=self._account_id,
             profile_name=self._profile_name,
         )
+
+
+class _LoggingWebEnginePage(QWebEnginePage):
+    """QWebEnginePage that forwards navigation/console events for debug logging."""
+
+    def __init__(
+        self,
+        profile: QWebEngineProfile,
+        platform: BaseWebViewPlatform,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(profile, parent)
+        self._platform = platform
+
+    def acceptNavigationRequest(  # noqa: N802
+        self,
+        url: QUrl,
+        nav_type: QWebEnginePage.NavigationType,
+        is_main_frame: bool,
+    ) -> bool:
+        accepted = super().acceptNavigationRequest(url, nav_type, is_main_frame)
+        self._platform._on_navigation_request(url, nav_type, is_main_frame, accepted)
+        return accepted
+
+    def javaScriptConsoleMessage(  # noqa: N802
+        self,
+        level: QWebEnginePage.JavaScriptConsoleMessageLevel,
+        message: str | None,
+        line_number: int,
+        source_id: str | None,
+    ):
+        level_name = BaseWebViewPlatform._enum_label(level)
+        self._platform._log_webview_debug(
+            'JavaScript console',
+            level=level_name,
+            source=source_id,
+            line=line_number,
+            console_message=message,
+        )
+        super().javaScriptConsoleMessage(level, message, line_number, source_id)

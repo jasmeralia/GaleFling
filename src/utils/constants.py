@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 APP_NAME = 'GaleFling'
-APP_VERSION = '1.5.10'
+APP_VERSION = '1.5.11'
 APP_ORG = 'Winds of Storm'
 LOG_UPLOAD_ENDPOINT = 'https://galefling.jasmer.tools/logs/upload'
 
@@ -40,6 +40,8 @@ class PlatformSpecs:
     supports_images: bool = True
     # Whether the platform ignores text (e.g. Snapchat web stories)
     supports_text: bool = True
+    # Whether text is still supported when media is attached.
+    supports_text_with_media: bool = True
     # Max media attachments per post (images; video is always 1)
     max_media_attachments: int = 1
 
@@ -175,6 +177,7 @@ FETLIFE_SPECS = PlatformSpecs(
     supported_video_formats=['MP4'],
     max_video_dimensions=(1920, 1080),
     max_video_file_size_mb=500.0,
+    supports_text_with_media=False,
 )
 
 PLATFORM_SPECS_MAP: dict[str, PlatformSpecs] = {

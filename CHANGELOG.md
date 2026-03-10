@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.11] - 2026-03-10
+
+### Added
+- Real WebView `Test Connections` checks now load a platform composer URL with that account profile's persisted cookies and detect login-page redirects as expired sessions.
+- Always-on connection-test logging for WebView platforms (start, page hits, login redirect detection, finish) with privacy-safe URL sanitization.
+- Additional `main.py` bootstrap/error-path tests, increasing `src/main.py` coverage from 58% to 92%.
+
+### Changed
+- FetLife composer routing now supports all three posting modes:
+  - text-only: `https://fetlife.com/posts/new?source=Feed`
+  - image: `https://fetlife.com/pictures/new?source=Main+Navigation`
+  - video: `https://fetlife.com/videos/new?source=Main+Navigation`
+- FetLife media+text behavior now warns like Snapchat only when media is attached; text-only FetLife posts remain fully supported.
+- WebView diagnostic instrumentation expanded in debug mode with navigation source tracking (click/form/history/reload/redirect), load lifecycle events, JS console forwarding, and renderer PID changes.
+
+### Fixed
+- WebView renderer-process failures that blank out the embedded browser pane are now explicitly logged (page-level and view-level termination signals with status/exit code/current URL).
+- Lint mypy “annotation-unchecked” notices removed by adding concrete type annotations across config/composer/selector/auth/settings/main-window methods.
+
 ## [1.5.10] - 2026-03-09
 
 ### Added

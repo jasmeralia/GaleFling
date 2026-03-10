@@ -177,7 +177,7 @@ def test_fetlife_specs():
 
 
 def test_fetlife_composer_url():
-    assert FetLifePlatform.COMPOSER_URL == 'https://fetlife.com/pictures/new?source=Main+Navigation'
+    assert FetLifePlatform.COMPOSER_URL == 'https://fetlife.com/posts/new?source=Feed'
 
 
 def test_fetlife_login_url():
@@ -190,11 +190,25 @@ def test_fetlife_selects_video_composer_url():
     assert p.get_composer_url() == 'https://fetlife.com/videos/new?source=Main+Navigation'
 
 
+def test_fetlife_selects_image_composer_url():
+    p = FetLifePlatform(account_id='fetlife_1')
+    p.prepare_post('hello', [Path('/tmp/sample.png')])
+    assert p.get_composer_url() == 'https://fetlife.com/pictures/new?source=Main+Navigation'
+
+
+def test_fetlife_selects_text_composer_url_for_text_only():
+    p = FetLifePlatform(account_id='fetlife_1')
+    p.prepare_post('hello', [])
+    assert p.get_composer_url() == 'https://fetlife.com/posts/new?source=Feed'
+
+
 def test_fetlife_success_url_pattern():
     import re
 
     pattern = FetLifePlatform.SUCCESS_URL_PATTERN
     assert re.search(pattern, 'https://fetlife.com/users/12345/statuses/67890')
+    assert re.search(pattern, 'https://fetlife.com/users/12345/posts/67890')
+    assert re.search(pattern, 'https://fetlife.com/posts/67890')
     assert re.search(pattern, 'https://fetlife.com/pictures/67890')
     assert re.search(pattern, 'https://fetlife.com/videos/67890')
     assert not re.search(pattern, 'https://fetlife.com/')

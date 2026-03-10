@@ -1262,7 +1262,7 @@ class MainWindow(QMainWindow):
         if draft_path.exists():
             draft_path.unlink()
 
-    def restore_draft(self):
+    def restore_draft(self) -> None:
         """Check for and offer to restore a saved draft."""
         draft_path = get_drafts_dir() / 'current_draft.json'
         if not draft_path.exists():

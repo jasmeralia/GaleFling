@@ -19,6 +19,7 @@ def composer(qtbot):
             'twitter_1': 'twitter',
             'bluesky_1': 'bluesky',
             'snapchat_1': 'snapchat',
+            'fetlife_1': 'fetlife',
         }
     )
     return comp
@@ -70,6 +71,25 @@ class TestTextWarning:
             selected=['twitter_1', 'bluesky_1'],
             enabled=['twitter_1', 'bluesky_1'],
         )
+        composer.set_text('Hello world')
+        assert composer._text_warning.isHidden()
+
+    def test_warning_shown_for_fetlife_with_media_and_text(self, composer):
+        """FetLife should warn that text is ignored when media is attached."""
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            media = Path(f.name)
+        composer.set_media_paths([media])
+        composer.set_platform_state(selected=['fetlife_1'], enabled=['fetlife_1'])
+        composer.set_text('Hello world')
+
+        assert not composer._text_warning.isHidden()
+        assert 'FetLife' in composer._text_warning.text()
+        assert 'media is attached' in composer._text_warning.text()
+        media.unlink(missing_ok=True)
+
+    def test_no_warning_for_fetlife_text_only(self, composer):
+        """FetLife text-only posts should not show the media text warning."""
+        composer.set_platform_state(selected=['fetlife_1'], enabled=['fetlife_1'])
         composer.set_text('Hello world')
         assert composer._text_warning.isHidden()
 

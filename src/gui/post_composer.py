@@ -31,7 +31,7 @@ class PostComposer(QWidget):
     image_changed = pyqtSignal(object)  # emitted alongside media_changed
     preview_requested = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._media_paths: list[Path] = []
         self._last_image_dir = ''
@@ -45,14 +45,14 @@ class PostComposer(QWidget):
         self._count_restriction_notice: QLabel | None = None
         self._init_ui()
 
-    def set_last_image_dir(self, path: str):
+    def set_last_image_dir(self, path: str) -> None:
         self._last_image_dir = path
 
-    def set_account_platform_map(self, mapping: dict[str, str]):
+    def set_account_platform_map(self, mapping: dict[str, str]) -> None:
         """Set the mapping from account_id to platform_id."""
         self._account_platform_map = mapping
 
-    def _init_ui(self):
+    def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -153,11 +153,11 @@ class PostComposer(QWidget):
 
         self._update_counters()
 
-    def _set_placeholder_style(self):
+    def _set_placeholder_style(self) -> None:
         muted = self.palette().color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text).name()
         self._placeholder_label.setStyleSheet(f'color: {muted}; padding: 4px;')
 
-    def set_platform_state(self, selected: list[str], enabled: list[str]):
+    def set_platform_state(self, selected: list[str], enabled: list[str]) -> None:
         self._selected_platforms = set(selected)
         self._enabled_platforms = set(enabled)
         has_targets = bool(self._enabled_platforms and self._selected_platforms)
@@ -165,7 +165,7 @@ class PostComposer(QWidget):
         self._preview_btn.setEnabled(bool(self._media_paths and has_targets))
         self._update_counters()
 
-    def _update_add_btn_state(self):
+    def _update_add_btn_state(self) -> None:
         """Enable/disable the Add Media button based on current state."""
         has_targets = bool(self._enabled_platforms and self._selected_platforms)
         has_video = any(p.suffix.lower() in VIDEO_EXTENSIONS for p in self._media_paths)
@@ -174,20 +174,22 @@ class PostComposer(QWidget):
         at_capacity = at_capacity or has_video
         self._choose_btn.setEnabled(has_targets and not at_capacity)
 
-    def _on_text_changed(self):
+    def _on_text_changed(self) -> None:
         text = self._text_edit.toPlainText()
         self.text_changed.emit(text)
         self._update_counters()
 
-    def _update_counters(self):
+    def _update_counters(self) -> None:
         text = self._text_edit.toPlainText()
         length = len(text)
 
         self._char_count_label.setText(f'{length} characters')
 
         # Determine which platform types are active (deduplicate by platform_id)
-        active_platforms: dict[str, str] = {}  # platform_id -> platform_name
+        active_platforms: dict[str, tuple[str, int]] = {}  # platform_id -> (platform_name, max_len)
         has_no_text_platform = False
+        no_text_names: list[str] = []
+        no_text_with_media_names: list[str] = []
         for account_id in self._selected_platforms & self._enabled_platforms:
             platform_id = self._account_platform_map.get(account_id, account_id)
             specs = PLATFORM_SPECS_MAP.get(platform_id)
@@ -195,23 +197,32 @@ class PostComposer(QWidget):
                 continue
             if not specs.supports_text:
                 has_no_text_platform = True
-            if specs.max_text_length is not None:
-                active_platforms[platform_id] = specs.platform_name
-
-        # Show text warning for platforms that ignore text
-        if has_no_text_platform and length > 0:
-            # Collect names of text-ignoring platforms
-            no_text_names = []
-            for account_id in self._selected_platforms & self._enabled_platforms:
-                platform_id = self._account_platform_map.get(account_id, account_id)
-                specs = PLATFORM_SPECS_MAP.get(platform_id)
-                if specs and not specs.supports_text and specs.platform_name not in no_text_names:
+                if specs.platform_name not in no_text_names:
                     no_text_names.append(specs.platform_name)
-            names = ', '.join(no_text_names)
-            self._text_warning.setText(
-                f'\u26a0 {names} does not support text in posts \u2014 '
-                f'your text will not be included on that platform.'
-            )
+            elif self._media_paths and not specs.supports_text_with_media:
+                if specs.platform_name not in no_text_with_media_names:
+                    no_text_with_media_names.append(specs.platform_name)
+            if specs.max_text_length is not None:
+                active_platforms[platform_id] = (specs.platform_name, specs.max_text_length)
+
+        # Show text warning for platforms that ignore text entirely or with media attached.
+        if length > 0 and (has_no_text_platform or no_text_with_media_names):
+            messages = []
+            if no_text_names:
+                names = ', '.join(no_text_names)
+                verb = 'does' if len(no_text_names) == 1 else 'do'
+                messages.append(
+                    f'{names} {verb} not support text in posts \u2014 '
+                    'your text will not be included on that platform.'
+                )
+            if no_text_with_media_names:
+                names = ', '.join(no_text_with_media_names)
+                verb = 'does' if len(no_text_with_media_names) == 1 else 'do'
+                messages.append(
+                    f'{names} {verb} not support text when media is attached \u2014 '
+                    'your text will not be included on that platform.'
+                )
+            self._text_warning.setText(f'\u26a0 {" ".join(messages)}')
             self._text_warning.setVisible(True)
         else:
             self._text_warning.setVisible(False)
@@ -224,9 +235,7 @@ class PostComposer(QWidget):
                 label.deleteLater()
 
         # Add/update counters for active platforms
-        for platform_id, platform_name in sorted(active_platforms.items()):
-            specs = PLATFORM_SPECS_MAP[platform_id]
-            max_len = specs.max_text_length
+        for platform_id, (platform_name, max_len) in sorted(active_platforms.items()):
             ok = length <= max_len
             symbol = '\u2713' if ok else '\u26a0'
             color = '#4CAF50' if ok else '#F44336'

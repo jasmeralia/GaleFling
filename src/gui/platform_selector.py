@@ -16,7 +16,7 @@ class PlatformSelector(QWidget):
 
     selection_changed = pyqtSignal(list)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._checkboxes: dict[str, QCheckBox] = {}
         self._accounts: list[AccountConfig] = []
@@ -25,7 +25,7 @@ class PlatformSelector(QWidget):
         self._count_restricted: set[str] = set()
         self._init_ui()
 
-    def _init_ui(self):
+    def _init_ui(self) -> None:
         self._layout = QGridLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setHorizontalSpacing(20)

@@ -20,7 +20,7 @@ from src.utils.helpers import get_app_data_dir, get_auth_dir
 class AuthManager:
     """Manage platform credentials."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._auth_dir = get_auth_dir()
         self._dev_auth_dir = self._find_dev_auth_dir()
         self._accounts: list[AccountConfig] = []

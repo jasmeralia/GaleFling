@@ -608,7 +608,7 @@ class SettingsDialog(QDialog):
         pin_edit.clear()
         self._update_twitter_status(account_id)
 
-    def _export_twitter_credentials(self):
+    def _export_twitter_credentials(self) -> None:
         get_logger().info('User selected Settings > Export Twitter Credentials')
         app_creds = self._auth_manager.get_twitter_app_credentials() or {}
         export_data: dict = {}

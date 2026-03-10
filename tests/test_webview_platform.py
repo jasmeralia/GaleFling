@@ -6,6 +6,8 @@ import sqlite3
 import time
 from pathlib import Path
 
+from PyQt6.QtCore import QUrl
+
 from src.platforms.base_webview import BaseWebViewPlatform
 from src.utils.constants import PlatformSpecs
 
@@ -139,9 +141,33 @@ def test_base_webview_test_connection_valid_session(monkeypatch, tmp_path):
 
     monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
     platform = ConcreteWebViewPlatform(account_id='test_1')
+    monkeypatch.setattr(platform, '_can_run_live_connection_test', lambda: False)
     cookie_path = tmp_path / 'webprofiles' / 'test_1' / 'Cookies'
     _write_cookie_db(cookie_path, '.example.com')
     success, error = platform.test_connection()
+    assert success is True
+    assert error is None
+
+
+def test_base_webview_test_connection_live_probe_used_with_qapp(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+
+    platform = ConcreteWebViewPlatform(account_id='test_1')
+    monkeypatch.setattr(platform, '_can_run_live_connection_test', lambda: True)
+    cookie_path = tmp_path / 'webprofiles' / 'test_1' / 'Cookies'
+    _write_cookie_db(cookie_path, '.example.com')
+
+    calls = {}
+    monkeypatch.setattr(
+        platform,
+        '_run_live_connection_test',
+        lambda: (calls.setdefault('called', True), None),
+    )
+
+    success, error = platform.test_connection()
+    assert calls.get('called') is True
     assert success is True
     assert error is None
 
@@ -259,3 +285,80 @@ def test_base_webview_profile_storage_default_account(monkeypatch, tmp_path):
     platform = ConcreteWebViewPlatform(account_id='')
     path = platform._get_profile_storage_path()
     assert path == tmp_path / 'webprofiles' / 'default'
+
+
+def test_base_webview_navigation_logging_tracks_source_and_redirect(monkeypatch):
+    import src.platforms.base_webview as base_webview
+
+    class DummyLogger:
+        def __init__(self):
+            self.debug_messages = []
+            self.isEnabledFor = self.is_enabled_for  # noqa: N815
+
+        def is_enabled_for(self, _level):
+            return True
+
+        def debug(self, message):
+            self.debug_messages.append(message)
+
+        def info(self, _message):
+            return
+
+        def warning(self, _message):
+            return
+
+        def error(self, _message):
+            return
+
+    logger = DummyLogger()
+    monkeypatch.setattr(base_webview, 'get_logger', lambda: logger)
+
+    platform = ConcreteWebViewPlatform(account_id='test_1')
+    platform._last_url = 'https://example.com/login'
+    platform._on_navigation_request(
+        QUrl('https://example.com/authorize'),
+        type('NavType', (), {'name': 'NavigationTypeLinkClicked'})(),
+        True,
+        True,
+    )
+
+    platform._on_url_changed(QUrl('https://example.com/oauth/callback'))
+
+    assert any("source='user-click'" in msg for msg in logger.debug_messages)
+    assert any('redirect-or-script-after-user-click' in msg for msg in logger.debug_messages)
+
+
+def test_base_webview_render_process_termination_logs_error(monkeypatch):
+    import src.platforms.base_webview as base_webview
+
+    class DummyLogger:
+        def __init__(self):
+            self.errors = []
+            self.isEnabledFor = self.is_enabled_for  # noqa: N815
+
+        def is_enabled_for(self, _level):
+            return False
+
+        def debug(self, _message):
+            return
+
+        def info(self, _message):
+            return
+
+        def warning(self, _message):
+            return
+
+        def error(self, message):
+            self.errors.append(message)
+
+    logger = DummyLogger()
+    monkeypatch.setattr(base_webview, 'get_logger', lambda: logger)
+
+    platform = ConcreteWebViewPlatform(account_id='test_1')
+    platform._on_render_process_terminated(
+        type('Status', (), {'name': 'CrashedTerminationStatus'})(),
+        139,
+    )
+
+    assert any('Render process terminated' in msg for msg in logger.errors)
+    assert any('exit_code=139' in msg for msg in logger.errors)

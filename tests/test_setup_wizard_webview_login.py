@@ -25,6 +25,9 @@ class _FakePlatform:
     def navigate_to_composer(self):
         return
 
+    def navigate_to_login(self):
+        return
+
     def has_valid_session(self):
         return self._detected
 

@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.10] - 2026-03-09
+
+### Added
+- WebView platform tabs in Settings now include per-account **Open Login Window** and **Reset Session Cookies** actions, so login/session debugging no longer requires rerunning setup.
+- Tests covering settings login-window/session-reset actions, per-platform auth-cookie login detection, FetLife login/media URL handling, and updated preview behavior.
+
+### Changed
+- Setup wizard and settings login windows now navigate to each platform's login flow (`navigate_to_login`) instead of always opening composer URLs.
+- OnlyFans, Fansly, and FetLife session detection now keys off verified auth cookies from real browser profiles:
+  - OnlyFans: `auth_id`, `sess`
+  - Fansly: `fansly-d`, `CloudFront-Key-Pair-Id`, `CloudFront-Policy`, `CloudFront-Signature`
+  - FetLife: `_fl_sessionid`, `remember_user_token`, `_fl_session_remember_me`
+- FetLife WebView routing now uses dedicated URLs:
+  - login: `https://fetlife.com/login`
+  - image post: `https://fetlife.com/pictures/new?source=Main+Navigation`
+  - video post: `https://fetlife.com/videos/new?source=Main+Navigation`
+- Media preview popups are now user-driven (`Preview Media` or `Post Now`) and no longer auto-open during attachment add/remove or platform refresh events.
+- Single-image Snapchat conversions now appear in preview as a Snapchat video tab (cached MP4 output), alongside other selected platform previews.
+- Preview image/video rendering now scales dynamically when the preview dialog is resized.
+
+### Fixed
+- Removing an attachment no longer reopens media preview dialogs.
+- Selecting more than four files no longer causes extra preview popups from repeated auto-preview triggers.
+- Single-image preview with Snapchat selected now includes Snapchat output so conversion quality can be inspected before posting.
+
 ## [1.5.9] - 2026-03-09
 
 ### Changed

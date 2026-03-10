@@ -238,7 +238,8 @@ class BaseWebViewPlatform(BasePlatform):
         if not self._view:
             get_logger().error(f'{self.get_platform_name()}: WebView not created')
             return
-        if not self.COMPOSER_URL:
+        composer_url = self.get_composer_url()
+        if not composer_url:
             get_logger().error(f'{self.get_platform_name()}: No COMPOSER_URL defined')
             return
 
@@ -248,7 +249,15 @@ class BaseWebViewPlatform(BasePlatform):
             get_logger().error(f'{self.get_platform_name()}: WebView page not available')
             return
         page.loadFinished.connect(self._on_load_finished)
-        view.load(QUrl(self.COMPOSER_URL))
+        view.load(QUrl(composer_url))
+
+    def navigate_to_login(self):
+        """Load the login URL in the WebView. Defaults to composer URL."""
+        self.navigate_to_composer()
+
+    def get_composer_url(self) -> str:
+        """Return the URL to use for composing a post."""
+        return self.COMPOSER_URL
 
     def _on_load_finished(self, ok: bool):
         """Called when the page finishes loading."""

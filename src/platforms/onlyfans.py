@@ -12,6 +12,7 @@ class OnlyFansPlatform(BaseWebViewPlatform):
     SUCCESS_URL_PATTERN = ''  # SPA — URL capture unlikely
     SUCCESS_SELECTOR = ''
     COOKIE_DOMAINS = ['onlyfans.com']
+    AUTH_COOKIE_NAMES = ['auth_id', 'sess']
     PREFILL_DELAY_MS = 1500  # Cloudflare challenge + SPA hydration
     POLL_INTERVAL_MS = 1000
 

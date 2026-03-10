@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -67,6 +68,7 @@ class ImagePreviewTab(QWidget):
         self._result_path: Path | None = self._cached_path
         self._thread: QThread | None = None
         self._worker: _ImageProcessWorker | None = None
+        self._source_pixmap: QPixmap | None = None
 
         layout = QVBoxLayout(self)
         self._status_label = QLabel('Click this tab to generate preview...')
@@ -81,7 +83,10 @@ class ImagePreviewTab(QWidget):
 
         self._preview_label = QLabel()
         self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._preview_label.setMinimumSize(400, 400)
+        self._preview_label.setMinimumSize(220, 220)
+        self._preview_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         layout.addWidget(self._preview_label)
 
         self._details_label = QLabel()
@@ -129,15 +134,7 @@ class ImagePreviewTab(QWidget):
         self._result_path = result.path
 
         # Show thumbnail
-        pixmap = QPixmap(str(result.path))
-        if pixmap.width() > 400 or pixmap.height() > 400:
-            pixmap = pixmap.scaled(
-                400,
-                400,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        self._preview_label.setPixmap(pixmap)
+        self._set_preview_pixmap(QPixmap(str(result.path)))
 
         # Status
         orig = f'{result.original_size[0]}x{result.original_size[1]}'
@@ -186,14 +183,7 @@ class ImagePreviewTab(QWidget):
             return
         self._loaded = True
         pixmap = QPixmap(str(self._cached_path))
-        if pixmap.width() > 400 or pixmap.height() > 400:
-            pixmap = pixmap.scaled(
-                400,
-                400,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        self._preview_label.setPixmap(pixmap)
+        self._set_preview_pixmap(pixmap)
         proc = f'{pixmap.width()}x{pixmap.height()}'
         proc_size = _format_size(self._cached_path.stat().st_size)
         self._details_label.setText(
@@ -202,6 +192,32 @@ class ImagePreviewTab(QWidget):
         )
         self._status_label.setText(f'Cached preview for {self._specs.platform_name}')
         self._progress.setValue(100)
+
+    def _set_preview_pixmap(self, pixmap: QPixmap):
+        if pixmap.isNull():
+            self._source_pixmap = None
+            self._preview_label.clear()
+            return
+        self._source_pixmap = pixmap
+        self._preview_label.setText('')
+        self._update_preview_pixmap()
+
+    def _update_preview_pixmap(self):
+        if self._source_pixmap is None:
+            return
+        target_w = max(1, self._preview_label.contentsRect().width())
+        target_h = max(1, self._preview_label.contentsRect().height())
+        scaled = self._source_pixmap.scaled(
+            target_w,
+            target_h,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._preview_label.setPixmap(scaled)
+
+    def resizeEvent(self, event):  # noqa: N802
+        super().resizeEvent(event)
+        self._update_preview_pixmap()
 
 
 class VideoPreviewTab(QWidget):
@@ -224,6 +240,7 @@ class VideoPreviewTab(QWidget):
         self._result_path: Path | None = self._cached_path
         self._thread: QThread | None = None
         self._worker: _VideoProcessWorker | None = None
+        self._source_pixmap: QPixmap | None = None
 
         layout = QVBoxLayout(self)
         self._status_label = QLabel('Click this tab to generate preview...')
@@ -238,7 +255,10 @@ class VideoPreviewTab(QWidget):
 
         self._preview_label = QLabel()
         self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._preview_label.setMinimumSize(400, 400)
+        self._preview_label.setMinimumSize(220, 220)
+        self._preview_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         layout.addWidget(self._preview_label)
 
         self._details_label = QLabel()
@@ -291,15 +311,7 @@ class VideoPreviewTab(QWidget):
 
         # Show thumbnail
         if thumb_path and thumb_path.exists():
-            pixmap = QPixmap(str(thumb_path))
-            if pixmap.width() > 400 or pixmap.height() > 400:
-                pixmap = pixmap.scaled(
-                    400,
-                    400,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            self._preview_label.setPixmap(pixmap)
+            self._set_preview_pixmap(QPixmap(str(thumb_path)))
         else:
             self._preview_label.setText('(no thumbnail available)')
 
@@ -353,7 +365,13 @@ class VideoPreviewTab(QWidget):
         if not self._cached_path:
             return
         self._loaded = True
-        self._preview_label.setText('(cached video)')
+        from src.core.video_processor import extract_thumbnail
+
+        thumb = extract_thumbnail(self._cached_path)
+        if thumb and thumb.exists():
+            self._set_preview_pixmap(QPixmap(str(thumb)))
+        else:
+            self._preview_label.setText('(cached video)')
         proc_size = _format_size(self._cached_path.stat().st_size)
         self._details_label.setText(
             f'<b>Cached:</b> ({proc_size})<br>'
@@ -361,6 +379,32 @@ class VideoPreviewTab(QWidget):
         )
         self._status_label.setText(f'Cached video for {self._specs.platform_name}')
         self._progress.setValue(100)
+
+    def _set_preview_pixmap(self, pixmap: QPixmap):
+        if pixmap.isNull():
+            self._source_pixmap = None
+            self._preview_label.clear()
+            return
+        self._source_pixmap = pixmap
+        self._preview_label.setText('')
+        self._update_preview_pixmap()
+
+    def _update_preview_pixmap(self):
+        if self._source_pixmap is None:
+            return
+        target_w = max(1, self._preview_label.contentsRect().width())
+        target_h = max(1, self._preview_label.contentsRect().height())
+        scaled = self._source_pixmap.scaled(
+            target_w,
+            target_h,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._preview_label.setPixmap(scaled)
+
+    def resizeEvent(self, event):  # noqa: N802
+        super().resizeEvent(event)
+        self._update_preview_pixmap()
 
 
 class ImagePreviewDialog(QDialog):
@@ -381,8 +425,9 @@ class ImagePreviewDialog(QDialog):
         self._pending_tabs = 0
         self._existing_paths = existing_paths or {}
         self._is_video = _is_video(image_path)
+        self._has_video_tabs = self._is_video
 
-        title = 'Video Preview' if self._is_video else 'Image Resize Preview'
+        title = 'Video Preview' if self._is_video else 'Media Preview'
         self.setWindowTitle(title)
         self.setMinimumSize(550, 600)
 
@@ -404,10 +449,16 @@ class ImagePreviewDialog(QDialog):
             specs = PLATFORM_SPECS_MAP.get(platform)
             if specs:
                 cached_path = self._existing_paths.get(platform)
-                if self._is_video:
+                cached_is_video = bool(cached_path and _is_video(cached_path))
+                if self._is_video or cached_is_video:
+                    video_source = image_path if self._is_video else (cached_path or image_path)
                     preview_tab: ImagePreviewTab | VideoPreviewTab = VideoPreviewTab(
-                        image_path, specs, self, cached_path=cached_path
+                        video_source,
+                        specs,
+                        self,
+                        cached_path=cached_path,
                     )
+                    self._has_video_tabs = True
                 else:
                     preview_tab = ImagePreviewTab(image_path, specs, self, cached_path=cached_path)
                 self._tabs[platform] = preview_tab
@@ -420,6 +471,11 @@ class ImagePreviewDialog(QDialog):
             info_text = (
                 '<i>Videos are automatically resized and compressed for each platform. '
                 'Aspect ratios are preserved. Output format is MP4 (H.264).</i>'
+            )
+        elif self._has_video_tabs:
+            info_text = (
+                '<i>This preview includes both image and video outputs. '
+                'Video-only platforms display their converted MP4 output.</i>'
             )
         else:
             info_text = (

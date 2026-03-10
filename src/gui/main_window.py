@@ -450,11 +450,8 @@ class MainWindow(QMainWindow):
             get_logger().info(f'User attached media: {[str(p) for p in media_paths]}')
             self._apply_format_restriction(media_paths)
             self._apply_count_restriction(media_paths)
-            selected = self._get_selected_enabled_platforms()
-            if selected:
-                self._show_media_preview(media_paths, selected)
-                self._auto_save_draft()
             self._config.last_image_directory = str(media_paths[-1].parent)
+            self._auto_save_draft()
         else:
             self._clear_format_restriction()
             self._clear_count_restriction()
@@ -691,14 +688,6 @@ class MainWindow(QMainWindow):
             self._post_btn.setEnabled(False)
             self._test_btn.setEnabled(False)
 
-        media_paths = self._composer.get_media_paths()
-        if media_paths:
-            selected_enabled = self._get_selected_enabled_platforms()
-            missing = self._get_missing_processed_platforms(selected_enabled, len(media_paths))
-            if missing:
-                self._show_media_preview(media_paths, selected_enabled)
-                self._auto_save_draft()
-
     def _get_selected_enabled_platforms(self) -> list[str]:
         enabled = set(self._platform_selector.get_enabled())
         selected = self._platform_selector.get_selected()
@@ -734,7 +723,12 @@ class MainWindow(QMainWindow):
             groups.append(group)
         # Process each media file; preview dialog handles one file at a time
         for idx, media_path in enumerate(media_paths):
-            auto_converted_groups: set[str] = set()
+            existing = {
+                g: self._processed_media[g][idx]
+                if g in self._processed_media and len(self._processed_media[g]) > idx
+                else None
+                for g in groups
+            }
             for group in groups:
                 specs = PLATFORM_SPECS_MAP.get(group)
                 if not specs:
@@ -742,9 +736,8 @@ class MainWindow(QMainWindow):
                 if not self._can_auto_convert_image_to_video(media_paths, media_path, specs):
                     continue
 
-                cached_paths = self._processed_media.get(group, [])
-                if idx < len(cached_paths) and cached_paths[idx].exists():
-                    auto_converted_groups.add(group)
+                cached_path = existing.get(group)
+                if cached_path is not None and cached_path.exists():
                     continue
 
                 try:
@@ -754,7 +747,7 @@ class MainWindow(QMainWindow):
                         processed_paths[idx] = converted_path
                     else:
                         processed_paths.append(converted_path)
-                    auto_converted_groups.add(group)
+                    existing[group] = converted_path
                 except Exception as exc:
                     get_logger().exception(
                         'Image-to-video conversion failed',
@@ -776,17 +769,10 @@ class MainWindow(QMainWindow):
                         self._send_logs()
                     return
 
-            preview_groups = [group for group in groups if group not in auto_converted_groups]
-            if not preview_groups:
+            if not groups:
                 continue
 
-            existing = {
-                g: self._processed_media[g][idx]
-                if g in self._processed_media and len(self._processed_media[g]) > idx
-                else None
-                for g in preview_groups
-            }
-            dialog = ImagePreviewDialog(media_path, preview_groups, self, existing_paths=existing)
+            dialog = ImagePreviewDialog(media_path, groups, self, existing_paths=existing)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 for platform, path in dialog.get_processed_paths().items():
                     if path and path.exists():

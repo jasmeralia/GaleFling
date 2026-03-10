@@ -703,7 +703,7 @@ class WebViewLoginDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-        self._platform.navigate_to_composer()
+        self._platform.navigate_to_login()
 
         # Poll as a lightweight fallback; primary detection is cookieAdded.
         self._login_timer = QTimer(self)

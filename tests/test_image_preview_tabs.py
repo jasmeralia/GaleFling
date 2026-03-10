@@ -6,7 +6,12 @@ from pathlib import Path
 
 from PIL import Image
 
-from src.gui.image_preview_tabs import ImagePreviewDialog, ImagePreviewTab, _format_size
+from src.gui.image_preview_tabs import (
+    ImagePreviewDialog,
+    ImagePreviewTab,
+    VideoPreviewTab,
+    _format_size,
+)
 from src.utils.constants import TWITTER_SPECS
 
 
@@ -66,3 +71,45 @@ def test_preview_dialog_without_platforms_enables_ok(qtbot, tmp_path):
     qtbot.addWidget(dialog)
 
     assert dialog._ok_btn.isEnabled()
+
+
+def test_preview_dialog_uses_video_tab_for_cached_video_output(qtbot, tmp_path, monkeypatch):
+    original = _write_image(tmp_path / 'original.png')
+    cached_video = tmp_path / 'snapchat_cached.mp4'
+    cached_video.write_bytes(b'mp4')
+
+    monkeypatch.setattr(
+        'src.core.video_processor.extract_thumbnail', lambda *_args, **_kwargs: None
+    )
+
+    dialog = ImagePreviewDialog(
+        original,
+        ['snapchat'],
+        existing_paths={'snapchat': cached_video},
+    )
+    qtbot.addWidget(dialog)
+
+    assert isinstance(dialog._tabs['snapchat'], VideoPreviewTab)
+    assert dialog._tabs['snapchat'].get_processed_path() == cached_video
+
+
+def test_cached_preview_scales_with_resize(qtbot, tmp_path):
+    original = _write_image(tmp_path / 'original.png')
+    cached = _write_image(tmp_path / 'cached.png', size=(1200, 800))
+
+    tab = ImagePreviewTab(original, TWITTER_SPECS, cached_path=cached)
+    qtbot.addWidget(tab)
+    tab.resize(900, 900)
+    tab.show()
+    tab.load_preview()
+    qtbot.wait(10)
+
+    initial = tab._preview_label.pixmap()
+    assert initial is not None
+
+    tab.resize(320, 320)
+    qtbot.wait(10)
+    resized = tab._preview_label.pixmap()
+    assert resized is not None
+    assert resized.width() <= tab._preview_label.width()
+    assert resized.height() <= tab._preview_label.height()

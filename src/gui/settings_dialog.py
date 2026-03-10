@@ -1,6 +1,7 @@
 """Settings dialog for debug mode, updates, and log configuration."""
 
 import json
+import shutil
 import sqlite3
 from datetime import UTC, datetime
 from typing import cast
@@ -27,6 +28,8 @@ from PyQt6.QtWidgets import (
 from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
 from src.core.logger import get_logger
+from src.gui.setup_wizard import WebViewLoginDialog
+from src.platforms.base_webview import BaseWebViewPlatform
 from src.platforms.fansly import FanslyPlatform
 from src.platforms.fetlife import FetLifePlatform
 from src.platforms.onlyfans import OnlyFansPlatform
@@ -333,6 +336,25 @@ class SettingsDialog(QDialog):
             name_edit.setPlaceholderText(f'Display name{suffix}')
             form.addRow(f'Profile Name{suffix}:', name_edit)
             self._webview_profile_edits[account_id] = name_edit
+
+            actions = QHBoxLayout()
+            open_login_btn = QPushButton('Open Login Window')
+            open_login_btn.clicked.connect(
+                lambda _=False, pid=platform_id, aid=account_id: self._open_webview_login_window(
+                    pid, aid
+                )
+            )
+            actions.addWidget(open_login_btn)
+
+            reset_session_btn = QPushButton('Reset Session Cookies')
+            reset_session_btn.clicked.connect(
+                lambda _=False, pid=platform_id, aid=account_id: self._reset_webview_session(
+                    pid, aid
+                )
+            )
+            actions.addWidget(reset_session_btn)
+            actions.addStretch()
+            form.addRow(f'Session{suffix}:', actions)
 
         layout.addWidget(group)
 
@@ -780,3 +802,81 @@ class SettingsDialog(QDialog):
         self._ig_user_id.clear()
         self._ig_page_id.clear()
         self._ig_profile_name.clear()
+
+    def _create_webview_platform(
+        self, platform_id: str, account_id: str
+    ) -> BaseWebViewPlatform | None:
+        profile_edit = self._webview_profile_edits.get(account_id)
+        profile_name = profile_edit.text().strip() if profile_edit else ''
+        account = self._auth_manager.get_account(account_id)
+        if not profile_name and account:
+            profile_name = account.profile_name
+        if platform_id == 'snapchat':
+            return SnapchatPlatform(account_id=account_id, profile_name=profile_name)
+        if platform_id == 'onlyfans':
+            return OnlyFansPlatform(account_id=account_id, profile_name=profile_name)
+        if platform_id == 'fansly':
+            return FanslyPlatform(account_id=account_id, profile_name=profile_name)
+        if platform_id == 'fetlife':
+            return FetLifePlatform(account_id=account_id, profile_name=profile_name)
+        return None
+
+    def _open_webview_login_window(self, platform_id: str, account_id: str):
+        specs = PLATFORM_SPECS_MAP.get(platform_id)
+        if specs is None:
+            QMessageBox.warning(self, 'Unsupported Platform', 'This platform is not supported.')
+            return
+        platform = self._create_webview_platform(platform_id, account_id)
+        if platform is None:
+            QMessageBox.warning(self, 'Unsupported Platform', 'This platform is not supported.')
+            return
+
+        get_logger().info(
+            f'User selected Settings > {specs.platform_name} > Open Login Window',
+            extra={'platform_id': platform_id, 'account_id': account_id},
+        )
+        dialog = WebViewLoginDialog(platform, specs.platform_name, self)
+        dialog.exec()
+
+    def _reset_webview_session(self, platform_id: str, account_id: str):
+        specs = PLATFORM_SPECS_MAP.get(platform_id)
+        if specs is None:
+            return
+        reply = QMessageBox.question(
+            self,
+            'Reset Session Cookies',
+            (
+                f'Remove stored {specs.platform_name} session cookies for {account_id}?\n\n'
+                'You will need to log in again.'
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        profile_path = get_app_data_dir() / 'webprofiles' / account_id
+        get_logger().info(
+            f'User selected Settings > {specs.platform_name} > Reset Session Cookies',
+            extra={'platform_id': platform_id, 'account_id': account_id},
+        )
+        if not profile_path.exists():
+            QMessageBox.information(
+                self,
+                'No Session Found',
+                f'No stored session data found for {account_id}.',
+            )
+            return
+        try:
+            shutil.rmtree(profile_path)
+            QMessageBox.information(
+                self,
+                'Session Reset',
+                f'{specs.platform_name} session data cleared for {account_id}.',
+            )
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                'Reset Failed',
+                f'Failed to clear session data: {exc}',
+            )

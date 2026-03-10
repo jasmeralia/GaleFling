@@ -103,6 +103,21 @@ def test_onlyfans_authenticate():
     assert error is None
 
 
+def test_onlyfans_session_requires_auth_cookie(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+    platform = OnlyFansPlatform(account_id='onlyfans_1')
+    cookie_path = tmp_path / 'webprofiles' / 'onlyfans_1' / 'Cookies'
+
+    future_expiry = 20_000_000_000_000_000
+    _write_cookie(cookie_path, '.onlyfans.com', '__cf_bm', future_expiry)
+    assert platform.has_valid_session() is False
+
+    _write_cookie(cookie_path, 'onlyfans.com', 'auth_id', future_expiry)
+    assert platform.has_valid_session() is True
+
+
 # ── Fansly ──────────────────────────────────────────────────────────
 
 
@@ -130,6 +145,21 @@ def test_fansly_build_result_not_confirmed():
     assert result.error_code == 'WV-SUBMIT-TIMEOUT'
 
 
+def test_fansly_session_requires_auth_cookie(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+    platform = FanslyPlatform(account_id='fansly_1')
+    cookie_path = tmp_path / 'webprofiles' / 'fansly_1' / 'Cookies'
+
+    future_expiry = 20_000_000_000_000_000
+    _write_cookie(cookie_path, '.fansly.com', '_ga', future_expiry)
+    assert platform.has_valid_session() is False
+
+    _write_cookie(cookie_path, '.fansly.com', 'fansly-d', future_expiry)
+    assert platform.has_valid_session() is True
+
+
 # ── FetLife ─────────────────────────────────────────────────────────
 
 
@@ -147,7 +177,17 @@ def test_fetlife_specs():
 
 
 def test_fetlife_composer_url():
-    assert FetLifePlatform.COMPOSER_URL == 'https://fetlife.com/statuses/new'
+    assert FetLifePlatform.COMPOSER_URL == 'https://fetlife.com/pictures/new?source=Main+Navigation'
+
+
+def test_fetlife_login_url():
+    assert FetLifePlatform.LOGIN_URL == 'https://fetlife.com/login'
+
+
+def test_fetlife_selects_video_composer_url():
+    p = FetLifePlatform(account_id='fetlife_1')
+    p.prepare_post('hello', [Path('/tmp/sample.mp4')])
+    assert p.get_composer_url() == 'https://fetlife.com/videos/new?source=Main+Navigation'
 
 
 def test_fetlife_success_url_pattern():
@@ -155,7 +195,24 @@ def test_fetlife_success_url_pattern():
 
     pattern = FetLifePlatform.SUCCESS_URL_PATTERN
     assert re.search(pattern, 'https://fetlife.com/users/12345/statuses/67890')
+    assert re.search(pattern, 'https://fetlife.com/pictures/67890')
+    assert re.search(pattern, 'https://fetlife.com/videos/67890')
     assert not re.search(pattern, 'https://fetlife.com/')
+
+
+def test_fetlife_session_requires_auth_cookie(monkeypatch, tmp_path):
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+    platform = FetLifePlatform(account_id='fetlife_1')
+    cookie_path = tmp_path / 'webprofiles' / 'fetlife_1' / 'Cookies'
+
+    future_expiry = 20_000_000_000_000_000
+    _write_cookie(cookie_path, '.fetlife.com', 'cf_clearance', future_expiry)
+    assert platform.has_valid_session() is False
+
+    _write_cookie(cookie_path, '.fetlife.com', '_fl_sessionid', future_expiry)
+    assert platform.has_valid_session() is True
 
 
 def test_fetlife_build_result_confirmed_with_url():

@@ -442,3 +442,77 @@ def test_settings_dialog_export_webview_cookies_no_db_shows_notice(qtbot, tmp_pa
     dialog._export_webview_cookies('fetlife', PLATFORM_SPECS_MAP['fetlife'])
 
     assert calls
+
+
+def test_settings_dialog_webview_tabs_show_login_and_reset_buttons(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    from PyQt6.QtWidgets import QPushButton
+
+    open_buttons = [
+        btn for btn in dialog.findChildren(QPushButton) if btn.text() == 'Open Login Window'
+    ]
+    reset_buttons = [
+        btn for btn in dialog.findChildren(QPushButton) if btn.text() == 'Reset Session Cookies'
+    ]
+    # snapchat has 2 accounts; onlyfans/fansly/fetlife each have 1
+    assert len(open_buttons) == 5
+    assert len(reset_buttons) == 5
+
+
+def test_settings_dialog_open_webview_login_window(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+    dialog._webview_profile_edits['snapchat_1'].setText('snap-user')
+
+    calls = {}
+
+    class DummyLoginDialog:
+        def __init__(self, platform, platform_name, parent=None):
+            calls['platform_name'] = platform_name
+            calls['account_id'] = platform.account_id
+
+        def exec(self):
+            calls['opened'] = True
+            return 0
+
+    monkeypatch.setattr('src.gui.settings_dialog.WebViewLoginDialog', DummyLoginDialog)
+
+    dialog._open_webview_login_window('snapchat', 'snapchat_1')
+
+    assert calls['opened'] is True
+    assert calls['platform_name'] == 'Snapchat'
+    assert calls['account_id'] == 'snapchat_1'
+
+
+def test_settings_dialog_reset_webview_session_cookies(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    monkeypatch.setattr('src.gui.settings_dialog.get_app_data_dir', lambda: tmp_path)
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    profile_dir = tmp_path / 'webprofiles' / 'fetlife_1'
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / 'Cookies').write_bytes(b'data')
+
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.QMessageBox.question',
+        lambda *_args, **_kwargs: 16384,  # QMessageBox.Yes
+    )
+
+    info_calls = []
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.QMessageBox.information',
+        lambda *_args, **_kwargs: info_calls.append(True),
+    )
+
+    dialog._reset_webview_session('fetlife', 'fetlife_1')
+
+    assert not profile_dir.exists()
+    assert info_calls

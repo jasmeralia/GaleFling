@@ -291,7 +291,7 @@ def test_main_window_missing_usernames_disables_platforms(qtbot):
     assert not window._composer._choose_btn.isEnabled()
 
 
-def test_image_preview_opens_for_newly_enabled_platform(qtbot, tmp_path, monkeypatch):
+def test_media_changes_do_not_auto_open_preview(qtbot, tmp_path, monkeypatch):
     calls = []
 
     class PreviewDialog:
@@ -328,14 +328,12 @@ def test_image_preview_opens_for_newly_enabled_platform(qtbot, tmp_path, monkeyp
     image_path = tmp_path / 'image.png'
     image_path.write_bytes(b'fake')
     window._composer.set_image_path(image_path)
-
-    assert calls == [['twitter']]
+    assert calls == []
 
     auth.enable_bluesky()
     window._refresh_platform_state()
     window._platform_selector.set_selected(['twitter_1', 'bluesky_1'])
-
-    assert calls[-1] == ['bluesky', 'twitter']
+    assert calls == []
 
 
 def test_refresh_resorts_accounts_after_profile_update(qtbot):
@@ -901,8 +899,11 @@ def test_show_media_preview_converts_single_image_for_snapchat(qtbot, monkeypatc
         def get_processed_paths(self):
             output = {}
             for platform in self._platforms:
-                path = self._image_path.with_name(f'processed_{platform}.png')
-                path.write_bytes(b'processed')
+                if platform == 'snapchat':
+                    path = converted
+                else:
+                    path = self._image_path.with_name(f'processed_{platform}.png')
+                    path.write_bytes(b'processed')
                 output[platform] = path
             return output
 
@@ -923,7 +924,7 @@ def test_show_media_preview_converts_single_image_for_snapchat(qtbot, monkeypatc
     image_path.write_bytes(b'fake')
     window._show_media_preview([image_path], ['twitter_1', 'snapchat_1'])
 
-    assert calls == [['twitter']]
+    assert calls == [['twitter', 'snapchat']]
     assert window._processed_media['snapchat'][0] == converted
     assert window._processed_media['twitter'][0].exists()
 

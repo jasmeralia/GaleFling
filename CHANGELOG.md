@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.16] - 2026-03-10
+
+### Added
+- Video attachment summaries in the preview header now include format, resolution, framerate, and duration.
+- `Test Connections` now executes API-platform checks in parallel while keeping one-at-a-time execution per platform group.
+
+### Changed
+- Snapchat preview now shows a single attachment tab when multiple images are converted to one Snapchat video output.
+- Snapchat crop/rotate handling control is now shown for single-image Snapchat posts.
+- Video preview `Changes` now reports only fields that actually changed during processing.
+- Help menu entries are now ordered alphabetically.
+
 ## [1.5.15] - 2026-03-10
 
 ### Added

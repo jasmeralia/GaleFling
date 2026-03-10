@@ -548,14 +548,7 @@ class PostComposer(QWidget):
 
         if len(self._media_paths) > 1:
             self._snapchat_multi_image_row.setVisible(True)
-            mode = self.get_snapchat_multi_image_mode()
-            if mode == 'first':
-                should_show_landscape = self._is_landscape_image(self._media_paths[0])
-            else:
-                should_show_landscape = any(
-                    self._is_landscape_image(path) for path in self._media_paths
-                )
-            self._snapchat_landscape_row.setVisible(should_show_landscape)
+            self._snapchat_landscape_row.setVisible(True)
             return
 
         media_path = self._media_paths[0]
@@ -563,7 +556,7 @@ class PostComposer(QWidget):
             self._snapchat_landscape_row.setVisible(False)
             return
 
-        self._snapchat_landscape_row.setVisible(self._is_landscape_image(media_path))
+        self._snapchat_landscape_row.setVisible(True)
 
     def _on_snapchat_landscape_mode_changed(self, _index: int) -> None:
         self.snapchat_landscape_mode_changed.emit(self.get_snapchat_landscape_mode())

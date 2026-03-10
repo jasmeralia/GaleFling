@@ -73,16 +73,11 @@ def _describe_video_changes(original, processed) -> list[str]:
                 f'Length increased: {_format_duration(original.duration_seconds)} '
                 f'-> {_format_duration(processed.duration_seconds)}.'
             )
-    else:
-        changes.append(f'Length unchanged: {_format_duration(processed.duration_seconds)}.')
-
     if (original.width, original.height) != (processed.width, processed.height):
         changes.append(
             f'Resolution changed: {original.width}x{original.height} '
             f'-> {processed.width}x{processed.height}.'
         )
-    else:
-        changes.append(f'Resolution unchanged: {processed.width}x{processed.height}.')
 
     size_delta = processed.file_size - original.file_size
     if abs(size_delta) >= 1024 and original.file_size > 0:
@@ -97,18 +92,45 @@ def _describe_video_changes(original, processed) -> list[str]:
                 f'File size increased: {_format_size(original.file_size)} '
                 f'-> {_format_size(processed.file_size)} ({delta_pct:.1f}% larger).'
             )
-    else:
-        changes.append(f'File size unchanged: {_format_size(processed.file_size)}.')
-
     original_format = (original.format_name or '').upper()
     processed_format = (processed.format_name or '').upper()
     if original_format and processed_format and original_format != processed_format:
         changes.append(f'Format changed: {original_format} -> {processed_format}.')
-    else:
-        shown_format = processed_format or 'UNKNOWN'
-        changes.append(f'Format unchanged: {shown_format}.')
+
+    if (
+        original.frame_rate
+        and processed.frame_rate
+        and abs(processed.frame_rate - original.frame_rate) >= 0.01
+    ):
+        changes.append(
+            f'Framerate changed: {original.frame_rate:.2f} fps -> {processed.frame_rate:.2f} fps.'
+        )
 
     return changes
+
+
+def _format_frame_rate(frame_rate: float | None) -> str:
+    if frame_rate is None or frame_rate <= 0:
+        return 'unknown fps'
+    return f'{frame_rate:.2f} fps'
+
+
+def _format_attachment_summary(path: Path) -> str:
+    size_text = _format_size(path.stat().st_size)
+    if not _is_video(path):
+        return f'{path.name} ({size_text})'
+
+    from src.core.video_processor import get_video_info
+
+    try:
+        info = get_video_info(path)
+        format_name = (info.format_name or path.suffix.lstrip('.')).upper()
+        return (
+            f'{path.name} ({size_text}, {format_name}, {info.width}x{info.height}, '
+            f'{_format_frame_rate(info.frame_rate)}, {_format_duration(info.duration_seconds)})'
+        )
+    except Exception:
+        return f'{path.name} ({size_text}, metadata unavailable)'
 
 
 class ImagePreviewTab(QWidget):
@@ -430,6 +452,8 @@ class VideoPreviewTab(QWidget):
         proc_size = _format_size(proc.file_size)
         orig_dur = _format_duration(orig.duration_seconds)
         proc_dur = _format_duration(proc.duration_seconds)
+        orig_fps = _format_frame_rate(orig.frame_rate)
+        proc_fps = _format_frame_rate(proc.frame_rate)
         proc_fmt = (
             proc.format_name.upper() if proc.format_name else processed.path.suffix.lstrip('.')
         )
@@ -438,7 +462,11 @@ class VideoPreviewTab(QWidget):
             if processed.path == self._video_path
             else 'Converted to fit platform limits.'
         )
-        changes_html = '<br>'.join(f'- {line}' for line in _describe_video_changes(orig, proc))
+        change_lines = _describe_video_changes(orig, proc)
+        if change_lines:
+            changes_html = '<br>'.join(f'- {line}' for line in change_lines)
+        else:
+            changes_html = '- No conversion changes required.'
 
         if processed.meets_requirements:
             status = (
@@ -451,8 +479,8 @@ class VideoPreviewTab(QWidget):
             )
 
         self._details_label.setText(
-            f'<b>Original:</b> {orig_res} ({orig_size}), {orig_dur}, {orig.codec}<br>'
-            f'<b>Processed:</b> {proc_res} ({proc_size}), {proc_dur}<br>'
+            f'<b>Original:</b> {orig_res} ({orig_size}), {orig_dur}, {orig_fps}, {orig.codec}<br>'
+            f'<b>Processed:</b> {proc_res} ({proc_size}), {proc_dur}, {proc_fps}<br>'
             f'<b>Format:</b> {proc_fmt} ({proc.codec})<br>'
             f'<b>Output:</b> {conversion_note}<br>'
             f'<b>Changes:</b><br>{changes_html}<br><br>'
@@ -655,9 +683,7 @@ class ImagePreviewDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        original_items = '<br>'.join(
-            f'{path.name} ({_format_size(path.stat().st_size)})' for path in self._media_paths
-        )
+        original_items = '<br>'.join(_format_attachment_summary(path) for path in self._media_paths)
         orig_label = QLabel(f'<b>Attachments:</b> {len(self._media_paths)}<br>{original_items}')
         layout.addWidget(orig_label)
         layout.addSpacing(10)
@@ -669,16 +695,28 @@ class ImagePreviewDialog(QDialog):
                 continue
 
             platform_tabs: list[ImagePreviewTab | VideoPreviewTab] = []
+            cached_list = self._existing_paths.get(platform, [])
+            platform_media_paths = list(self._media_paths)
+            if (
+                len(platform_media_paths) > 1
+                and len(cached_list) >= len(platform_media_paths)
+                and cached_list[0] is not None
+                and all(path == cached_list[0] for path in cached_list[: len(platform_media_paths)])
+                and _is_video(cached_list[0])
+                and all(not _is_video(path) for path in platform_media_paths)
+            ):
+                # Snapchat-style single converted video should only render one attachment tab.
+                platform_media_paths = [platform_media_paths[0]]
+                cached_list = [cached_list[0]]
             attachment_tab_widget: QTabWidget | None = None
-            use_attachment_tabs = len(self._media_paths) > 1
+            use_attachment_tabs = len(platform_media_paths) > 1
             if use_attachment_tabs:
                 attachment_tab_widget = QTabWidget()
                 self._platform_attachment_tabs[platform] = attachment_tab_widget
             else:
                 self._platform_attachment_tabs[platform] = None
 
-            for idx, media_path in enumerate(self._media_paths):
-                cached_list = self._existing_paths.get(platform, [])
+            for idx, media_path in enumerate(platform_media_paths):
                 cached_path = cached_list[idx] if idx < len(cached_list) else None
                 cached_is_video = bool(cached_path and _is_video(cached_path))
                 media_is_video = _is_video(media_path)

@@ -235,6 +235,17 @@ class TestMultiAttachment:
 
 
 class TestSnapchatLandscapeMode:
+    def test_mode_visible_for_snapchat_single_image(self, composer):
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
+            image = Path(f.name)
+
+        composer.set_media_paths([image])
+        composer.set_platform_state(selected=['snapchat_1'], enabled=['snapchat_1'])
+
+        assert composer._snapchat_landscape_row is not None
+        assert not composer._snapchat_landscape_row.isHidden()
+        image.unlink(missing_ok=True)
+
     def test_mode_visible_for_snapchat_landscape_video(self, composer, monkeypatch):
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f:
             video = Path(f.name)

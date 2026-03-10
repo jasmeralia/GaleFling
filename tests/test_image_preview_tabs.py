@@ -99,6 +99,30 @@ def test_preview_dialog_uses_video_tab_for_cached_video_output(qtbot, tmp_path, 
     assert dialog._tabs['snapchat'][0].get_processed_path() == cached_video
 
 
+def test_preview_dialog_collapses_snapchat_multi_image_to_single_video_tab(
+    qtbot, tmp_path, monkeypatch
+):
+    original_1 = _write_image(tmp_path / 'original_1.png')
+    original_2 = _write_image(tmp_path / 'original_2.png')
+    cached_video = tmp_path / 'snapchat_cached.mp4'
+    cached_video.write_bytes(b'mp4')
+    monkeypatch.setattr('src.gui.image_preview_tabs.QtMultimediaModule', None)
+    monkeypatch.setattr('src.gui.image_preview_tabs.QtMultimediaWidgetsModule', None)
+    monkeypatch.setattr(
+        'src.core.video_processor.extract_thumbnail', lambda *_args, **_kwargs: None
+    )
+
+    dialog = ImagePreviewDialog(
+        [original_1, original_2],
+        ['snapchat'],
+        existing_paths={'snapchat': [cached_video, cached_video]},
+    )
+    qtbot.addWidget(dialog)
+
+    assert len(dialog._tabs['snapchat']) == 1
+    assert dialog._platform_attachment_tabs['snapchat'] is None
+
+
 def test_cached_preview_scales_with_resize(qtbot, tmp_path):
     original = _write_image(tmp_path / 'original.png')
     cached = _write_image(tmp_path / 'cached.png', size=(1200, 800))
@@ -177,3 +201,53 @@ def test_describe_video_changes_reports_key_differences():
     assert any('Resolution changed' in line for line in changes)
     assert any('File size reduced' in line for line in changes)
     assert any('Format changed' in line for line in changes)
+
+
+def test_describe_video_changes_omits_unchanged_fields():
+    original = VideoInfo(
+        width=1080,
+        height=1920,
+        duration_seconds=10.0,
+        codec='h264',
+        file_size=4 * 1024 * 1024,
+        format_name='mp4',
+        frame_rate=30.0,
+    )
+    processed = VideoInfo(
+        width=1080,
+        height=1920,
+        duration_seconds=10.0,
+        codec='h264',
+        file_size=4 * 1024 * 1024,
+        format_name='mp4',
+        frame_rate=30.0,
+    )
+
+    changes = _describe_video_changes(original, processed)
+
+    assert changes == []
+
+
+def test_preview_dialog_video_attachment_header_includes_metadata(qtbot, tmp_path, monkeypatch):
+    video = tmp_path / 'sample.mp4'
+    video.write_bytes(b'mp4')
+    monkeypatch.setattr(
+        'src.core.video_processor.get_video_info',
+        lambda _path: VideoInfo(
+            width=1280,
+            height=720,
+            duration_seconds=12.3,
+            codec='h264',
+            file_size=video.stat().st_size,
+            format_name='mp4',
+            frame_rate=29.97,
+        ),
+    )
+
+    dialog = ImagePreviewDialog(video, [])
+    qtbot.addWidget(dialog)
+
+    labels = [label.text() for label in dialog.findChildren(QLabel) if label.text()]
+    assert any(
+        'sample.mp4' in text and '1280x720' in text and '29.97 fps' in text for text in labels
+    )

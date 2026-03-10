@@ -4,6 +4,7 @@ import contextlib
 import html
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -374,9 +375,9 @@ class MainWindow(QMainWindow):
         )
         help_menu.addAction(check_update)
 
-        send_logs = QAction('Send Logs to Jas', self)
-        send_logs.triggered.connect(log_and_call('Help > Send Logs to Jas', self._send_logs))
-        help_menu.addAction(send_logs)
+        clear_logs = QAction('Clear Logs', self)
+        clear_logs.triggered.connect(log_and_call('Help > Clear Logs', self._clear_logs))
+        help_menu.addAction(clear_logs)
 
         open_log_dir = QAction('Open Log Directory', self)
         open_log_dir.triggered.connect(
@@ -384,9 +385,9 @@ class MainWindow(QMainWindow):
         )
         help_menu.addAction(open_log_dir)
 
-        clear_logs = QAction('Clear Logs', self)
-        clear_logs.triggered.connect(log_and_call('Help > Clear Logs', self._clear_logs))
-        help_menu.addAction(clear_logs)
+        send_logs = QAction('Send Logs to Jas', self)
+        send_logs.triggered.connect(log_and_call('Help > Send Logs to Jas', self._send_logs))
+        help_menu.addAction(send_logs)
 
     def _set_theme_mode(self, mode: str):
         self._config.theme_mode = mode
@@ -970,18 +971,45 @@ class MainWindow(QMainWindow):
         self._test_btn.setEnabled(False)
         QApplication.processEvents()
 
-        results = []
+        results: list[tuple[str, str, bool, str | None]] = []
         failed_accounts: list[str] = []
         selected = self._get_selected_enabled_platforms()
+        selected_order = {account_id: idx for idx, account_id in enumerate(selected)}
+        grouped_accounts: dict[str, list[str]] = {}
+        for account_id in selected:
+            group = self._get_platform_group(account_id)
+            grouped_accounts.setdefault(group, []).append(account_id)
 
-        for name in selected:
-            platform = self._platforms.get(name)
-            if platform:
-                success, error = platform.test_connection()
-                display_name = self._get_platform_display_name(name)
-                results.append((display_name, success, error))
-                if not success:
-                    failed_accounts.append(name)
+        webview_groups: list[list[str]] = []
+        parallel_groups: list[list[str]] = []
+        for accounts in grouped_accounts.values():
+            platform = self._platforms.get(accounts[0])
+            if isinstance(platform, BaseWebViewPlatform):
+                webview_groups.append(accounts)
+            else:
+                parallel_groups.append(accounts)
+
+        if parallel_groups:
+            max_workers = max(1, min(len(parallel_groups), 4))
+            with ThreadPoolExecutor(
+                max_workers=max_workers, thread_name_prefix='connection-test'
+            ) as executor:
+                futures = [
+                    executor.submit(self._test_connection_group, accounts)
+                    for accounts in parallel_groups
+                ]
+                for accounts in webview_groups:
+                    results.extend(self._test_connection_group(accounts))
+                for future in as_completed(futures):
+                    results.extend(future.result())
+        else:
+            for accounts in webview_groups:
+                results.extend(self._test_connection_group(accounts))
+
+        results.sort(key=lambda item: selected_order.get(item[0], len(selected_order)))
+        for account_id, _display_name, success, _error in results:
+            if not success:
+                failed_accounts.append(account_id)
 
         disabled_accounts = []
         for account_id in failed_accounts:
@@ -992,7 +1020,7 @@ class MainWindow(QMainWindow):
 
         # Show results
         msg_parts = []
-        for pname, success, error in results:
+        for _account_id, pname, success, error in results:
             if success:
                 msg_parts.append(f'\u2714\ufe0f {pname} connected.')
             else:
@@ -1006,6 +1034,28 @@ class MainWindow(QMainWindow):
         )
         self._test_btn.setEnabled(True)
         self._status_bar.showMessage('Ready')
+
+    def _test_connection_group(
+        self, account_ids: list[str]
+    ) -> list[tuple[str, str, bool, str | None]]:
+        """Run connection tests sequentially for one platform group."""
+        results: list[tuple[str, str, bool, str | None]] = []
+        for account_id in account_ids:
+            platform = self._platforms.get(account_id)
+            if not platform:
+                continue
+            display_name = self._get_platform_display_name(account_id)
+            try:
+                success, error = platform.test_connection()
+            except Exception as exc:
+                get_logger().exception(
+                    'Connection test raised exception',
+                    extra={'account_id': account_id, 'error': str(exc)},
+                )
+                success = False
+                error = str(exc) or 'Connection test failed'
+            results.append((account_id, display_name, success, error))
+        return results
 
     def _set_account_enabled(self, account_id: str, enabled: bool) -> bool:
         """Persist an account enabled flag if the auth manager supports it."""

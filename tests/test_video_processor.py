@@ -154,6 +154,10 @@ class TestGetVideoInfo:
         info = get_video_info(small_mp4)
         assert info.file_size == small_mp4.stat().st_size
 
+    def test_reads_frame_rate(self, small_mp4):
+        info = get_video_info(small_mp4)
+        assert info.frame_rate is None or info.frame_rate > 0
+
 
 class TestValidateVideo:
     def test_valid_mp4(self, small_mp4):

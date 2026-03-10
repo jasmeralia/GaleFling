@@ -1,3 +1,6 @@
+import threading
+import time
+
 from PyQt6.QtWidgets import QDialog, QLabel, QMessageBox
 
 from src.gui.main_window import MainWindow
@@ -182,6 +185,18 @@ def test_help_open_log_directory_action(qtbot, monkeypatch, tmp_path):
 
     assert logs_dir.exists()
     assert opened['path'] == str(logs_dir)
+
+
+def test_help_menu_items_are_alphabetical(qtbot):
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    help_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == 'Help'
+    )
+    labels = [action.text() for action in help_menu.actions() if action.text()]
+
+    assert labels == sorted(labels, key=str.casefold)
 
 
 def test_about_dialog_displays_ffmpeg_version(qtbot, monkeypatch):
@@ -659,6 +674,57 @@ def test_test_connections_disables_failed_platforms(qtbot, monkeypatch):
     assert auth.get_account('twitter_1').enabled is False
     assert 'twitter_1' not in window._platform_selector.get_enabled()
     assert 'twitter_1' not in window._platform_selector.get_selected()
+
+
+def test_test_connections_runs_parallel_with_platform_serialization(qtbot, monkeypatch):
+    class DummyPlatform:
+        def __init__(self, account_id: str, group: str, delay: float = 0.25):
+            self._account_id = account_id
+            self._group = group
+            self._delay = delay
+
+        def test_connection(self):
+            with lock:
+                active[self._group] = active.get(self._group, 0) + 1
+                peak[self._group] = max(peak.get(self._group, 0), active[self._group])
+            time.sleep(self._delay)
+            with lock:
+                active[self._group] -= 1
+            return True, None
+
+        def get_platform_name(self):
+            return self._account_id
+
+    lock = threading.Lock()
+    active: dict[str, int] = {}
+    peak: dict[str, int] = {}
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._platforms = {
+        'twitter_1': DummyPlatform('twitter_1', 'twitter'),
+        'twitter_2': DummyPlatform('twitter_2', 'twitter'),
+        'bluesky_1': DummyPlatform('bluesky_1', 'bluesky'),
+    }
+    window._platform_groups = {
+        'twitter_1': 'twitter',
+        'twitter_2': 'twitter',
+        'bluesky_1': 'bluesky',
+    }
+
+    monkeypatch.setattr('src.gui.main_window.MainWindow._show_message_box', lambda *_a, **_k: 0)
+    monkeypatch.setattr(
+        window,
+        '_get_selected_enabled_platforms',
+        lambda: ['twitter_1', 'twitter_2', 'bluesky_1'],
+    )
+
+    start = time.perf_counter()
+    window._test_connections()
+    elapsed = time.perf_counter() - start
+
+    assert peak['twitter'] == 1
+    assert elapsed < 0.65
 
 
 def test_download_update_applies_theme_to_progress(qtbot, monkeypatch, tmp_path):

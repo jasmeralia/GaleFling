@@ -79,6 +79,7 @@ class VideoInfo:
     codec: str
     file_size: int
     format_name: str  # container format, e.g. 'mp4'
+    frame_rate: float | None = None
 
 
 @dataclass
@@ -122,6 +123,28 @@ def _run_subprocess(cmd: list[str], timeout: int) -> subprocess.CompletedProcess
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
+def _parse_frame_rate(value: str | None) -> float | None:
+    if not value:
+        return None
+    normalized = value.strip()
+    if not normalized or normalized in {'0/0', '0'}:
+        return None
+    if '/' in normalized:
+        num_str, den_str = normalized.split('/', 1)
+        try:
+            num = float(num_str)
+            den = float(den_str)
+            if den == 0:
+                return None
+            return num / den
+        except ValueError:
+            return None
+    try:
+        return float(normalized)
+    except ValueError:
+        return None
+
+
 def get_video_info(video_path: Path) -> VideoInfo:
     """Extract video metadata using ffprobe/ffmpeg."""
     logger = get_logger()
@@ -161,6 +184,11 @@ def get_video_info(video_path: Path) -> VideoInfo:
                 duration = float(fmt.get('duration', video_stream.get('duration', 0)))
                 codec = video_stream.get('codec_name', 'unknown')
                 format_name = fmt.get('format_name', 'unknown')
+                frame_rate = _parse_frame_rate(
+                    str(
+                        video_stream.get('avg_frame_rate') or video_stream.get('r_frame_rate') or ''
+                    )
+                )
                 # Normalize format name (e.g., "mov,mp4,m4a,3gp,3g2,mj2" -> "mp4")
                 if ',' in format_name:
                     ext = video_path.suffix.lstrip('.').lower()
@@ -172,6 +200,7 @@ def get_video_info(video_path: Path) -> VideoInfo:
                     codec=codec,
                     file_size=file_size,
                     format_name=format_name,
+                    frame_rate=frame_rate,
                 )
 
         # Fallback: parse ffmpeg -i stderr output
@@ -197,6 +226,7 @@ def _parse_ffmpeg_stderr(stderr: str, file_size: int, video_path: Path) -> Video
     duration = 0.0
     codec = 'unknown'
     format_name = video_path.suffix.lstrip('.').lower()
+    frame_rate = None
 
     # Parse duration: Duration: HH:MM:SS.ss
     dur_match = re.search(r'Duration:\s*(\d+):(\d+):(\d+)\.(\d+)', stderr)
@@ -211,6 +241,12 @@ def _parse_ffmpeg_stderr(stderr: str, file_size: int, video_path: Path) -> Video
         width = int(vid_match.group(2))
         height = int(vid_match.group(3))
 
+    # Parse framerate: "... 29.97 fps ..."
+    fps_match = re.search(r'(\d+(?:\.\d+)?)\s+fps', stderr)
+    if fps_match:
+        with contextlib.suppress(ValueError):
+            frame_rate = float(fps_match.group(1))
+
     return VideoInfo(
         width=width,
         height=height,
@@ -218,6 +254,7 @@ def _parse_ffmpeg_stderr(stderr: str, file_size: int, video_path: Path) -> Video
         codec=codec,
         file_size=file_size,
         format_name=format_name,
+        frame_rate=frame_rate,
     )
 
 

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-03-10
+
+### Added
+- New documentation set under `docs/` for long-form agent references:
+  - `architecture-overview.md`
+  - `platform-specs.md`
+  - `media-processing.md`
+  - `build-and-release.md`
+  - `threads-integration.md`
+- Expanded automated tests for preview workers, main-window flows, setup-wizard pages, and downloader worker edge cases.
+
+### Changed
+- `AGENTS.md` was compacted and reorganized for stronger instruction salience, with explicit mandatory agent rules and a clearer release-checklist trigger phrase.
+- Coverage increased to 87% overall, with major gains in:
+  - `src/gui/main_window.py` (82%)
+  - `src/gui/image_preview_tabs.py` (91%)
+
 ## [1.6.2] - 2026-03-10
 
 ### Added

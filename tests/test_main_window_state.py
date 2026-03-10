@@ -1374,3 +1374,325 @@ def test_snapchat_multi_image_mode_persists_from_composer(qtbot):
     window._composer.set_snapchat_multi_image_mode('slideshow')
 
     assert config.snapchat_multi_image_mode == 'slideshow'
+
+
+def test_set_theme_mode_updates_config_without_qapplication(qtbot, monkeypatch):
+    apply_calls = []
+    monkeypatch.setattr('src.gui.main_window.QApplication.instance', lambda: None)
+    monkeypatch.setattr(
+        'src.gui.main_window.apply_theme',
+        lambda *_args, **_kwargs: apply_calls.append(True),
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window._set_theme_mode('dark')
+
+    assert window._config.theme_mode == 'dark'
+    assert apply_calls == []
+
+
+def test_check_first_run_schedules_setup_for_empty_accounts(qtbot, monkeypatch):
+    scheduled = []
+    monkeypatch.setattr(
+        'src.gui.main_window.QTimer.singleShot',
+        lambda ms, fn: scheduled.append((ms, fn)),
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=[]), DummyAuthManager(False, False))
+    qtbot.addWidget(window)
+
+    MainWindow._check_first_run(window)
+
+    assert len(scheduled) == 1
+    assert scheduled[0][0] == 100
+
+
+def test_show_setup_wizard_defers_to_impl(qtbot, monkeypatch):
+    scheduled = []
+    monkeypatch.setattr(
+        'src.gui.main_window.QTimer.singleShot',
+        lambda ms, fn: scheduled.append((ms, fn)),
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window._show_setup_wizard()
+
+    assert len(scheduled) == 1
+    assert scheduled[0][0] == 0
+
+
+def test_open_log_directory_failure_shows_warning(qtbot, monkeypatch, tmp_path):
+    shown = {}
+    logs_dir = tmp_path / 'logs'
+
+    monkeypatch.setattr('src.gui.main_window.get_logs_dir', lambda: logs_dir)
+    monkeypatch.setattr('src.gui.main_window.QDesktopServices.openUrl', lambda _url: False)
+
+    def fake_message_box(_self, title, text, *_args, **_kwargs):
+        shown['title'] = title
+        shown['text'] = text
+        return QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr('src.gui.main_window.MainWindow._show_message_box', fake_message_box)
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window._open_log_directory()
+
+    assert shown['title'] == 'Open Log Directory Failed'
+    assert str(logs_dir) in shown['text']
+
+
+def test_clear_logs_deletes_old_logs_crashes_and_screenshots(qtbot, monkeypatch, tmp_path):
+    logs_dir = tmp_path / 'logs'
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    screenshots_dir = logs_dir / 'screenshots'
+    screenshots_dir.mkdir(parents=True, exist_ok=True)
+
+    old_log = logs_dir / 'app_old.log'
+    current_log = logs_dir / 'app_current.log'
+    new_log = logs_dir / 'app_new.log'
+    crash_log = logs_dir / 'crash_test.log'
+    fatal_log = logs_dir / 'fatal_errors.log'
+    screenshot = screenshots_dir / 'shot.png'
+    old_log.write_text('old', encoding='utf-8')
+    current_log.write_text('current', encoding='utf-8')
+    crash_log.write_text('crash', encoding='utf-8')
+    fatal_log.write_text('fatal', encoding='utf-8')
+    screenshot.write_bytes(b'png')
+
+    count = {'calls': 0}
+
+    def fake_get_current_log_path():
+        count['calls'] += 1
+        return current_log if count['calls'] == 1 else new_log
+
+    def fake_reset_log_file():
+        new_log.write_text('new', encoding='utf-8')
+
+    prompts = []
+
+    def fake_message_box(_self, title, text, *_args, **_kwargs):
+        prompts.append((title, text))
+        if title == 'Clear Logs':
+            return QMessageBox.StandardButton.Yes
+        return QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr('src.gui.main_window.get_logs_dir', lambda: logs_dir)
+    monkeypatch.setattr('src.gui.main_window.get_current_log_path', fake_get_current_log_path)
+    monkeypatch.setattr('src.gui.main_window.reset_log_file', fake_reset_log_file)
+    monkeypatch.setattr('src.gui.main_window.MainWindow._show_message_box', fake_message_box)
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window._clear_logs()
+
+    assert not old_log.exists()
+    assert not current_log.exists()
+    assert not crash_log.exists()
+    assert not fatal_log.exists()
+    assert not screenshot.exists()
+    assert new_log.exists()
+    assert prompts[0][0] == 'Clear Logs'
+    assert prompts[1][0] == 'Logs Cleared'
+
+
+def test_send_logs_missing_description_shows_warning(qtbot, monkeypatch):
+    class DummySubmitDialog:
+        def __init__(self, *_args, **_kwargs):
+            return
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def get_notes(self):
+            return ''
+
+    shown = {}
+    monkeypatch.setattr('src.gui.main_window.LogSubmitDialog', DummySubmitDialog)
+    monkeypatch.setattr(
+        'src.gui.main_window.MainWindow._show_message_box',
+        lambda _self, title, text, *_args, **_kwargs: (
+            shown.update({'title': title, 'text': text}) or QMessageBox.StandardButton.Ok
+        ),
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._send_logs()
+
+    assert shown['title'] == 'Missing Description'
+
+
+def test_send_logs_success_shows_confirmation(qtbot, monkeypatch):
+    class DummySubmitDialog:
+        def __init__(self, *_args, **_kwargs):
+            return
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def get_notes(self):
+            return 'testing upload'
+
+    shown = {}
+    monkeypatch.setattr('src.gui.main_window.LogSubmitDialog', DummySubmitDialog)
+    monkeypatch.setattr(
+        'src.gui.main_window.MainWindow._show_message_box',
+        lambda _self, title, text, *_args, **_kwargs: (
+            shown.update({'title': title, 'text': text}) or QMessageBox.StandardButton.Ok
+        ),
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._log_uploader = type(
+        'DummyUploader',
+        (),
+        {'upload': staticmethod(lambda user_notes: (True, 'sent ok', 'details'))},
+    )()
+
+    window._send_logs()
+
+    assert shown['title'] == 'Logs Sent'
+    assert shown['text'] == 'sent ok'
+
+
+def test_restore_draft_restores_text_media_and_legacy_processed_images(
+    qtbot, monkeypatch, tmp_path
+):
+    media = tmp_path / 'image.png'
+    media.write_bytes(b'image')
+    processed = tmp_path / 'processed.png'
+    processed.write_bytes(b'processed')
+    draft = tmp_path / 'current_draft.json'
+    draft.write_text(
+        (
+            '{'
+            '"text":"draft text",'
+            f'"media_paths":["{media}"],'
+            '"selected_platforms":["twitter_1"],'
+            f'"processed_images":{{"twitter":"{processed}"}}'
+            '}'
+        ),
+        encoding='utf-8',
+    )
+
+    monkeypatch.setattr('src.gui.main_window.get_drafts_dir', lambda: tmp_path)
+    monkeypatch.setattr(
+        'src.gui.main_window.MainWindow._show_message_box',
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window.restore_draft()
+
+    assert window._composer.get_text() == 'draft text'
+    assert window._composer.get_media_paths() == [media]
+    assert window._processed_media['twitter'] == [processed]
+
+
+def test_restore_draft_no_choice_clears_saved_file(qtbot, monkeypatch, tmp_path):
+    draft = tmp_path / 'current_draft.json'
+    draft.write_text('{"text":"draft text"}', encoding='utf-8')
+
+    monkeypatch.setattr('src.gui.main_window.get_drafts_dir', lambda: tmp_path)
+    monkeypatch.setattr(
+        'src.gui.main_window.MainWindow._show_message_box',
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.No,
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window.restore_draft()
+
+    assert not draft.exists()
+
+
+def test_download_update_without_installer_shows_warning(qtbot, monkeypatch):
+    shown = {}
+    monkeypatch.setattr(
+        'src.gui.main_window.MainWindow._show_message_box',
+        lambda _self, title, text, *_args, **_kwargs: (
+            shown.update({'title': title, 'text': text}) or QMessageBox.StandardButton.Ok
+        ),
+    )
+
+    update = type(
+        'Update', (), {'download_url': '', 'latest_version': '1.0.0', 'download_size': 0}
+    )()
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window._download_update(update)
+
+    assert shown['title'] == 'No Installer Found'
+
+
+def test_on_update_downloaded_handles_failures(qtbot, monkeypatch, tmp_path):
+    messages = []
+    monkeypatch.setattr(
+        'src.gui.main_window.MainWindow._show_message_box',
+        lambda _self, title, text, *_args, **_kwargs: (
+            messages.append((title, text)) or QMessageBox.StandardButton.Ok
+        ),
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    window._on_update_downloaded(False, None, 'network error')
+    window._on_update_downloaded(True, None, '')
+
+    assert messages[0][0] == 'Download Failed'
+    assert 'network error' in messages[0][1]
+    assert messages[1][0] == 'Download Failed'
+    assert 'valid path' in messages[1][1]
+
+
+def test_launch_installer_after_exit_non_windows_uses_startdetached(qtbot, monkeypatch, tmp_path):
+    started = {}
+    installer = tmp_path / 'setup.exe'
+    installer.write_bytes(b'MZ')
+
+    monkeypatch.setattr('src.gui.main_window.os.name', 'posix', raising=False)
+    monkeypatch.setattr(
+        'src.gui.main_window.QProcess.startDetached',
+        lambda path: started.setdefault('path', path) or True,
+    )
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._launch_installer_after_exit(installer)
+
+    assert started['path'] == str(installer)
+
+
+def test_close_event_calls_save_geometry_and_auto_save(qtbot):
+    class DummyEvent:
+        def __init__(self):
+            self.accepted = False
+
+        def accept(self):
+            self.accepted = True
+
+    calls = []
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._save_geometry = lambda: calls.append('geometry')
+    window._auto_save_draft = lambda: calls.append('draft')
+
+    event = DummyEvent()
+    window.closeEvent(event)
+
+    assert calls == ['geometry', 'draft']
+    assert event.accepted is True

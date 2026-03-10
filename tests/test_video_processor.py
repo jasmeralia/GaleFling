@@ -465,3 +465,179 @@ class TestConvertImagesToVideoSlideshow:
         assert 'xfade=' in ' '.join(seen['cmd'])
         assert seen['processed_path'] == output
         assert seen['mode'] == 'rotate'
+
+
+class TestParseFrameRate:
+    def test_handles_fraction_and_float(self):
+        assert video_processor._parse_frame_rate('30000/1001') == pytest.approx(29.97003, rel=1e-4)
+        assert video_processor._parse_frame_rate('24') == 24.0
+
+    def test_handles_empty_and_invalid_values(self):
+        assert video_processor._parse_frame_rate(None) is None
+        assert video_processor._parse_frame_rate('') is None
+        assert video_processor._parse_frame_rate('0') is None
+        assert video_processor._parse_frame_rate('0/0') is None
+        assert video_processor._parse_frame_rate('30/0') is None
+        assert video_processor._parse_frame_rate('not-a-rate') is None
+
+
+class TestGetFfmpegVersionEdgeCases:
+    def test_returns_unknown_when_version_output_empty(self, monkeypatch):
+        monkeypatch.setattr('src.core.video_processor.get_ffmpeg_path', lambda: '/tmp/ffmpeg.exe')
+        monkeypatch.setattr(
+            'src.core.video_processor._run_subprocess',
+            lambda *_args, **_kwargs: subprocess.CompletedProcess(
+                args=[], returncode=0, stdout='', stderr=''
+            ),
+        )
+        assert get_ffmpeg_version() == 'unknown'
+
+
+class TestGetVideoInfoEdgeCases:
+    def test_uses_ffprobe_json_when_available(self, tmp_path, monkeypatch):
+        video = tmp_path / 'clip.mp4'
+        video.write_bytes(b'video-bytes')
+
+        monkeypatch.setattr('src.core.video_processor.get_ffmpeg_path', lambda: '/tmp/ffmpeg')
+        monkeypatch.setattr('src.core.video_processor.get_ffprobe_path', lambda: '/tmp/ffprobe')
+
+        probe_json = {
+            'streams': [
+                {
+                    'width': 1920,
+                    'height': 1080,
+                    'codec_name': 'h264',
+                    'avg_frame_rate': '30000/1001',
+                }
+            ],
+            'format': {'duration': '12.5', 'format_name': 'mov,mp4,m4a,3gp,3g2,mj2'},
+        }
+
+        monkeypatch.setattr(
+            'src.core.video_processor._run_subprocess',
+            lambda *_args, **_kwargs: subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=__import__('json').dumps(probe_json),
+                stderr='',
+            ),
+        )
+
+        info = get_video_info(video)
+
+        assert info.width == 1920
+        assert info.height == 1080
+        assert info.duration_seconds == 12.5
+        assert info.codec == 'h264'
+        assert info.format_name == 'mp4'
+        assert info.frame_rate == pytest.approx(29.97003, rel=1e-4)
+
+    def test_timeout_is_raised(self, tmp_path, monkeypatch):
+        video = tmp_path / 'clip.mp4'
+        video.write_bytes(b'video-bytes')
+
+        monkeypatch.setattr('src.core.video_processor.get_ffmpeg_path', lambda: '/tmp/ffmpeg')
+        monkeypatch.setattr('src.core.video_processor.get_ffprobe_path', lambda: '/tmp/ffmpeg')
+        monkeypatch.setattr(
+            'src.core.video_processor._run_subprocess',
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                subprocess.TimeoutExpired(cmd='ffmpeg', timeout=30)
+            ),
+        )
+
+        with pytest.raises(subprocess.TimeoutExpired):
+            get_video_info(video)
+
+
+class TestValidateVideoEdgeCases:
+    def test_invalid_format_when_mp4_not_supported(self, tmp_path):
+        webm_only = video_processor.PlatformSpecs(
+            platform_name='WebmOnly',
+            max_image_dimensions=(100, 100),
+            max_file_size_mb=1.0,
+            supported_formats=['PNG'],
+            max_text_length=1,
+            supported_video_formats=['WEBM'],
+            max_video_dimensions=(640, 360),
+            max_video_file_size_mb=5.0,
+            max_video_duration_seconds=30,
+        )
+        mp4 = tmp_path / 'clip.mp4'
+        mp4.write_bytes(b'not-real-video')
+
+        assert validate_video(mp4, webm_only) == 'VID-INVALID-FORMAT'
+
+    def test_too_long_and_too_large(self, tmp_path, monkeypatch):
+        video = tmp_path / 'clip.mp4'
+        video.write_bytes(b'video-bytes')
+
+        long_info = VideoInfo(
+            width=1280,
+            height=720,
+            duration_seconds=(TWITTER_SPECS.max_video_duration_seconds or 140) + 1,
+            codec='h264',
+            file_size=1024,
+            format_name='mp4',
+        )
+        monkeypatch.setattr('src.core.video_processor.get_video_info', lambda _path: long_info)
+        assert validate_video(video, TWITTER_SPECS) == 'VID-TOO-LONG'
+
+        large_info = VideoInfo(
+            width=1280,
+            height=720,
+            duration_seconds=10,
+            codec='h264',
+            file_size=int((TWITTER_SPECS.max_video_file_size_mb + 1) * 1024 * 1024),
+            format_name='mp4',
+        )
+        monkeypatch.setattr('src.core.video_processor.get_video_info', lambda _path: large_info)
+        assert validate_video(video, TWITTER_SPECS) == 'VID-TOO-LARGE'
+
+
+class TestConvertImageToVideoEdgeCases:
+    def test_raises_for_non_positive_duration(self, tmp_path):
+        image_path = tmp_path / 'still.png'
+        Image.new('RGB', (640, 480), color='purple').save(image_path, 'PNG')
+
+        with pytest.raises(ValueError, match='duration_seconds must be greater than zero'):
+            convert_image_to_video(image_path, SNAPCHAT_SPECS, duration_seconds=0)
+
+
+class TestConvertImagesToVideoSlideshowEdgeCases:
+    def test_rejects_invalid_arguments(self):
+        with pytest.raises(ValueError, match='image_paths cannot be empty'):
+            convert_images_to_video_slideshow([], SNAPCHAT_SPECS)
+
+        with pytest.raises(ValueError, match='image_duration_seconds must be greater than zero'):
+            convert_images_to_video_slideshow(
+                [Path('a.png')], SNAPCHAT_SPECS, image_duration_seconds=0
+            )
+
+        with pytest.raises(ValueError, match='transition_seconds cannot be negative'):
+            convert_images_to_video_slideshow(
+                [Path('a.png')], SNAPCHAT_SPECS, transition_seconds=-1
+            )
+
+    def test_raises_when_source_dimensions_cannot_be_read(self, tmp_path):
+        bad_image = tmp_path / 'bad.png'
+        bad_image.write_bytes(b'not-an-image')
+
+        with pytest.raises(RuntimeError, match='Could not read slideshow source image dimensions'):
+            convert_images_to_video_slideshow([bad_image], SNAPCHAT_SPECS)
+
+    def test_raises_when_ffmpeg_fails(self, tmp_path, monkeypatch):
+        image_1 = tmp_path / 'img1.png'
+        image_2 = tmp_path / 'img2.png'
+        Image.new('RGB', (900, 1200), color='red').save(image_1, 'PNG')
+        Image.new('RGB', (900, 1200), color='yellow').save(image_2, 'PNG')
+
+        monkeypatch.setattr('src.core.video_processor.get_ffmpeg_path', lambda: '/tmp/ffmpeg')
+        monkeypatch.setattr(
+            'src.core.video_processor._run_subprocess',
+            lambda cmd, timeout: subprocess.CompletedProcess(
+                args=cmd, returncode=1, stdout='', stderr='boom'
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match='ffmpeg exited with code 1'):
+            convert_images_to_video_slideshow([image_1, image_2], SNAPCHAT_SPECS)

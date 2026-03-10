@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 APP_NAME = 'GaleFling'
-APP_VERSION = '1.6.2'
+APP_VERSION = '1.6.3'
 APP_ORG = 'Winds of Storm'
 LOG_UPLOAD_ENDPOINT = 'https://galefling.jasmer.tools/logs/upload'
 

@@ -201,6 +201,11 @@ def test_fetlife_platform_name():
     assert p.get_platform_name() == 'FetLife (rinmodel)'
 
 
+def test_fetlife_platform_name_no_profile():
+    p = FetLifePlatform(account_id='fetlife_1')
+    assert p.get_platform_name() == 'FetLife'
+
+
 def test_fetlife_specs():
     p = FetLifePlatform(account_id='fetlife_1')
     specs = p.get_specs()
@@ -215,6 +220,54 @@ def test_fetlife_composer_url():
 
 def test_fetlife_login_url():
     assert FetLifePlatform.LOGIN_URL == 'https://fetlife.com/login'
+
+
+def test_fetlife_navigate_to_login_handles_missing_view():
+    p = FetLifePlatform(account_id='fetlife_1')
+    p._view = None
+    p.navigate_to_login()
+
+
+def test_fetlife_navigate_to_login_handles_missing_page():
+    class DummyView:
+        def page(self):
+            return None
+
+    p = FetLifePlatform(account_id='fetlife_1')
+    p._view = DummyView()
+    p.navigate_to_login()
+
+
+def test_fetlife_navigate_to_login_loads_login_url():
+    class DummySignal:
+        def __init__(self):
+            self.callbacks = []
+
+        def connect(self, callback):
+            self.callbacks.append(callback)
+
+    class DummyPage:
+        def __init__(self):
+            self.loadFinished = DummySignal()
+
+    class DummyView:
+        def __init__(self):
+            self.loaded_urls = []
+            self._page = DummyPage()
+
+        def page(self):
+            return self._page
+
+        def load(self, url):
+            self.loaded_urls.append(url.toString())
+
+    p = FetLifePlatform(account_id='fetlife_1')
+    view = DummyView()
+    p._view = view
+    p.navigate_to_login()
+
+    assert view.loaded_urls == [FetLifePlatform.LOGIN_URL]
+    assert view._page.loadFinished.callbacks == [p._on_load_finished]
 
 
 def test_fetlife_selects_video_composer_url():

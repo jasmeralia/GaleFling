@@ -100,6 +100,8 @@ class DummyConfig:
         self.theme_mode = 'system'
         self.window_geometry = {'x': 0, 'y': 0, 'width': 800, 'height': 600}
         self.snapchat_landscape_mode = 'crop'
+        self.snapchat_multi_image_mode = 'first'
+        self.preview_worker_count = 2
         self.log_upload_endpoint = 'https://example.invalid'
         self.log_upload_enabled = True
         self.debug_mode = False
@@ -200,6 +202,9 @@ def test_about_dialog_displays_ffmpeg_version(qtbot, monkeypatch):
     window._show_about()
 
     assert any('ffmpeg (7.1.1-custom)' in text for text in captured['texts'])
+    assert any(
+        'engineering contributions from Claude and Codex' in text for text in captured['texts']
+    )
 
 
 def test_manual_update_check_no_updates_applies_theme(qtbot, monkeypatch):
@@ -487,6 +492,63 @@ def test_successful_post_clears_draft_and_processed_images(qtbot, tmp_path, monk
     assert not draft_path.exists()
 
 
+def test_on_api_post_finished_snapchat_multi_uses_single_converted_media(
+    qtbot, monkeypatch, tmp_path
+):
+    class DummyPanel:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def exec(self):
+            return 0
+
+        def get_results(self):
+            return []
+
+    class DummyResultsDialog:
+        def __init__(self, *_args, **_kwargs):
+            self.send_logs_requested = False
+
+        def exec(self):
+            return 0
+
+    class DummySnapchatPlatform:
+        def __init__(self):
+            self.account_id = 'snapchat_1'
+            self.prepared_media = None
+
+        def prepare_post(self, _text, media_paths):
+            self.prepared_media = media_paths
+
+    monkeypatch.setattr('src.gui.main_window.WebViewPanel', DummyPanel)
+    monkeypatch.setattr('src.gui.main_window.ResultsDialog', DummyResultsDialog)
+
+    window = DummyMainWindow(
+        DummyConfig(selected=['snapchat_1']),
+        DummyAuthManager(True, False, snapchat=True),
+    )
+    qtbot.addWidget(window)
+    window._apply_dialog_theme = lambda _dialog: None
+    window._composer.set_snapchat_multi_image_mode('slideshow')
+
+    original_1 = tmp_path / 'img1.png'
+    original_2 = tmp_path / 'img2.png'
+    original_1.write_bytes(b'fake1')
+    original_2.write_bytes(b'fake2')
+    converted = tmp_path / 'snapchat.mp4'
+    converted.write_bytes(b'mp4')
+
+    snapchat_platform = DummySnapchatPlatform()
+    window._pending_webview_platforms = [snapchat_platform]
+    window._pending_text = 'hello'
+    window._pending_media_paths = [original_1, original_2]
+    window._processed_media = {'snapchat': [converted, converted]}
+
+    window._on_api_post_finished([])
+
+    assert snapchat_platform.prepared_media == [converted]
+
+
 def test_missing_processed_platforms_dedupes_bluesky(qtbot):
     window = DummyMainWindow(
         DummyConfig(selected=['bluesky_1', 'bluesky_alt']),
@@ -758,7 +820,7 @@ def test_format_restriction_allows_convertible_static_webp(qtbot, monkeypatch, t
     assert captured['restricted'] == set()
 
 
-def test_count_restriction_disables_snapchat_for_multiple_images(qtbot, monkeypatch, tmp_path):
+def test_count_restriction_keeps_snapchat_enabled_for_multiple_images(qtbot, monkeypatch, tmp_path):
     captured = {}
 
     window = DummyMainWindow(
@@ -782,7 +844,7 @@ def test_count_restriction_disables_snapchat_for_multiple_images(qtbot, monkeypa
     media_2.write_bytes(b'fake2')
     window._apply_count_restriction([media_1, media_2])
 
-    assert 'snapchat_1' in captured['restricted']
+    assert 'snapchat_1' not in captured['restricted']
 
 
 def test_format_restriction_notice_shows_in_composer(qtbot, monkeypatch, tmp_path):
@@ -810,11 +872,12 @@ def test_count_restriction_notice_shows_in_composer(qtbot, tmp_path):
     )
     qtbot.addWidget(window)
 
-    media_1 = tmp_path / 'img1.png'
-    media_2 = tmp_path / 'img2.png'
-    media_1.write_bytes(b'fake1')
-    media_2.write_bytes(b'fake2')
-    window._apply_count_restriction([media_1, media_2])
+    media_paths = []
+    for idx in range(5):
+        media = tmp_path / f'img{idx + 1}.png'
+        media.write_bytes(b'fake')
+        media_paths.append(media)
+    window._apply_count_restriction(media_paths)
 
     assert not window._composer._count_restriction_notice.isHidden()
     assert 'attachments' in window._composer._count_restriction_notice.text().lower()
@@ -969,7 +1032,7 @@ def test_show_media_preview_converts_single_image_for_snapchat(qtbot, monkeypatc
     monkeypatch.setattr('src.gui.main_window.is_animated_gif', lambda _path: False)
     monkeypatch.setattr(
         'src.gui.main_window.convert_image_to_video',
-        lambda _image_path, _specs: converted,
+        lambda _image_path, _specs, **_kwargs: converted,
     )
 
     window = DummyMainWindow(
@@ -987,28 +1050,127 @@ def test_show_media_preview_converts_single_image_for_snapchat(qtbot, monkeypatc
     assert window._processed_media['twitter'][0].exists()
 
 
-def test_show_media_preview_missing_first_media_stays_missing(qtbot, monkeypatch, tmp_path):
+def test_show_media_preview_converts_multi_image_for_snapchat_first_mode(
+    qtbot, monkeypatch, tmp_path
+):
+    converted = tmp_path / 'snapchat_first.mp4'
+    converted.write_bytes(b'mp4')
+    calls = {'first': 0, 'slideshow': 0}
+
     class PreviewDialog:
         Accepted = 1
-        _calls = 0
 
-        def __init__(self, image_path, _platforms, _parent=None, existing_paths=None):
+        def __init__(self, *_args, **_kwargs):
             self.had_errors = False
-            self._image_path = image_path
-            self._existing_paths = existing_paths or {}
-            self._call_idx = PreviewDialog._calls
-            PreviewDialog._calls += 1
 
         def exec(self):
             return self.Accepted
 
-        def get_processed_paths(self):
-            # First media fails to process for twitter; second succeeds.
-            if self._call_idx == 0:
-                return {'twitter': None}
-            processed = self._image_path.with_name(f'processed_{self._image_path.name}')
+        def get_processed_media_paths(self):
+            return {}
+
+    monkeypatch.setattr('src.gui.main_window.ImagePreviewDialog', PreviewDialog)
+    monkeypatch.setattr(
+        'src.gui.main_window.convert_image_to_video',
+        lambda image_path, _specs, **_kwargs: (
+            calls.__setitem__('first', calls['first'] + 1) or converted
+            if image_path.name == 'image1.png'
+            else (_ for _ in ()).throw(AssertionError('Only first image should be converted'))
+        ),
+    )
+    monkeypatch.setattr(
+        'src.gui.main_window.convert_images_to_video_slideshow',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError('Slideshow conversion should not be used in first-image mode')
+        ),
+    )
+
+    config = DummyConfig(selected=['snapchat_1'])
+    config.snapchat_multi_image_mode = 'first'
+    window = DummyMainWindow(config, DummyAuthManager(True, False, snapchat=True))
+    qtbot.addWidget(window)
+    window._composer.set_snapchat_multi_image_mode('first')
+
+    media_1 = tmp_path / 'image1.png'
+    media_2 = tmp_path / 'image2.png'
+    media_1.write_bytes(b'fake1')
+    media_2.write_bytes(b'fake2')
+
+    window._show_media_preview([media_1, media_2], ['snapchat_1'])
+
+    assert calls['first'] == 1
+    assert calls['slideshow'] == 0
+    assert window._processed_media['snapchat'] == [converted, converted]
+
+
+def test_show_media_preview_converts_multi_image_for_snapchat_slideshow(
+    qtbot, monkeypatch, tmp_path
+):
+    converted = tmp_path / 'snapchat_slideshow.mp4'
+    converted.write_bytes(b'mp4')
+    calls = {'first': 0, 'slideshow': 0}
+
+    class PreviewDialog:
+        Accepted = 1
+
+        def __init__(self, *_args, **_kwargs):
+            self.had_errors = False
+
+        def exec(self):
+            return self.Accepted
+
+        def get_processed_media_paths(self):
+            return {}
+
+    monkeypatch.setattr('src.gui.main_window.ImagePreviewDialog', PreviewDialog)
+    monkeypatch.setattr(
+        'src.gui.main_window.convert_image_to_video',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError('First-image conversion should not be used in slideshow mode')
+        ),
+    )
+    monkeypatch.setattr(
+        'src.gui.main_window.convert_images_to_video_slideshow',
+        lambda image_paths, _specs, **_kwargs: (
+            calls.__setitem__('slideshow', calls['slideshow'] + 1) or converted
+            if len(image_paths) == 2
+            else (_ for _ in ()).throw(AssertionError('Expected both images for slideshow'))
+        ),
+    )
+
+    config = DummyConfig(selected=['snapchat_1'])
+    config.snapchat_multi_image_mode = 'slideshow'
+    window = DummyMainWindow(config, DummyAuthManager(True, False, snapchat=True))
+    qtbot.addWidget(window)
+    window._composer.set_snapchat_multi_image_mode('slideshow')
+
+    media_1 = tmp_path / 'image1.png'
+    media_2 = tmp_path / 'image2.png'
+    media_1.write_bytes(b'fake1')
+    media_2.write_bytes(b'fake2')
+
+    window._show_media_preview([media_1, media_2], ['snapchat_1'])
+
+    assert calls['first'] == 0
+    assert calls['slideshow'] == 1
+    assert window._processed_media['snapchat'] == [converted, converted]
+
+
+def test_show_media_preview_missing_first_media_stays_missing(qtbot, monkeypatch, tmp_path):
+    class PreviewDialog:
+        Accepted = 1
+
+        def __init__(self, image_path, _platforms, _parent=None, existing_paths=None):
+            self.had_errors = False
+            self._image_paths = image_path if isinstance(image_path, list) else [image_path]
+
+        def exec(self):
+            return self.Accepted
+
+        def get_processed_media_paths(self):
+            processed = self._image_paths[1].with_name(f'processed_{self._image_paths[1].name}')
             processed.write_bytes(b'processed')
-            return {'twitter': processed}
+            return {'twitter': [None, processed]}
 
     monkeypatch.setattr('src.gui.main_window.ImagePreviewDialog', PreviewDialog)
 
@@ -1022,10 +1184,51 @@ def test_show_media_preview_missing_first_media_stays_missing(qtbot, monkeypatch
 
     window._show_media_preview([media_1, media_2], ['twitter_1'])
 
-    # Only one processed media should be cached; first is still missing.
-    assert len(window._processed_media['twitter']) == 1
+    # First media remains missing; second media is processed.
+    assert len(window._processed_media['twitter']) == 2
+    assert window._processed_media['twitter'][0] is None
     missing = window._get_missing_processed_platforms(['twitter_1'], expected_count=2)
     assert missing == ['twitter']
+
+
+def test_show_media_preview_passes_configured_worker_count(qtbot, monkeypatch, tmp_path):
+    seen = {}
+
+    class PreviewDialog:
+        Accepted = 1
+
+        def __init__(
+            self,
+            image_path,
+            _platforms,
+            _parent=None,
+            existing_paths=None,
+            max_parallel_previews=2,
+        ):
+            self.had_errors = False
+            seen['input'] = image_path
+            seen['workers'] = max_parallel_previews
+
+        def exec(self):
+            return self.Accepted
+
+        def get_processed_paths(self):
+            return {}
+
+    monkeypatch.setattr('src.gui.main_window.ImagePreviewDialog', PreviewDialog)
+
+    config = DummyConfig(selected=['twitter_1'])
+    config.preview_worker_count = 4
+    window = DummyMainWindow(config, DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    image_path = tmp_path / 'image.png'
+    image_path.write_bytes(b'fake')
+
+    window._show_media_preview([image_path], ['twitter_1'])
+
+    assert seen['input'] == image_path
+    assert seen['workers'] == 4
 
 
 def test_show_media_preview_caps_at_max_attachments(qtbot, monkeypatch, tmp_path):
@@ -1057,7 +1260,9 @@ def test_show_media_preview_caps_at_max_attachments(qtbot, monkeypatch, tmp_path
 
     window._show_media_preview(media_paths, ['twitter_1'])
 
-    assert len(seen_media) == MAX_MEDIA_ATTACHMENTS
+    assert len(seen_media) == 1
+    assert isinstance(seen_media[0], list)
+    assert len(seen_media[0]) == MAX_MEDIA_ATTACHMENTS
 
 
 def test_main_window_single_platform_enabled(qtbot):
@@ -1093,3 +1298,13 @@ def test_snapchat_landscape_mode_persists_from_composer(qtbot):
     window._composer.set_snapchat_landscape_mode('rotate')
 
     assert config.snapchat_landscape_mode == 'rotate'
+
+
+def test_snapchat_multi_image_mode_persists_from_composer(qtbot):
+    config = DummyConfig(selected=['snapchat_1'])
+    window = DummyMainWindow(config, DummyAuthManager(True, False, snapchat=True))
+    qtbot.addWidget(window)
+
+    window._composer.set_snapchat_multi_image_mode('slideshow')
+
+    assert config.snapchat_multi_image_mode == 'slideshow'

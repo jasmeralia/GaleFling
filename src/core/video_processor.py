@@ -257,6 +257,7 @@ def convert_image_to_video(
     specs: PlatformSpecs,
     duration_seconds: int = 5,
     progress_cb: Callable[[int], None] | None = None,
+    snapchat_landscape_mode: str | None = None,
 ) -> Path:
     """Convert a static image to an MP4 video for video-only platforms."""
     logger = get_logger()
@@ -268,12 +269,44 @@ def convert_image_to_video(
     max_w, max_h = specs.max_video_dimensions or (1080, 1920)
     target_w = max_w - (max_w % 2)
     target_h = max_h - (max_h % 2)
+    snapchat_mode = _normalize_snapchat_landscape_mode(
+        snapchat_landscape_mode or _SNAPCHAT_LANDSCAPE_MODE
+    )
+    is_snapchat = specs.platform_name.lower() == 'snapchat'
+
+    landscape_source = False
+    if is_snapchat:
+        try:
+            from PIL import Image
+
+            with Image.open(image_path) as image:
+                landscape_source = image.width > image.height
+        except Exception:
+            landscape_source = False
 
     with tempfile.NamedTemporaryFile(
         suffix=f'_{specs.platform_name.lower()}_img.mp4',
         delete=False,
     ) as tmp:
         output_path = Path(tmp.name)
+
+    if is_snapchat and landscape_source:
+        if snapchat_mode == 'rotate':
+            video_filter = (
+                'transpose=1,'
+                f'scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,'
+                f'pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,format=yuv420p'
+            )
+        else:
+            video_filter = (
+                f'scale={target_w}:{target_h}:force_original_aspect_ratio=increase,'
+                f'crop={target_w}:{target_h},format=yuv420p'
+            )
+    else:
+        video_filter = (
+            f'scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,'
+            f'pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,format=yuv420p'
+        )
 
     cmd = [
         ffmpeg,
@@ -285,10 +318,7 @@ def convert_image_to_video(
         '-t',
         str(duration_seconds),
         '-vf',
-        (
-            f'scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,'
-            f'pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2,format=yuv420p'
-        ),
+        video_filter,
         '-r',
         '30',
         '-c:v',
@@ -328,6 +358,130 @@ def convert_image_to_video(
 
     _emit_progress(progress_cb, 100)
     return output_path
+
+
+def convert_images_to_video_slideshow(
+    image_paths: list[Path],
+    specs: PlatformSpecs,
+    image_duration_seconds: float = 2.5,
+    transition_seconds: float = 0.4,
+    progress_cb: Callable[[int], None] | None = None,
+    snapchat_landscape_mode: str | None = None,
+) -> Path:
+    """Convert a list of static images into a single MP4 slideshow."""
+    logger = get_logger()
+    ffmpeg = get_ffmpeg_path()
+
+    if not image_paths:
+        raise ValueError('image_paths cannot be empty')
+    if image_duration_seconds <= 0:
+        raise ValueError('image_duration_seconds must be greater than zero')
+    if transition_seconds < 0:
+        raise ValueError('transition_seconds cannot be negative')
+
+    with tempfile.NamedTemporaryFile(
+        suffix=f'_{specs.platform_name.lower()}_slideshow_raw.mp4',
+        delete=False,
+    ) as tmp:
+        raw_output = Path(tmp.name)
+
+    first_w = first_h = 0
+    try:
+        from PIL import Image
+
+        with Image.open(image_paths[0]) as image:
+            first_w = max(2, image.width - (image.width % 2))
+            first_h = max(2, image.height - (image.height % 2))
+    except Exception as exc:
+        raw_output.unlink(missing_ok=True)
+        raise RuntimeError('Could not read slideshow source image dimensions') from exc
+
+    _emit_progress(progress_cb, 0)
+
+    cmd: list[str] = [ffmpeg, '-y']
+    input_duration = image_duration_seconds + transition_seconds
+    for path in image_paths:
+        cmd.extend(['-loop', '1', '-t', f'{input_duration:.3f}', '-i', str(path)])
+
+    filter_parts: list[str] = []
+    for idx in range(len(image_paths)):
+        filter_parts.append(
+            f'[{idx}:v]scale={first_w}:{first_h}:force_original_aspect_ratio=decrease,'
+            f'pad={first_w}:{first_h}:(ow-iw)/2:(oh-ih)/2,format=yuv420p,setsar=1[v{idx}]'
+        )
+
+    if len(image_paths) == 1:
+        filter_parts.append('[v0]format=yuv420p[outv]')
+        final_label = 'outv'
+    else:
+        filter_parts.append(
+            f'[v0][v1]xfade=transition=fade:duration={transition_seconds:.3f}:'
+            f'offset={image_duration_seconds:.3f}[x1]'
+        )
+        for idx in range(2, len(image_paths)):
+            offset = image_duration_seconds * idx
+            filter_parts.append(
+                f'[x{idx - 1}][v{idx}]xfade=transition=fade:duration={transition_seconds:.3f}:'
+                f'offset={offset:.3f}[x{idx}]'
+            )
+        final_label = f'x{len(image_paths) - 1}'
+
+    cmd.extend(
+        [
+            '-filter_complex',
+            ';'.join(filter_parts),
+            '-map',
+            f'[{final_label}]',
+            '-r',
+            '30',
+            '-c:v',
+            'libx264',
+            '-pix_fmt',
+            'yuv420p',
+            '-an',
+            '-movflags',
+            '+faststart',
+            str(raw_output),
+        ]
+    )
+
+    logger.info(
+        'Converting images to slideshow video',
+        extra={
+            'platform': specs.platform_name,
+            'image_count': len(image_paths),
+            'first_image': str(image_paths[0]),
+            'output_path': str(raw_output),
+            'image_duration_seconds': image_duration_seconds,
+            'transition_seconds': transition_seconds,
+        },
+    )
+
+    result = _run_subprocess(cmd, timeout=300)
+    if result.returncode != 0:
+        raw_output.unlink(missing_ok=True)
+        logger.error(
+            'Image slideshow conversion failed',
+            extra={
+                'platform': specs.platform_name,
+                'returncode': result.returncode,
+                'stderr': result.stderr[-500:] if result.stderr else '',
+            },
+        )
+        raise RuntimeError(f'ffmpeg exited with code {result.returncode}')
+
+    _emit_progress(progress_cb, 65)
+
+    processed = process_video(
+        raw_output,
+        specs,
+        snapchat_landscape_mode=snapchat_landscape_mode,
+    )
+    if processed.path != raw_output:
+        raw_output.unlink(missing_ok=True)
+
+    _emit_progress(progress_cb, 100)
+    return processed.path
 
 
 def process_video(

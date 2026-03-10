@@ -11,6 +11,7 @@ from src.core.video_processor import (
     VideoInfo,
     _run_subprocess,
     convert_image_to_video,
+    convert_images_to_video_slideshow,
     extract_thumbnail,
     get_ffmpeg_path,
     get_ffmpeg_version,
@@ -357,3 +358,105 @@ class TestConvertImageToVideo:
         assert info.duration_seconds >= 2.5
         assert info.width <= SNAPCHAT_SPECS.max_video_dimensions[0]
         assert info.height <= SNAPCHAT_SPECS.max_video_dimensions[1]
+
+    def test_snapchat_landscape_crop_mode_uses_crop_filter(self, tmp_path, monkeypatch):
+        image_path = tmp_path / 'landscape.png'
+        Image.new('RGB', (1600, 900), color='blue').save(image_path, 'PNG')
+        commands: list[list[str]] = []
+
+        monkeypatch.setattr('src.core.video_processor.get_ffmpeg_path', lambda: '/tmp/ffmpeg')
+
+        def fake_run(cmd: list[str], timeout: int):
+            commands.append(cmd)
+            Path(cmd[-1]).write_bytes(b'mp4')
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout='', stderr='')
+
+        monkeypatch.setattr('src.core.video_processor._run_subprocess', fake_run)
+
+        output = convert_image_to_video(
+            image_path,
+            SNAPCHAT_SPECS,
+            duration_seconds=2,
+            snapchat_landscape_mode='crop',
+        )
+
+        assert output.exists()
+        assert commands
+        vf = commands[0][commands[0].index('-vf') + 1]
+        assert 'crop=' in vf
+        assert 'transpose=' not in vf
+
+    def test_snapchat_landscape_rotate_mode_uses_transpose_filter(self, tmp_path, monkeypatch):
+        image_path = tmp_path / 'landscape.png'
+        Image.new('RGB', (1600, 900), color='green').save(image_path, 'PNG')
+        commands: list[list[str]] = []
+
+        monkeypatch.setattr('src.core.video_processor.get_ffmpeg_path', lambda: '/tmp/ffmpeg')
+
+        def fake_run(cmd: list[str], timeout: int):
+            commands.append(cmd)
+            Path(cmd[-1]).write_bytes(b'mp4')
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout='', stderr='')
+
+        monkeypatch.setattr('src.core.video_processor._run_subprocess', fake_run)
+
+        output = convert_image_to_video(
+            image_path,
+            SNAPCHAT_SPECS,
+            duration_seconds=2,
+            snapchat_landscape_mode='rotate',
+        )
+
+        assert output.exists()
+        assert commands
+        vf = commands[0][commands[0].index('-vf') + 1]
+        assert 'transpose=1' in vf
+
+
+class TestConvertImagesToVideoSlideshow:
+    def test_slideshow_conversion_uses_xfade_and_runs_post_processing(self, tmp_path, monkeypatch):
+        image_1 = tmp_path / 'img1.png'
+        image_2 = tmp_path / 'img2.png'
+        Image.new('RGB', (900, 1200), color='red').save(image_1, 'PNG')
+        Image.new('RGB', (900, 1200), color='yellow').save(image_2, 'PNG')
+
+        seen = {}
+        source_info = VideoInfo(
+            width=900,
+            height=1200,
+            duration_seconds=5.0,
+            codec='h264',
+            file_size=2 * 1024 * 1024,
+            format_name='mp4',
+        )
+
+        monkeypatch.setattr('src.core.video_processor.get_ffmpeg_path', lambda: '/tmp/ffmpeg')
+
+        def fake_run(cmd: list[str], timeout: int):
+            seen['cmd'] = cmd
+            Path(cmd[-1]).write_bytes(b'mp4')
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout='', stderr='')
+
+        def fake_process_video(path: Path, specs, progress_cb=None, snapchat_landscape_mode=None):
+            seen['processed_path'] = path
+            seen['mode'] = snapchat_landscape_mode
+            return video_processor.ProcessedVideo(
+                path=path,
+                original_info=source_info,
+                processed_info=source_info,
+                meets_requirements=True,
+            )
+
+        monkeypatch.setattr('src.core.video_processor._run_subprocess', fake_run)
+        monkeypatch.setattr('src.core.video_processor.process_video', fake_process_video)
+
+        output = convert_images_to_video_slideshow(
+            [image_1, image_2],
+            SNAPCHAT_SPECS,
+            snapchat_landscape_mode='rotate',
+        )
+
+        assert output.exists()
+        assert 'xfade=' in ' '.join(seen['cmd'])
+        assert seen['processed_path'] == output
+        assert seen['mode'] == 'rotate'

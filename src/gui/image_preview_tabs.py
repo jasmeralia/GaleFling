@@ -630,19 +630,23 @@ class ImagePreviewDialog(QDialog):
 
     def __init__(
         self,
-        image_path: Path,
+        image_path: Path | list[Path],
         platforms: list[str],
         parent=None,
-        existing_paths: dict[str, Path | None] | None = None,
+        existing_paths: dict[str, Path | None] | dict[str, list[Path | None]] | None = None,
+        max_parallel_previews: int = 2,
     ):
         super().__init__(parent)
-        self._image_path = image_path
-        self._tabs: dict[str, ImagePreviewTab | VideoPreviewTab] = {}
-        self._processed_paths: dict[str, Path | None] = {}
+        self._media_paths = [image_path] if isinstance(image_path, Path) else list(image_path)
+        self._tabs: dict[str, list[ImagePreviewTab | VideoPreviewTab]] = {}
+        self._platform_attachment_tabs: dict[str, QTabWidget | None] = {}
         self._had_errors = False
         self._pending_tabs = 0
-        self._existing_paths = existing_paths or {}
-        self._is_video = _is_video(image_path)
+        self._running_tabs: set[ImagePreviewTab | VideoPreviewTab] = set()
+        self._queued_tabs: list[ImagePreviewTab | VideoPreviewTab] = []
+        self._max_parallel_previews = max(1, max_parallel_previews)
+        self._existing_paths = self._normalize_existing_paths(existing_paths)
+        self._is_video = all(_is_video(path) for path in self._media_paths)
         self._has_video_tabs = self._is_video
 
         title = 'Video Preview' if self._is_video else 'Media Preview'
@@ -651,40 +655,57 @@ class ImagePreviewDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # Original file info
-        orig_label = QLabel(
-            f'<b>Original:</b> {image_path.name}<br>'
-            f'<b>Size:</b> {_format_size(image_path.stat().st_size)}'
+        original_items = '<br>'.join(
+            f'{path.name} ({_format_size(path.stat().st_size)})' for path in self._media_paths
         )
+        orig_label = QLabel(f'<b>Attachments:</b> {len(self._media_paths)}<br>{original_items}')
         layout.addWidget(orig_label)
         layout.addSpacing(10)
 
-        # Tab widget
         self._tab_widget = QTabWidget()
-        self._tab_widget.currentChanged.connect(self._on_tab_changed)
-
         for platform in platforms:
             specs = PLATFORM_SPECS_MAP.get(platform)
-            if specs:
-                cached_path = self._existing_paths.get(platform)
+            if not specs:
+                continue
+
+            platform_tabs: list[ImagePreviewTab | VideoPreviewTab] = []
+            attachment_tab_widget: QTabWidget | None = None
+            use_attachment_tabs = len(self._media_paths) > 1
+            if use_attachment_tabs:
+                attachment_tab_widget = QTabWidget()
+                self._platform_attachment_tabs[platform] = attachment_tab_widget
+            else:
+                self._platform_attachment_tabs[platform] = None
+
+            for idx, media_path in enumerate(self._media_paths):
+                cached_list = self._existing_paths.get(platform, [])
+                cached_path = cached_list[idx] if idx < len(cached_list) else None
                 cached_is_video = bool(cached_path and _is_video(cached_path))
-                if self._is_video or cached_is_video:
-                    video_source = image_path if self._is_video else (cached_path or image_path)
+                media_is_video = _is_video(media_path)
+                if media_is_video or cached_is_video:
+                    source_path = media_path if media_is_video else (cached_path or media_path)
                     preview_tab: ImagePreviewTab | VideoPreviewTab = VideoPreviewTab(
-                        video_source,
+                        source_path,
                         specs,
                         self,
                         cached_path=cached_path,
                     )
                     self._has_video_tabs = True
                 else:
-                    preview_tab = ImagePreviewTab(image_path, specs, self, cached_path=cached_path)
-                self._tabs[platform] = preview_tab
-                self._tab_widget.addTab(preview_tab, specs.platform_name)
+                    preview_tab = ImagePreviewTab(media_path, specs, self, cached_path=cached_path)
+                platform_tabs.append(preview_tab)
+
+                if attachment_tab_widget is not None:
+                    attachment_tab_widget.addTab(preview_tab, f'Attachment {idx + 1}')
+
+            self._tabs[platform] = platform_tabs
+            if attachment_tab_widget is not None:
+                self._tab_widget.addTab(attachment_tab_widget, specs.platform_name)
+            else:
+                self._tab_widget.addTab(platform_tabs[0], specs.platform_name)
 
         layout.addWidget(self._tab_widget)
 
-        # Info label
         if self._is_video:
             info_text = (
                 '<i>Videos are automatically resized and compressed for each platform. '
@@ -705,7 +726,6 @@ class ImagePreviewDialog(QDialog):
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        # OK button
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         self._ok_btn = QPushButton('OK')
@@ -719,29 +739,55 @@ class ImagePreviewDialog(QDialog):
         btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
 
-        # Load all tabs and enable OK when complete
         self._pending_tabs = 0
-        for tab in self._tabs.values():
-            if tab.get_processed_path() is None:
-                tab.preview_done.connect(self._on_tab_done)
-                self._pending_tabs += 1
-                tab.load_preview()
-            else:
-                tab.load_preview()
-        if not self._tabs:
+        for platform_tabs in self._tabs.values():
+            for tab in platform_tabs:
+                if tab.get_processed_path() is None:
+                    tab.preview_done.connect(self._on_tab_done)
+                    self._pending_tabs += 1
+                    self._queued_tabs.append(tab)
+                else:
+                    tab.load_preview()
+
+        if not self._tabs or self._pending_tabs == 0:
             self._ok_btn.setEnabled(True)
         else:
+            self._start_queued_previews()
             self._refresh_ok_state()
 
-    def _on_tab_changed(self, index: int):
-        widget = self._tab_widget.widget(index)
-        if isinstance(widget, (ImagePreviewTab, VideoPreviewTab)):
-            widget.load_preview()
+    def _normalize_existing_paths(
+        self,
+        existing_paths: dict[str, Path | None] | dict[str, list[Path | None]] | None,
+    ) -> dict[str, list[Path | None]]:
+        normalized: dict[str, list[Path | None]] = {}
+        if not existing_paths:
+            return normalized
+        count = len(self._media_paths)
+        for platform, value in existing_paths.items():
+            paths: list[Path | None]
+            if isinstance(value, list):
+                paths = value[:count]
+            else:
+                paths = [value]
+            if len(paths) < count:
+                paths.extend([None] * (count - len(paths)))
+            normalized[platform] = [p if p and p.exists() else None for p in paths]
+        return normalized
+
+    def _start_queued_previews(self):
+        while self._queued_tabs and len(self._running_tabs) < self._max_parallel_previews:
+            tab = self._queued_tabs.pop(0)
+            self._running_tabs.add(tab)
+            tab.load_preview()
 
     def _on_tab_done(self, _success: bool):
+        sender = self.sender()
+        if isinstance(sender, (ImagePreviewTab, VideoPreviewTab)):
+            self._running_tabs.discard(sender)
         self._pending_tabs = max(0, self._pending_tabs - 1)
         if not _success:
             self._had_errors = True
+        self._start_queued_previews()
         self._refresh_ok_state()
 
     def _refresh_ok_state(self):
@@ -751,14 +797,26 @@ class ImagePreviewDialog(QDialog):
         if self._had_errors:
             self._ok_btn.setEnabled(False)
             return
-        all_ready = all(tab.get_processed_path() for tab in self._tabs.values())
+        all_ready = all(
+            all(tab.get_processed_path() for tab in platform_tabs)
+            for platform_tabs in self._tabs.values()
+        )
         self._ok_btn.setEnabled(all_ready)
 
     def get_processed_paths(self) -> dict[str, Path | None]:
-        """Return {platform: processed_media_path} for all loaded tabs."""
+        """Return {platform: processed_media_path} for single-media previews."""
+        if len(self._media_paths) != 1:
+            return {}
         result = {}
-        for platform, tab in self._tabs.items():
-            result[platform] = tab.get_processed_path()
+        for platform, platform_tabs in self._tabs.items():
+            result[platform] = platform_tabs[0].get_processed_path()
+        return result
+
+    def get_processed_media_paths(self) -> dict[str, list[Path | None]]:
+        """Return {platform: [processed_media_path,...]} for all loaded tabs."""
+        result: dict[str, list[Path | None]] = {}
+        for platform, platform_tabs in self._tabs.items():
+            result[platform] = [tab.get_processed_path() for tab in platform_tabs]
         return result
 
     @property

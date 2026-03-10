@@ -52,7 +52,7 @@ APIs:
   - requests + facebook-sdk (Instagram Graph API)
 Packaging: PyInstaller + NSIS installer
 Auth Storage: keyring (Windows Credential Manager) + accounts_config.json
-Current Version: 1.5.14 (active development)
+Current Version: 1.5.15 (active development)
 ```
 
 ### PyQt6 Notes
@@ -269,7 +269,7 @@ Lookup via `PLATFORM_SPECS_MAP: dict[str, PlatformSpecs]` or individual constant
 | Fansly | 3840x2160 | 5120 MB | MP4, MOV | None |
 | FetLife | 1920x1080 | 500 MB | MP4 | None |
 
-**Note:** Snapchat stories only support video — `supports_images=False`, `supports_text=False`. With a single static image attached, GaleFling auto-converts the image to MP4 for Snapchat. With multiple images attached, Snapchat is disabled by attachment-count restriction. When text is entered with Snapchat selected, a warning is shown.
+**Note:** Snapchat stories only support video — `supports_images=False`, `supports_text=False`. GaleFling auto-converts static images to MP4 for Snapchat. For multiple images, the composer offers `Use first image only` or `Create slideshow video`. When text is entered with Snapchat selected, a warning is shown.
 
 ### PostResult
 ```python
@@ -400,7 +400,9 @@ Implemented in `src/core/image_processor.py` (`process_image()`, `process_animat
 4. Re-encode to H.264 + AAC MP4 if resize/trim is needed
 5. If file too large, iteratively increase CRF (23 → 28 → 33 → 38) for more compression
 6. If video already meets all specs, pass through without re-encoding
-7. For Snapchat single-image posts, convert static image input to MP4 (`convert_image_to_video()`)
+7. For Snapchat image posts, convert static image input to MP4:
+   - Single image: `convert_image_to_video()`
+   - Multiple images: first-image or slideshow conversion (composer mode)
 
 Implemented in `src/core/video_processor.py` (`process_video()`, `convert_image_to_video()`, `get_video_info()`, `validate_video()`, `extract_thumbnail()`).
 
@@ -408,7 +410,7 @@ Implemented in `src/core/video_processor.py` (`process_video()`, `convert_image_
 When media is attached, `main_window._apply_format_restriction()` determines which platforms support the media type:
 - Checks `supported_formats` (images) or `supported_video_formats` (videos)
 - Allows static-image format auto-conversion for image-supporting platforms (instead of disabling them)
-- Allows single-image auto-conversion to video for Snapchat; still disables Snapchat for multi-image attachments via count restriction
+- Allows Snapchat image-to-video auto-conversion for both single-image and multi-image attachment flows (first-image or slideshow mode)
 - Calls `PlatformSelector.set_format_restriction()` to disable unsupported platforms with notice text
 - PostComposer shows text warning for platforms where `supports_text=False`
 

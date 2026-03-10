@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.15] - 2026-03-10
+
+### Added
+- Snapchat composer control for multi-image handling with two modes: `Use first image only` and `Create slideshow video`.
+- Snapchat multi-image slideshow conversion pipeline with ffmpeg crossfade transitions.
+- Persisted Snapchat multi-image mode in app config, exposed directly in the composer.
+- Advanced setting for preview-processing worker count (`Preview workers`) to control parallel preview jobs.
+- About dialog acknowledgement of engineering contributions from Claude and Codex.
+
+### Changed
+- Snapchat is no longer disabled when multiple static images are attached; GaleFling now converts according to the selected composer mode.
+- Snapchat image-to-video conversion now respects landscape handling mode (`crop` or `rotate`) for landscape source images.
+- WebView Snapchat post preparation now uses a single converted media asset for multi-image modes.
+- Main window minimum size and default window geometry were increased to better fit expanded composer controls.
+
 ## [1.5.14] - 2026-03-10
 
 ### Added

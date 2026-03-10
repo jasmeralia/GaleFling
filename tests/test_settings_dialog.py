@@ -68,6 +68,7 @@ def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
     dialog._prerelease_update_cb.setChecked(True)
     dialog._auto_save_cb.setChecked(False)
     dialog._webview_compatibility_cb.setChecked(True)
+    dialog._preview_workers_spin.setValue(3)
     dialog._debug_cb.setChecked(True)
     dialog._log_upload_cb.setChecked(False)
     dialog._endpoint_edit.setText('https://example.com/logs')
@@ -87,6 +88,7 @@ def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
     assert config.allow_prerelease_updates is True
     assert config.auto_save_draft is False
     assert config.webview_compatibility_mode is True
+    assert config.preview_worker_count == 3
     assert config.debug_mode is True
     assert config.log_upload_enabled is False
     assert config.log_upload_endpoint == 'https://example.com/logs'

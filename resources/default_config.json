@@ -1,16 +1,18 @@
 {
-    "version": "1.5.14",
+    "version": "1.5.15",
     "last_selected_platforms": [],
     "debug_mode": false,
     "auto_check_updates": true,
     "allow_prerelease_updates": false,
     "theme_mode": "system",
     "snapchat_landscape_mode": "crop",
+    "snapchat_multi_image_mode": "first",
+    "preview_worker_count": 2,
     "log_upload_endpoint": "https://galefling.jasmer.tools/logs/upload",
     "log_upload_enabled": true,
     "window_geometry": {
-        "width": 900,
-        "height": 700,
+        "width": 960,
+        "height": 760,
         "x": 100,
         "y": 100
     },

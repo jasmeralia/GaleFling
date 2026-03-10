@@ -15,11 +15,13 @@ DEFAULT_CONFIG = {
     'theme_mode': 'system',
     'webview_compatibility_mode': False,
     'snapchat_landscape_mode': 'crop',
+    'snapchat_multi_image_mode': 'first',
+    'preview_worker_count': 2,
     'log_upload_endpoint': LOG_UPLOAD_ENDPOINT,
     'log_upload_enabled': True,
     'window_geometry': {
-        'width': 900,
-        'height': 700,
+        'width': 960,
+        'height': 760,
         'x': 100,
         'y': 100,
     },
@@ -143,6 +145,29 @@ class ConfigManager:
     def snapchat_landscape_mode(self, value: str) -> None:
         mode = value if value in {'crop', 'rotate'} else 'crop'
         self.set('snapchat_landscape_mode', mode)
+
+    @property
+    def snapchat_multi_image_mode(self) -> str:
+        mode = self._config.get('snapchat_multi_image_mode', 'first')
+        if isinstance(mode, str) and mode in {'first', 'slideshow'}:
+            return mode
+        return 'first'
+
+    @snapchat_multi_image_mode.setter
+    def snapchat_multi_image_mode(self, value: str) -> None:
+        mode = value if value in {'first', 'slideshow'} else 'first'
+        self.set('snapchat_multi_image_mode', mode)
+
+    @property
+    def preview_worker_count(self) -> int:
+        value = self._config.get('preview_worker_count', 2)
+        if isinstance(value, int):
+            return max(1, min(4, value))
+        return 2
+
+    @preview_worker_count.setter
+    def preview_worker_count(self, value: int) -> None:
+        self.set('preview_worker_count', max(1, min(4, int(value))))
 
     @property
     def auto_save_draft(self) -> bool:

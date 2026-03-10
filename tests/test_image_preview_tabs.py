@@ -95,8 +95,8 @@ def test_preview_dialog_uses_video_tab_for_cached_video_output(qtbot, tmp_path, 
     )
     qtbot.addWidget(dialog)
 
-    assert isinstance(dialog._tabs['snapchat'], VideoPreviewTab)
-    assert dialog._tabs['snapchat'].get_processed_path() == cached_video
+    assert isinstance(dialog._tabs['snapchat'][0], VideoPreviewTab)
+    assert dialog._tabs['snapchat'][0].get_processed_path() == cached_video
 
 
 def test_cached_preview_scales_with_resize(qtbot, tmp_path):

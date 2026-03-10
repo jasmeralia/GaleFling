@@ -289,3 +289,26 @@ class TestSnapchatLandscapeMode:
 
         assert composer.get_snapchat_landscape_mode() == 'rotate'
         assert 'rotate' in seen
+
+    def test_multi_image_mode_visible_for_snapchat_multiple_images(self, composer):
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f1:
+            p1 = Path(f1.name)
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f2:
+            p2 = Path(f2.name)
+
+        composer.set_media_paths([p1, p2])
+        composer.set_platform_state(selected=['snapchat_1'], enabled=['snapchat_1'])
+
+        assert composer._snapchat_multi_image_row is not None
+        assert not composer._snapchat_multi_image_row.isHidden()
+        p1.unlink(missing_ok=True)
+        p2.unlink(missing_ok=True)
+
+    def test_multi_image_mode_changes_emit_signal(self, composer):
+        seen = []
+        composer.snapchat_multi_image_mode_changed.connect(seen.append)
+
+        composer.set_snapchat_multi_image_mode('slideshow')
+
+        assert composer.get_snapchat_multi_image_mode() == 'slideshow'
+        assert 'slideshow' in seen

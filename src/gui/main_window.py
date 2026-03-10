@@ -33,6 +33,7 @@ from src.core.logger import get_current_log_path, get_logger, reset_log_file
 from src.core.update_checker import check_for_updates
 from src.core.video_processor import (
     convert_image_to_video,
+    convert_images_to_video_slideshow,
     get_ffmpeg_version,
     set_snapchat_landscape_mode,
 )
@@ -74,7 +75,7 @@ class PostWorker(QThread):
         self,
         platforms: dict,
         text: str,
-        processed_media: dict[str, list[Path]],
+        processed_media: dict[str, list[Path | None]],
         platform_groups: dict[str, str],
     ):
         super().__init__()
@@ -87,7 +88,8 @@ class PostWorker(QThread):
         results = []
         for name, platform in self._platforms.items():
             group = self._platform_groups.get(name, name)
-            media_paths = self._processed_media.get(group) or None
+            raw_paths = self._processed_media.get(group) or []
+            media_paths = [path for path in raw_paths if path and path.exists()] or None
             result = platform.post(self._text, media_paths)
             results.append(result)
         self.finished.emit(results)
@@ -159,7 +161,7 @@ class MainWindow(QMainWindow):
         self._config = config
         self._auth_manager = auth_manager
         self._log_uploader = LogUploader(config)
-        self._processed_media: dict[str, list[Path]] = {}
+        self._processed_media: dict[str, list[Path | None]] = {}
 
         self._platforms: dict = {}
         self._platform_groups: dict[str, str] = {}
@@ -218,6 +220,7 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self):
         self.setWindowTitle(f'{APP_NAME} v{APP_VERSION}')
+        self.setMinimumSize(960, 760)
 
         # Menu bar
         self._create_menu_bar()
@@ -237,8 +240,14 @@ class MainWindow(QMainWindow):
         self._composer.snapchat_landscape_mode_changed.connect(
             self._on_snapchat_landscape_mode_changed
         )
+        self._composer.snapchat_multi_image_mode_changed.connect(
+            self._on_snapchat_multi_image_mode_changed
+        )
         self._composer.set_snapchat_landscape_mode(
             getattr(self._config, 'snapchat_landscape_mode', 'crop')
+        )
+        self._composer.set_snapchat_multi_image_mode(
+            getattr(self._config, 'snapchat_multi_image_mode', 'first')
         )
         set_snapchat_landscape_mode(self._composer.get_snapchat_landscape_mode())
         layout.addWidget(self._composer)
@@ -500,12 +509,57 @@ class MainWindow(QMainWindow):
         specs,
     ) -> bool:
         """Return True when a static image can be converted to MP4 for this platform."""
+        if (
+            not self._can_auto_convert_image_format(media_path)
+            or specs.supports_images
+            or 'MP4' not in specs.supported_video_formats
+        ):
+            return False
+
+        if len(media_paths) == 1:
+            return True
+
+        if specs.platform_name.lower() != 'snapchat':
+            return False
+
+        mode = self._composer.get_snapchat_multi_image_mode()
+        if mode not in {'first', 'slideshow'}:
+            return False
+
+        return all(self._can_auto_convert_image_format(path) for path in media_paths)
+
+    def _is_snapchat_multi_image_conversion_applicable(self, media_paths: list[Path]) -> bool:
         return (
-            len(media_paths) == 1
-            and self._can_auto_convert_image_format(media_path)
-            and not specs.supports_images
-            and 'MP4' in specs.supported_video_formats
+            len(media_paths) > 1
+            and all(not self._is_video_file(path) for path in media_paths)
+            and self._composer.get_snapchat_multi_image_mode() in {'first', 'slideshow'}
+            and all(self._can_auto_convert_image_format(path) for path in media_paths)
         )
+
+    def _populate_snapchat_converted_paths(
+        self, media_paths: list[Path], converted_path: Path
+    ) -> None:
+        count = len(media_paths)
+        processed_paths = self._processed_media.setdefault('snapchat', [])
+        if len(processed_paths) < count:
+            processed_paths.extend([None] * (count - len(processed_paths)))
+        for idx in range(count):
+            processed_paths[idx] = converted_path
+
+    def _get_snapchat_preview_media_paths(self, media_paths: list[Path]) -> list[Path]:
+        processed = self._processed_media.get('snapchat') or []
+        if (
+            self._is_snapchat_multi_image_conversion_applicable(media_paths)
+            and processed
+            and processed[0]
+            and processed[0].exists()
+        ):
+            return [processed[0]]
+        existing_paths: list[Path] = []
+        for path in processed:
+            if path and path.exists():
+                existing_paths.append(path)
+        return existing_paths or media_paths
 
     def _apply_format_restriction(self, media_paths: list[Path]):
         """Disable platforms that don't support any of the attached media formats."""
@@ -586,7 +640,12 @@ class MainWindow(QMainWindow):
             if not specs:
                 continue
             # Video attachments: always max 1
-            max_allowed = 1 if has_video else specs.max_media_attachments
+            if platform_id == 'snapchat' and self._is_snapchat_multi_image_conversion_applicable(
+                media_paths
+            ):
+                max_allowed = MAX_MEDIA_ATTACHMENTS
+            else:
+                max_allowed = 1 if has_video else specs.max_media_attachments
             if count > max_allowed:
                 restricted.add(account_id)
 
@@ -720,7 +779,7 @@ class MainWindow(QMainWindow):
                 continue
             seen.add(group)
             paths = self._processed_media.get(group, [])
-            if len(paths) != expected_count or not all(p.exists() for p in paths):
+            if len(paths) != expected_count or not all(p and p.exists() for p in paths):
                 missing.append(group)
         return missing
 
@@ -735,33 +794,88 @@ class MainWindow(QMainWindow):
                 continue
             seen.add(group)
             groups.append(group)
-        # Process each media file; preview dialog handles one file at a time
+        if not groups:
+            return
+
+        existing: dict[str, list[Path | None]] = {}
+        for group in groups:
+            cached_paths = self._processed_media.get(group, [])
+            existing[group] = [
+                cached_paths[idx] if idx < len(cached_paths) else None
+                for idx in range(len(media_paths))
+            ]
+
+        snapchat_multi_mode = self._composer.get_snapchat_multi_image_mode()
+        snapchat_multi_conversion = (
+            'snapchat' in groups
+            and self._is_snapchat_multi_image_conversion_applicable(media_paths)
+        )
+        if snapchat_multi_conversion:
+            cached_snapchat = existing.get('snapchat', [None])[0]
+            if cached_snapchat is not None and cached_snapchat.exists():
+                converted_path = cached_snapchat
+            else:
+                snapchat_specs = PLATFORM_SPECS_MAP['snapchat']
+                try:
+                    if snapchat_multi_mode == 'slideshow':
+                        converted_path = convert_images_to_video_slideshow(
+                            media_paths,
+                            snapchat_specs,
+                            snapchat_landscape_mode=self._composer.get_snapchat_landscape_mode(),
+                        )
+                    else:
+                        converted_path = convert_image_to_video(
+                            media_paths[0],
+                            snapchat_specs,
+                            snapchat_landscape_mode=self._composer.get_snapchat_landscape_mode(),
+                        )
+                except Exception as exc:
+                    get_logger().exception(
+                        'Snapchat image-to-video conversion failed',
+                        extra={
+                            'mode': snapchat_multi_mode,
+                            'media_paths': [str(path) for path in media_paths],
+                            'error': str(exc),
+                        },
+                    )
+                    reply = self._show_message_box(
+                        'Media Processing Failed',
+                        'One or more media previews failed to process.\n\n'
+                        'Would you like to send logs to Jas?',
+                        QMessageBox.Icon.Question,
+                        buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        default=QMessageBox.StandardButton.No,
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self._send_logs()
+                    return
+            self._populate_snapchat_converted_paths(media_paths, converted_path)
+            existing['snapchat'] = [converted_path for _ in range(len(media_paths))]
+
+        # Pre-convert image-to-video only for single-image, video-only platforms.
         for idx, media_path in enumerate(media_paths):
-            existing = {
-                g: self._processed_media[g][idx]
-                if g in self._processed_media and len(self._processed_media[g]) > idx
-                else None
-                for g in groups
-            }
             for group in groups:
+                if group == 'snapchat' and snapchat_multi_conversion:
+                    continue
                 specs = PLATFORM_SPECS_MAP.get(group)
                 if not specs:
                     continue
                 if not self._can_auto_convert_image_to_video(media_paths, media_path, specs):
                     continue
-
-                cached_path = existing.get(group)
+                cached_path = existing[group][idx]
                 if cached_path is not None and cached_path.exists():
                     continue
-
                 try:
-                    converted_path = convert_image_to_video(media_path, specs)
+                    converted_path = convert_image_to_video(
+                        media_path,
+                        specs,
+                        snapchat_landscape_mode=self._composer.get_snapchat_landscape_mode(),
+                    )
                     processed_paths = self._processed_media.setdefault(group, [])
-                    if idx < len(processed_paths):
-                        processed_paths[idx] = converted_path
-                    else:
-                        processed_paths.append(converted_path)
-                    existing[group] = converted_path
+                    if idx >= len(processed_paths):
+                        processed_paths.extend([None] * ((idx + 1) - len(processed_paths)))
+                    processed_paths[idx] = converted_path
+                    existing[group][idx] = converted_path
                 except Exception as exc:
                     get_logger().exception(
                         'Image-to-video conversion failed',
@@ -783,30 +897,50 @@ class MainWindow(QMainWindow):
                         self._send_logs()
                     return
 
-            if not groups:
-                continue
+        dialog_input: Path | list[Path] = media_paths[0] if len(media_paths) == 1 else media_paths
+        existing_input: dict[str, Path | None] | dict[str, list[Path | None]]
+        if len(media_paths) == 1:
+            existing_input = {group: values[0] for group, values in existing.items()}
+        else:
+            existing_input = existing
 
-            dialog = ImagePreviewDialog(media_path, groups, self, existing_paths=existing)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                for platform, path in dialog.get_processed_paths().items():
-                    if path and path.exists():
-                        processed_paths = self._processed_media.setdefault(platform, [])
-                        if idx < len(processed_paths):
-                            processed_paths[idx] = path
-                        else:
-                            processed_paths.append(path)
-            elif dialog.had_errors:
-                reply = self._show_message_box(
-                    'Media Processing Failed',
-                    'One or more media previews failed to process.\n\n'
-                    'Would you like to send logs to Jas?',
-                    QMessageBox.Icon.Question,
-                    buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    default=QMessageBox.StandardButton.No,
-                )
-                if reply == QMessageBox.StandardButton.Yes:
-                    self._send_logs()
-                return  # Don't continue if there were errors
+        try:
+            dialog = ImagePreviewDialog(
+                dialog_input,
+                groups,
+                self,
+                existing_paths=existing_input,
+                max_parallel_previews=getattr(self._config, 'preview_worker_count', 2),
+            )
+        except TypeError:
+            dialog = ImagePreviewDialog(dialog_input, groups, self, existing_paths=existing_input)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            if hasattr(dialog, 'get_processed_media_paths'):
+                processed_media = dialog.get_processed_media_paths()
+            else:
+                processed_single = dialog.get_processed_paths()
+                processed_media = {platform: [path] for platform, path in processed_single.items()}
+
+            for platform, paths in processed_media.items():
+                processed_paths = self._processed_media.setdefault(platform, [])
+                for idx, path in enumerate(paths):
+                    if not path or not path.exists():
+                        continue
+                    if idx >= len(processed_paths):
+                        processed_paths.extend([None] * ((idx + 1) - len(processed_paths)))
+                    processed_paths[idx] = path
+        elif dialog.had_errors:
+            reply = self._show_message_box(
+                'Media Processing Failed',
+                'One or more media previews failed to process.\n\n'
+                'Would you like to send logs to Jas?',
+                QMessageBox.Icon.Question,
+                buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                default=QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._send_logs()
+            return
 
     def _on_snapchat_landscape_mode_changed(self, mode: str):
         if hasattr(self._config, 'snapchat_landscape_mode'):
@@ -814,6 +948,21 @@ class MainWindow(QMainWindow):
         else:
             self._config.set('snapchat_landscape_mode', mode)
         set_snapchat_landscape_mode(mode)
+        if self._composer.get_media_paths():
+            self._cleanup_processed_media()
+            self._auto_save_draft()
+
+    def _on_snapchat_multi_image_mode_changed(self, mode: str):
+        if hasattr(self._config, 'snapchat_multi_image_mode'):
+            self._config.snapchat_multi_image_mode = mode
+        else:
+            self._config.set('snapchat_multi_image_mode', mode)
+        if self._composer.get_media_paths():
+            media_paths = self._composer.get_media_paths()
+            self._cleanup_processed_media()
+            self._apply_format_restriction(media_paths)
+            self._apply_count_restriction(media_paths)
+            self._auto_save_draft()
 
     def _test_connections(self):
         get_logger().info('User clicked Test Connections')
@@ -978,7 +1127,14 @@ class MainWindow(QMainWindow):
             # Prepare each WebView platform with text + media
             for platform in webview_platforms:
                 group = self._get_platform_group(platform.account_id)
-                media_paths = self._processed_media.get(group) or self._pending_media_paths or None
+                media_paths: list[Path] | None
+                if group == 'snapchat':
+                    media_paths = self._get_snapchat_preview_media_paths(self._pending_media_paths)
+                else:
+                    processed = self._processed_media.get(group) or []
+                    media_paths = [path for path in processed if path and path.exists()] or None
+                    if not media_paths:
+                        media_paths = self._pending_media_paths or None
                 platform.prepare_post(self._pending_text, media_paths)
 
             # Open WebView panel
@@ -1101,6 +1257,7 @@ class MainWindow(QMainWindow):
             'keyring \u2013 Credential storage<br>'
             'Requests \u2013 HTTP client<br>'
             'Packaging \u2013 Version parsing<br><br>'
+            'With engineering contributions from Claude and Codex.<br><br>'
             'Built with care for creators.'
         )
         body.setOpenExternalLinks(True)
@@ -1355,7 +1512,7 @@ class MainWindow(QMainWindow):
             platforms = draft.get('selected_platforms', [])
             if platforms:
                 self._platform_selector.set_selected(platforms)
-            restored: dict[str, list[Path]] = {}
+            restored: dict[str, list[Path | None]] = {}
             # Restore processed media (new list format or old single-path format)
             processed = draft.get('processed_media', {})
             if not processed:
@@ -1366,7 +1523,7 @@ class MainWindow(QMainWindow):
                         restored[name] = [candidate]
             else:
                 for name, path_strs in processed.items():
-                    paths = [Path(p) for p in path_strs if Path(p).exists()]
+                    paths: list[Path | None] = [Path(p) for p in path_strs if Path(p).exists()]
                     if paths:
                         restored[name] = paths
             self._processed_media = restored

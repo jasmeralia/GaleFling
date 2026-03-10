@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -388,6 +389,17 @@ class SettingsDialog(QDialog):
         )
         layout.addWidget(webview_group)
 
+        preview_group = QGroupBox('Preview')
+        preview_layout = QFormLayout(preview_group)
+        self._preview_workers_spin = QSpinBox()
+        self._preview_workers_spin.setRange(1, 4)
+        self._preview_workers_spin.setValue(self._config.preview_worker_count)
+        self._preview_workers_spin.setToolTip(
+            'Maximum number of parallel media preview processing workers.'
+        )
+        preview_layout.addRow('Preview workers:', self._preview_workers_spin)
+        layout.addWidget(preview_group)
+
         # Debug
         debug_group = QGroupBox('Debug')
         debug_layout = QVBoxLayout(debug_group)
@@ -426,6 +438,7 @@ class SettingsDialog(QDialog):
 
         # Advanced
         self._config.webview_compatibility_mode = self._webview_compatibility_cb.isChecked()
+        self._config.preview_worker_count = self._preview_workers_spin.value()
         self._config.debug_mode = self._debug_cb.isChecked()
         self._config.set('log_upload_enabled', self._log_upload_cb.isChecked())
         self._config.set('log_upload_endpoint', self._endpoint_edit.text())

@@ -26,6 +26,7 @@ from src.platforms.fansly import FanslyPlatform
 from src.platforms.fetlife import FetLifePlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
+from src.platforms.threads import ThreadsPlatform
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import AccountConfig
 
@@ -592,6 +593,7 @@ class WebViewPlatformSetupPage(QWizardPage):
             'onlyfans': OnlyFansPlatform,
             'fansly': FanslyPlatform,
             'fetlife': FetLifePlatform,
+            'threads': ThreadsPlatform,
         }
         platform_cls = platform_map.get(self._platform_id)
         if not platform_cls:
@@ -781,6 +783,8 @@ class SetupWizard(QWizard):
             ('onlyfans', 'OnlyFans', 'onlyfans_1'),
             ('fansly', 'Fansly', 'fansly_1'),
             ('fetlife', 'FetLife', 'fetlife_1'),
+            ('threads', 'Threads', 'threads_1'),
+            ('threads', 'Threads (2nd account)', 'threads_2'),
         ]:
             self.addPage(
                 WebViewPlatformSetupPage(

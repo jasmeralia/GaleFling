@@ -167,6 +167,7 @@ class AccountConfig:
 | OnlyFans | 1 | WebView session cookies | webview | ✅ Implemented |
 | Fansly | 1 | WebView session cookies | webview | ✅ Implemented |
 | FetLife | 1 | WebView session cookies | webview | ✅ Implemented |
+| Threads | 2 | WebView session cookies | webview | ⚠️ Needs selector verification |
 
 **Platform Colors:**
 - Twitter: `#1DA1F2`
@@ -176,6 +177,7 @@ class AccountConfig:
 - OnlyFans: `#00AFF0`
 - Fansly: `#0FABE5`
 - FetLife: `#D4001A`
+- Threads: `#000000`
 
 ### Auth Storage
 - **accounts_config.json** (`%APPDATA%/GaleFling/`): Non-secret account metadata (platform_id, account_id, profile_name, enabled)
@@ -257,6 +259,7 @@ Lookup via `PLATFORM_SPECS_MAP: dict[str, PlatformSpecs]` or individual constant
 | OnlyFans | 4096x4096 | 50 MB | JPEG, PNG, WEBP | 1000 |
 | Fansly | 4096x4096 | 50 MB | JPEG, PNG, WEBP | 3000 |
 | FetLife | 4096x4096 | 20 MB | JPEG, PNG | None |
+| Threads | 1440x1440 | 10 MB | JPEG, PNG, GIF | 500 |
 
 ### Video Requirements
 | Platform | Max Dimensions | Max Size | Formats | Max Duration |
@@ -268,6 +271,7 @@ Lookup via `PLATFORM_SPECS_MAP: dict[str, PlatformSpecs]` or individual constant
 | OnlyFans | 3840x2160 | 5120 MB | MP4, MOV | None |
 | Fansly | 3840x2160 | 5120 MB | MP4, MOV | None |
 | FetLife | 1920x1080 | 500 MB | MP4 | None |
+| Threads | 1920x1080 | 1024 MB | MP4 | 300s |
 
 **Note:** Snapchat stories only support video — `supports_images=False`, `supports_text=False`. GaleFling auto-converts static images to MP4 for Snapchat. For multiple images, the composer offers `Use first image only` or `Create slideshow video`. When text is entered with Snapchat selected, a warning is shown.
 
@@ -597,6 +601,96 @@ makensis build/installer.nsi
 8. ~~Testing & polish (288 tests)~~ ✅
 9. Build & release (Step 10 pending)
 10. ~~Video support~~ ✅ — Video processing, format restrictions, Snapchat video-only
+
+---
+
+---
+
+## Threads Platform — Data Collection Required
+
+Two values in `src/platforms/threads.py` are placeholders pending empirical
+verification. Until verified, Threads text pre-fill may silently fail (text box
+stays empty), and session detection may return false negatives.
+
+---
+
+### What Jas needs to do
+
+**Step 1 — Find the composer text selector**
+
+1. Open a Chromium-based browser (Chrome, Edge) and navigate to `https://www.threads.net/`.
+2. Log in if needed.
+3. Click the **"New thread"** / composer area so the text field has focus.
+4. Open DevTools (`F12`) → **Console** tab, and run:
+
+```javascript
+// Try option A — Lexical editor (most likely)
+document.querySelectorAll('[data-lexical-editor]').length
+
+// Try option B — contenteditable
+document.querySelectorAll('[contenteditable="true"]').length
+
+// Try option C — role=textbox
+document.querySelectorAll('[role="textbox"]').length
+
+// Inspect whichever returned > 0:
+document.querySelector('[data-lexical-editor="true"]').outerHTML.slice(0, 200)
+```
+
+5. Identify the **unique CSS selector** that targets only the composer text area
+   (not comment boxes or search inputs).
+6. Confirm the element is a `contenteditable` div (not `<textarea>`). If it is,
+   the current JS injection path uses `el.textContent = text` — verify this
+   actually populates the Lexical editor. If it doesn't, try:
+
+```javascript
+const el = document.querySelector('[data-lexical-editor="true"]');
+el.focus();
+el.textContent = 'test post text';
+el.dispatchEvent(new InputEvent('input', { bubbles: true }));
+```
+
+   Watch whether the character counter updates. If not, Lexical may need a
+   `KeyboardEvent` approach instead — report back.
+
+**Step 2 — Find the auth cookie name(s)**
+
+1. Still on `threads.net` while logged in.
+2. DevTools → **Application** → **Cookies** → `https://www.threads.net`.
+3. Look for cookies that seem session-related (long values, not analytics).
+   Common candidates: `sessionid`, `ds_user_id`, `csrftoken`.
+4. Log out of Threads, then check which cookies disappeared — those are the
+   auth cookies.
+5. Note **all** cookie names that disappear on logout.
+
+---
+
+### What to give Claude after collecting the data
+
+Provide both of the following in a single message:
+
+```
+TEXT_SELECTOR: <the CSS selector string>
+AUTH_COOKIE_NAMES: <comma-separated list of cookie names>
+```
+
+Example:
+```
+TEXT_SELECTOR: [data-lexical-editor="true"]
+AUTH_COOKIE_NAMES: sessionid, ds_user_id
+```
+
+---
+
+### What Claude will do after receiving the data
+
+1. Update `TEXT_SELECTOR` in `src/platforms/threads.py`.
+2. Update `AUTH_COOKIE_NAMES` in `src/platforms/threads.py`.
+3. Remove the `# THREADS_PLACEHOLDER` comments from `threads.py` and `constants.py`.
+4. Update the Threads status in the platform table above from `⚠️ Needs selector verification` to `✅ Implemented`.
+5. Update the test in `tests/test_threads.py` for `test_threads_session_with_auth_cookie` to use the verified cookie name(s).
+6. Run `make lint` + `make test-cov` and confirm passing.
+7. Follow the full release checklist for the next patch version.
 
 ---
 

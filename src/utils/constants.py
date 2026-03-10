@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 APP_NAME = 'GaleFling'
-APP_VERSION = '1.5.16'
+APP_VERSION = '1.6.0'
 APP_ORG = 'Winds of Storm'
 LOG_UPLOAD_ENDPOINT = 'https://galefling.jasmer.tools/logs/upload'
 
@@ -180,6 +180,26 @@ FETLIFE_SPECS = PlatformSpecs(
     supports_text_with_media=False,
 )
 
+# THREADS_PLACEHOLDER: TEXT_SELECTOR and AUTH_COOKIE_NAMES need empirical verification.
+# See AGENTS.md § "Threads Platform — Data Collection Required" for instructions.
+THREADS_SPECS = PlatformSpecs(
+    platform_name='Threads',
+    max_image_dimensions=(1440, 1440),
+    max_file_size_mb=10.0,
+    supported_formats=['JPEG', 'PNG', 'GIF'],
+    max_text_length=500,
+    platform_color='#000000',
+    api_type='webview',
+    auth_method='session_cookie',
+    max_accounts=2,
+    requires_user_confirm=True,
+    supported_video_formats=['MP4'],
+    max_video_dimensions=(1920, 1080),
+    max_video_file_size_mb=1024.0,
+    max_video_duration_seconds=300,
+    max_media_attachments=10,
+)
+
 PLATFORM_SPECS_MAP: dict[str, PlatformSpecs] = {
     'twitter': TWITTER_SPECS,
     'bluesky': BLUESKY_SPECS,
@@ -188,6 +208,7 @@ PLATFORM_SPECS_MAP: dict[str, PlatformSpecs] = {
     'onlyfans': ONLYFANS_SPECS,
     'fansly': FANSLY_SPECS,
     'fetlife': FETLIFE_SPECS,
+    'threads': THREADS_SPECS,
 }
 
 
@@ -216,11 +237,14 @@ ERROR_CODES = {
     'BS-AUTH-EXPIRED': 'Bluesky session has expired.',
     'IG-AUTH-INVALID': 'Instagram credentials are invalid.',
     'IG-AUTH-EXPIRED': 'Instagram access token has expired.',
+    'TH-AUTH-INVALID': 'Threads session is invalid.',
+    'TH-AUTH-EXPIRED': 'Threads session has expired.',
     'AUTH-MISSING': 'No credentials found for platform.',
     # Rate Limiting (RATE)
     'TW-RATE-LIMIT': 'Twitter rate limit exceeded.',
     'BS-RATE-LIMIT': 'Bluesky rate limit exceeded.',
     'IG-RATE-LIMIT': 'Instagram rate limit exceeded.',
+    'TH-RATE-LIMIT': 'Threads rate limit exceeded.',
     # Image Processing (IMG)
     'IMG-TOO-LARGE': 'Image file size exceeds platform limits.',
     'IMG-INVALID-FORMAT': 'Image format not supported.',
@@ -267,10 +291,13 @@ USER_FRIENDLY_MESSAGES = {
     'BS-AUTH-EXPIRED': "Your Bluesky session expired. Click 'Open Settings' to reconnect.",
     'IG-AUTH-INVALID': 'Your Instagram credentials are not working. Please re-authorize in Settings.',
     'IG-AUTH-EXPIRED': "Your Instagram access token has expired. Click 'Open Settings' to reconnect.",
+    'TH-AUTH-INVALID': 'Your Threads session is not working. Please log in again via Settings.',
+    'TH-AUTH-EXPIRED': 'Your Threads session has expired. Please log in again via Settings.',
     'AUTH-MISSING': 'No credentials found. Please set up your account in Settings.',
     'TW-RATE-LIMIT': "Twitter says you're posting too fast. Try again in about 15 minutes.",
     'BS-RATE-LIMIT': "Bluesky says you're posting too fast. Try again in a few minutes.",
     'IG-RATE-LIMIT': "Instagram says you're posting too fast. Try again in a few minutes.",
+    'TH-RATE-LIMIT': "Threads says you're posting too fast. Try again in a few minutes.",
     'IMG-TOO-LARGE': 'This image is too big. The app will try to resize it automatically.',
     'IMG-INVALID-FORMAT': "This image format isn't supported. Please use JPEG or PNG.",
     'IMG-RESIZE-FAILED': "Couldn't resize the image to fit platform requirements.",

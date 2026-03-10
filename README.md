@@ -1,13 +1,13 @@
 # GaleFling
 
 ![CI](https://github.com/jasmeralia/GaleFling/actions/workflows/ci.yml/badge.svg?branch=master)
-![Release Build](https://img.shields.io/github/actions/workflow/status/jasmeralia/GaleFling/release.yml?event=push&branch=v1.5.16&label=Release%20Build)
+![Release Build](https://img.shields.io/github/actions/workflow/status/jasmeralia/GaleFling/release.yml?event=push&branch=v1.6.0&label=Release%20Build)
 ![Release](https://img.shields.io/github/v/release/jasmeralia/GaleFling?include_prereleases&sort=semver&label=Release)
 ![Coverage](https://codecov.io/gh/jasmeralia/GaleFling/branch/master/graph/badge.svg)
 
 GaleFling is a Windows desktop app for posting to multiple social platforms at once. It’s designed for non-technical creators, with clear guidance, robust error handling, and one-click log sharing for support.
 
-**Current Version:** 1.5.16
+**Current Version:** 1.6.0
 
 Docs: [Changelog](CHANGELOG.md) | [Roadmap](docs/ROADMAP.md) | [Contributing](docs/CONTRIBUTING.md) | [Twitter Setup](docs/TWITTER.md) | [Instagram Setup](docs/INSTAGRAM.md)
 
@@ -24,7 +24,7 @@ On first launch, the app walks you through adding credentials for each platform.
 - **[Twitter Setup](docs/TWITTER.md)** — Developer portal setup, API keys, and PIN-based OAuth flow (up to 2 accounts).
 - **[Instagram Setup](docs/INSTAGRAM.md)** — Graph API credentials, Business/Creator account requirements, and token management.
 - **Bluesky** — Enter your handle and an app password (create one at [bsky.app/settings/app-passwords](https://bsky.app/settings/app-passwords)). Supports up to 2 accounts.
-- **WebView platforms** (Snapchat, OnlyFans, Fansly, FetLife) — Log in via the embedded browser during setup. Session cookies are stored locally.
+- **WebView platforms** (Snapchat, OnlyFans, Fansly, FetLife, Threads) — Log in via the embedded browser during setup. Session cookies are stored locally.
 
 ## Using GaleFling
 

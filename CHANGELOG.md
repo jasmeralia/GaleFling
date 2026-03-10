@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-03-10
+
+### Added
+- Threads platform support (WebView tier) — log in via the embedded browser during setup and GaleFling will pre-fill post text. Up to 2 accounts. Text limit: 500 characters; images up to 10 MB (JPEG, PNG, GIF); videos up to 1 GB MP4 (5 min).
+- `TH-AUTH-INVALID`, `TH-AUTH-EXPIRED`, and `TH-RATE-LIMIT` error codes with user-friendly messages.
+
+### Notes
+- Threads text pre-fill selector and session cookie names are placeholder values pending empirical verification. See AGENTS.md § "Threads Platform — Data Collection Required" for setup steps. All other Threads infrastructure (setup wizard, session detection, result building, image/video processing) is fully wired.
+
 ## [1.5.16] - 2026-03-10
 
 ### Added

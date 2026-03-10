@@ -1,7 +1,7 @@
 # GaleFling
 
 ![CI](https://github.com/jasmeralia/GaleFling/actions/workflows/ci.yml/badge.svg?branch=master)
-![Release Build](https://img.shields.io/github/actions/workflow/status/jasmeralia/GaleFling/release.yml?label=Release%20Build&event=push)
+![Release Build](https://img.shields.io/github/actions/workflow/status/jasmeralia/GaleFling/release.yml?event=push&branch=v1.5.11&label=Release%20Build)
 ![Release](https://img.shields.io/github/v/release/jasmeralia/GaleFling?include_prereleases&sort=semver&label=Release)
 ![Coverage](https://codecov.io/gh/jasmeralia/GaleFling/branch/master/graph/badge.svg)
 

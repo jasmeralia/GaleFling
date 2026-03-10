@@ -30,6 +30,7 @@ Windows GUI application for posting to multiple social media platforms simultane
 - Bump version in `src/utils/constants.py`, `resources/default_config.json`, `build/installer.nsi`, `build/version_info.txt`, and `README.md`.
 - Before bumping a **minor** version (`X.Y.0` or `X.Y.Z` where `Y` changes), confirm with the user first; do not assume a minor bump is desired.
 - Update `CHANGELOG.md` with a new version entry at the top.
+- Update the `README.md` **Release Build** badge tag query (`branch=vX.Y.Z`) to the new release tag so it reflects the latest tagged release workflow status.
 - Commit with message `Release vX.Y.Z`.
 - Tag with `vX.Y.Z` and push tag and `master`.
 - Always run the full checklist after making any changes unless explicitly instructed otherwise.

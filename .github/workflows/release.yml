@@ -1,4 +1,4 @@
-name: Build & Draft Release
+name: Build & Beta Release
 
 on:
   push:
@@ -138,7 +138,7 @@ jobs:
             build/GaleFling-Setup-*.exe
 
   release:
-    name: Create Draft Release
+    name: Create Beta Release
     needs: [lint-and-test, build]
     runs-on: ubuntu-latest
     steps:
@@ -235,7 +235,7 @@ jobs:
         env:
           CURRENT_TAG: ${{ env.TAG_NAME }}
 
-      - name: Create draft release
+      - name: Create beta release
         uses: softprops/action-gh-release@v2
         with:
           draft: false

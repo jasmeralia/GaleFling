@@ -4,7 +4,7 @@
 !include "LogicLib.nsh"
 
 Name "GaleFling"
-OutFile "GaleFling-Setup-v1.7.1.exe"
+OutFile "GaleFling-Setup-v1.7.2.exe"
 InstallDir "$PROGRAMFILES\GaleFling"
 InstallDirRegKey HKLM "Software\GaleFling" "InstallDir"
 RequestExecutionLevel admin
@@ -34,7 +34,9 @@ Section "GaleFling (required)" SecMain
   SectionIn RO
   StrCpy $2 0
   kill_loop:
-    ExecWait "taskkill /F /IM GaleFling.exe /T"
+    nsExec::ExecToStack "taskkill /F /IM GaleFling.exe /T"
+    Pop $0
+    Pop $1
     Sleep 1000
     nsExec::ExecToStack 'cmd /C tasklist /FI "IMAGENAME eq GaleFling.exe" /NH | findstr /I "GaleFling.exe"'
     Pop $0
@@ -63,7 +65,7 @@ Section "GaleFling (required)" SecMain
 
   ; Registry
   WriteRegStr HKLM "Software\GaleFling" "InstallDir" "$INSTDIR"
-  WriteRegStr HKLM "Software\GaleFling" "Version" "1.6.3"
+  WriteRegStr HKLM "Software\GaleFling" "Version" "1.7.2"
 
   ; Add/Remove Programs entry
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GaleFling" \
@@ -71,7 +73,7 @@ Section "GaleFling (required)" SecMain
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GaleFling" \
     "UninstallString" "$\"$INSTDIR\Uninstall.exe$\""
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GaleFling" \
-    "DisplayVersion" "1.6.3"
+    "DisplayVersion" "1.7.2"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GaleFling" \
     "Publisher" "GaleFling"
 SectionEnd

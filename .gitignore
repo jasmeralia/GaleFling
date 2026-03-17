@@ -45,6 +45,9 @@ build/tmp/
 .env
 .env.local
 
+# Functional test credentials
+tests/functional/.env
+
 # Python caches
 .pytest_cache/
 .ruff_cache/

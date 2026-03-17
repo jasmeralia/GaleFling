@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-03-16
+
+### Added
+- Functional test suite under `tests/functional/` for real API and media processing validation:
+  - Bluesky: auth, text posts, URL facets, image/video upload, character limit enforcement
+  - Twitter: auth (v2 + v1.1), text posts, image/video upload, character limit enforcement
+  - Instagram: auth, 3-step Graph API image posting workflow
+  - Media processing: image resize/conversion/compression and video processing across all platform specs
+- `functional` pytest marker in `pyproject.toml` for test separation
+- `make test-functional` Makefile target for local credential-based test runs
+- `.env.example` template for functional test credentials
+- CI workflows (`ci.yml`, `release.yml`) now exclude functional tests via `-m "not functional"`
+
+### Changed
+- `make test-cov` now excludes functional tests by default to prevent CI failures
+- `docs/FUNCTIONAL_TESTS.md` rewritten as a setup and usage guide (was a planning document)
+
 ## [1.6.3] - 2026-03-10
 
 ### Added

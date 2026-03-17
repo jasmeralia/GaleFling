@@ -1,4 +1,4 @@
-.PHONY: help install install-dev lint lint-fix format test test-cov build installer clean
+.PHONY: help install install-dev lint lint-fix format test test-cov test-functional build installer clean
 
 PYTHON ?= python
 PIP ?= pip
@@ -29,7 +29,10 @@ test: ## Run test suite
 	$(PYTHON) -m pytest tests/ -v
 
 test-cov: ## Run tests with coverage report
-	$(PYTHON) -m pytest tests/ -v --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml:coverage.xml --junitxml=junit.xml -o junit_family=legacy
+	$(PYTHON) -m pytest tests/ -v -m "not functional" --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml:coverage.xml --junitxml=junit.xml -o junit_family=legacy
+
+test-functional: ## Run functional tests (requires credentials in tests/functional/.env)
+	$(PYTHON) -m pytest tests/functional/ -m functional -v --no-header
 
 build: ## Build standalone executable with PyInstaller
 	pyinstaller build/build.spec --distpath dist/ --workpath build/tmp --clean

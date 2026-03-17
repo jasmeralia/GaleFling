@@ -39,7 +39,7 @@ jobs:
 
       - name: Test with coverage
         run: |
-          python -m pytest tests/ -v \
+          python -m pytest tests/ -v -m "not functional" \
             --cov=src \
             --cov-report=term-missing \
             --cov-report=html \

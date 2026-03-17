@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-03-17
+
+### Added
+- WebView platform functional tests (`test_webview_sessions.py`): session cookie validation for Snapchat, OnlyFans, Fansly, and FetLife
+- `GALEFLING_DATA_DIR` env var support for pointing functional tests at WebView cookie databases
+- "Export Test Config" button in Settings > Advanced to export all credentials as a `.env` file for functional tests
+- `galefling_data_dir` pytest fixture in functional test conftest
+
+### Fixed
+- Suppressed third-party deprecation warnings in functional tests (httpx `content=<...>` from atproto, `imghdr` from tweepy) via `filterwarnings` in `pyproject.toml`
+
 ## [1.7.0] - 2026-03-16
 
 ### Added

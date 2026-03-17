@@ -28,3 +28,7 @@ pythonpath = ["."]
 markers = [
     "functional: requires real credentials and network access",
 ]
+filterwarnings = [
+    "ignore:Use 'content=<\\.\\.\\.>' to upload raw bytes/text content:DeprecationWarning:httpx._models",
+    "ignore:'imghdr' is deprecated:DeprecationWarning:tweepy.api",
+]

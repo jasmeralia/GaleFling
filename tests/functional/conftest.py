@@ -146,3 +146,16 @@ def instagram_credentials():
     if not all(creds.values()):
         pytest.skip('Instagram credentials not configured')
     return creds
+
+
+@pytest.fixture
+def galefling_data_dir():
+    data_dir = os.environ.get('GALEFLING_DATA_DIR')
+    if not data_dir:
+        pytest.skip('GALEFLING_DATA_DIR not configured')
+    from pathlib import Path
+
+    path = Path(data_dir)
+    if not path.is_dir():
+        pytest.skip(f'GALEFLING_DATA_DIR does not exist: {data_dir}')
+    return path

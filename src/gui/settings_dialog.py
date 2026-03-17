@@ -423,6 +423,17 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(log_group)
 
+        # Export test config
+        export_group = QGroupBox('Functional Tests')
+        export_layout = QVBoxLayout(export_group)
+        export_layout.addWidget(
+            QLabel('<i>Export all configured credentials as a .env file for functional tests.</i>')
+        )
+        export_test_btn = QPushButton('Export Test Config')
+        export_test_btn.clicked.connect(self._export_test_config)
+        export_layout.addWidget(export_test_btn)
+        layout.addWidget(export_group)
+
         layout.addStretch()
         return widget
 
@@ -813,6 +824,79 @@ class SettingsDialog(QDialog):
                 self,
                 'Export Successful',
                 f'{specs.platform_name} cookies exported to:\n{path}',
+            )
+        except OSError as e:
+            QMessageBox.warning(
+                self,
+                'Export Failed',
+                f'Failed to write file: {e}',
+            )
+
+    def _export_test_config(self) -> None:
+        get_logger().info('User selected Settings > Export Test Config')
+        lines: list[str] = []
+
+        # Twitter
+        app_creds = self._auth_manager.get_twitter_app_credentials() or {}
+        tw_creds = self._auth_manager.get_account_credentials('twitter_1') or {}
+        api_key = app_creds.get('api_key', '')
+        api_secret = app_creds.get('api_secret', '')
+        access_token = tw_creds.get('access_token', '')
+        access_token_secret = tw_creds.get('access_token_secret', '')
+        if api_key or access_token:
+            lines.append('# Twitter (OAuth 1.0a)')
+            lines.append(f'TWITTER_API_KEY={api_key}')
+            lines.append(f'TWITTER_API_SECRET={api_secret}')
+            lines.append(f'TWITTER_ACCESS_TOKEN={access_token}')
+            lines.append(f'TWITTER_ACCESS_TOKEN_SECRET={access_token_secret}')
+            lines.append('')
+
+        # Bluesky
+        bs_creds = self._auth_manager.get_bluesky_auth() or {}
+        if bs_creds.get('identifier'):
+            lines.append('# Bluesky')
+            lines.append(f'BLUESKY_IDENTIFIER={bs_creds.get("identifier", "")}')
+            lines.append(f'BLUESKY_APP_PASSWORD={bs_creds.get("app_password", "")}')
+            lines.append('')
+
+        # Instagram
+        ig_creds = self._auth_manager.get_account_credentials('instagram_1') or {}
+        if ig_creds.get('access_token'):
+            lines.append('# Instagram (Graph API)')
+            lines.append(f'INSTAGRAM_ACCESS_TOKEN={ig_creds.get("access_token", "")}')
+            lines.append(f'INSTAGRAM_BUSINESS_ACCOUNT_ID={ig_creds.get("account_id", "")}')
+            lines.append(f'INSTAGRAM_PAGE_ID={ig_creds.get("page_id", "")}')
+            lines.append('')
+
+        # WebView platforms — data directory
+        data_dir = str(get_app_data_dir())
+        lines.append('# WebView platforms — GaleFling data directory')
+        lines.append(f'GALEFLING_DATA_DIR={data_dir}')
+        lines.append('')
+
+        if len(lines) <= 3:
+            QMessageBox.information(
+                self,
+                'No Credentials',
+                'No credentials are configured to export.',
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            'Export Test Config',
+            '.env',
+            'Environment Files (*.env);;All Files (*)',
+        )
+        if not path:
+            return
+        try:
+            with open(path, 'w') as f:
+                f.write('\n'.join(lines))
+            QMessageBox.information(
+                self,
+                'Export Successful',
+                f'Test configuration exported to:\n{path}',
             )
         except OSError as e:
             QMessageBox.warning(

@@ -55,6 +55,17 @@ INSTAGRAM_PAGE_ID=your-facebook-page-id
 - The token needs `instagram_basic`, `instagram_content_publish`, and `pages_read_engagement` permissions
 - Use the Graph API Explorer to generate a long-lived token
 
+#### WebView Platforms (Snapchat, OnlyFans, Fansly, FetLife)
+```env
+GALEFLING_DATA_DIR=/path/to/GaleFling/AppData
+```
+- Set to the GaleFling application data directory containing `webprofiles/`
+- On Windows: `C:\Users\you\AppData\Roaming\GaleFling`
+- On Linux: `~/.config/GaleFling`
+- Easiest: export via **Settings > Advanced > Export Test Config** in GaleFling
+
+WebView tests validate session cookies in the local cookie databases — they do not perform browser automation or create posts.
+
 ### Skipping Unconfigured Platforms
 
 Tests automatically **skip** when their credentials are absent — you only need to configure the platforms you want to test. Running with no `.env` at all will skip all platform API tests (media processing tests still run).
@@ -82,7 +93,8 @@ tests/functional/
 ├── test_bluesky_post.py         # Bluesky: auth, text, image, video, char limit
 ├── test_twitter_post.py         # Twitter: auth, text, image, video, char limit
 ├── test_instagram_post.py       # Instagram: auth, image post (3-step workflow)
-└── test_media_processing.py     # Image/video processing (no credentials needed)
+├── test_media_processing.py     # Image/video processing (no credentials needed)
+└── test_webview_sessions.py     # WebView: session cookie validation (Snapchat, OnlyFans, Fansly, FetLife)
 ```
 
 ### Test Ordering
@@ -107,6 +119,14 @@ Every test that creates a post **deletes it in the same test** to avoid pollutin
 | Multiple images post       | x       | x       | -         |
 | Video post                 | x       | x       | -         |
 | Character limit rejection  | x       | x       | -         |
+
+### WebView Platform Session Tests
+
+| Test case                  | Snapchat | OnlyFans | Fansly | FetLife |
+|----------------------------|----------|----------|--------|---------|
+| Cookie database exists     | x        | x        | x      | x       |
+| has_valid_session()        | x        | x        | x      | x       |
+| Platform specs consistency | x        | x        | x      | x       |
 
 ### Media Processing (No Credentials)
 

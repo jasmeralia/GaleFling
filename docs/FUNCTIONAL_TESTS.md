@@ -61,10 +61,11 @@ GALEFLING_DATA_DIR=/path/to/GaleFling/AppData
 ```
 - Set to the GaleFling application data directory containing `webprofiles/`
 - On Windows: `C:\Users\you\AppData\Roaming\GaleFling`
+- On WSL: `/mnt/c/Users/you/AppData/Roaming/GaleFling` (Plan9 path)
 - On Linux: `~/.config/GaleFling`
 - Easiest: export via **Settings > Advanced > Export Test Config** in GaleFling
 
-WebView tests validate session cookies in the local cookie databases — they do not perform browser automation or create posts.
+WebView platform tests validate session cookies and test composer page loading, text injection, and (where possible) form submission.
 
 ### Skipping Unconfigured Platforms
 
@@ -81,6 +82,9 @@ make test-functional PYTHON=.venv/bin/python
 
 # Media processing only (no credentials needed)
 .venv/bin/python -m pytest tests/functional/test_media_processing.py -m functional -v
+
+# WebView tests for a single platform
+.venv/bin/python -m pytest tests/functional/test_webview_fetlife.py -m functional -v
 ```
 
 ## Test Structure
@@ -88,13 +92,18 @@ make test-functional PYTHON=.venv/bin/python
 ```
 tests/functional/
 ├── conftest.py                  # Credential loading, skip-if-missing fixtures, media fixtures
+├── webview_helpers.py           # Shared QWebEngineView helpers for webview tests
 ├── .env.example                 # Template showing required vars (committed)
 ├── .env                         # Actual credentials (gitignored)
 ├── test_bluesky_post.py         # Bluesky: auth, text, image, video, char limit
 ├── test_twitter_post.py         # Twitter: auth, text, image, video, char limit
 ├── test_instagram_post.py       # Instagram: auth, image post (3-step workflow)
 ├── test_media_processing.py     # Image/video processing (no credentials needed)
-└── test_webview_sessions.py     # WebView: session cookie validation (Snapchat, OnlyFans, Fansly, FetLife)
+├── test_webview_sessions.py     # WebView: session cookie validation (all 4 platforms)
+├── test_webview_fetlife.py      # FetLife: text/picture/video composer tests
+├── test_webview_fansly.py       # Fansly: text injection tests
+├── test_webview_onlyfans.py     # OnlyFans: authentication verification
+└── test_webview_snapchat.py     # Snapchat: page load verification
 ```
 
 ### Test Ordering
@@ -103,7 +112,7 @@ Each platform test module starts with a `TestXxxConnection` class that validates
 
 ### Post Cleanup
 
-Every test that creates a post **deletes it in the same test** to avoid polluting test accounts. Tests use UUID tags in post text to avoid duplicate-post rejections.
+Every test that creates a post **deletes it in the same test** to avoid polluting test accounts. Tests use UUID tags in post text to avoid duplicate-post rejections. FetLife text posts redirect to the feed after submission rather than to the individual post, so manual cleanup may be needed.
 
 ## What's Tested
 
@@ -128,6 +137,23 @@ Every test that creates a post **deletes it in the same test** to avoid pollutin
 | has_valid_session()        | x        | x        | x      | x       |
 | Platform specs consistency | x        | x        | x      | x       |
 
+### WebView Platform Posting Tests
+
+| Test case                    | FetLife | Fansly | OnlyFans | Snapchat |
+|------------------------------|---------|--------|----------|----------|
+| Composer page loads          | x       | x      | x        | x        |
+| Text injection               | x       | x      | -        | -        |
+| Text post submit             | x       | -      | -        | -        |
+| Picture composer elements    | x       | -      | -        | -        |
+| Video composer elements      | x       | -      | -        | -        |
+
+#### WebView Platform Limitations
+
+- **FetLife**: Full testing — text injection into ProseMirror editor, form submission via "Express Yourself" button, picture/video composer element verification. Post submission redirects to `/posts` feed rather than individual post URL, so auto-deletion is not possible. Manual cleanup required.
+- **Fansly**: Text injection into textarea works. Submit buttons are not rendered in offscreen mode (SPA renders them dynamically). Session validation confirmed.
+- **OnlyFans**: Composer div requires click interaction to expand, which is not automatable in offscreen mode. Session authentication is verified by confirming no redirect to `/login`.
+- **Snapchat**: Web app depends on WebGL/GPU, which is unavailable in QWebEngine offscreen mode. JS execution returns `None`. Only page load is tested.
+
 ### Media Processing (No Credentials)
 
 | Test case                           | Platforms covered             |
@@ -144,6 +170,10 @@ Every test that creates a post **deletes it in the same test** to avoid pollutin
 | Video validation (missing file)     | Twitter                       |
 | Video processing pipeline           | Twitter, Bluesky, Instagram   |
 | Duration preservation               | Twitter                       |
+| Snapchat image→video (crop)         | Snapchat                      |
+| Snapchat image→video (rotate)       | Snapchat                      |
+| Snapchat slideshow (crop)           | Snapchat                      |
+| Snapchat slideshow (rotate)         | Snapchat                      |
 
 ## CI Integration
 
@@ -153,3 +183,20 @@ Functional tests are **excluded from CI** via the `functional` pytest marker:
 - CI workflows pass `-m "not functional"` to pytest
 - `make test-cov` also excludes functional tests by default
 - `make test-functional` is the dedicated target for local runs
+
+## Troubleshooting
+
+### QWebEngineView crashes with "Fatal Python error: Aborted"
+The conftest.py sets `QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox --disable-gpu --disable-software-rasterizer` and creates a module-level QApplication to prevent garbage collection. If you still see crashes, ensure `QT_QPA_PLATFORM=offscreen` is set and that you're running from the project root.
+
+### WebView tests skip with "No X cookie database found"
+The platform's cookie database doesn't exist in `GALEFLING_DATA_DIR/webprofiles/<platform>_1/Cookies`. Log into the platform in GaleFling first to create the session.
+
+### FetLife post not auto-deleted
+FetLife redirects to `/posts` after submission instead of the individual post page. Check your FetLife feed for posts containing "GaleFling functional test" and delete them manually.
+
+### OnlyFans composer not found
+OnlyFans requires a click to expand the composer, which can't be automated in offscreen mode. The test verifies authentication only and skips with a message.
+
+### Snapchat JS execution returns None
+Snapchat's web app requires WebGL/GPU which isn't available in Qt offscreen mode. The test skips automatically.

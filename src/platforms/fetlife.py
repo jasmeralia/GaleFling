@@ -14,7 +14,7 @@ class FetLifePlatform(BaseWebViewPlatform):
     IMAGE_COMPOSER_URL = 'https://fetlife.com/pictures/new?source=Main+Navigation'
     VIDEO_COMPOSER_URL = 'https://fetlife.com/videos/new?source=Main+Navigation'
     COMPOSER_URL = TEXT_COMPOSER_URL
-    TEXT_SELECTOR = 'textarea#status_body'
+    TEXT_SELECTOR = 'div.tiptap.ProseMirror[contenteditable="true"]'
     SUCCESS_URL_PATTERN = r'fetlife\.com/(?:users/\d+/(?:statuses|posts|pictures|videos)/\d+|(?:posts|pictures|videos)/\d+)'
     SUCCESS_SELECTOR = ''
     COOKIE_DOMAINS = ['fetlife.com']

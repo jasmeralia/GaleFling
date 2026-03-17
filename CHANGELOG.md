@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.3] - 2026-03-17
+
+### Added
+- Snapchat image→video functional tests: single crop, single rotate, slideshow crop, slideshow rotate
+- WebView platform posting tests split by platform: FetLife (text/picture/video composers), Fansly (text injection), OnlyFans (auth), Snapchat (page load)
+- Shared `webview_helpers.py` module for QWebEngineView test utilities
+- Troubleshooting section in `docs/FUNCTIONAL_TESTS.md` for WebView test issues
+
+### Fixed
+- QWebEngineView fatal abort in WSL offscreen mode: store QApplication at module level to prevent garbage collection, disable Chromium sandbox/GPU
+- FetLife text post submit test now accepts redirect to `/posts` feed (FetLife does not redirect to individual post URL)
+- FetLife `TEXT_SELECTOR` updated for TipTap/ProseMirror editor (`div.tiptap.ProseMirror[contenteditable="true"]`)
+- mypy `annotation-unchecked` warnings in `main_window.py` (added `-> None` return type to `_test_connections`)
+
 ## [1.7.2] - 2026-03-17
 
 ### Fixed

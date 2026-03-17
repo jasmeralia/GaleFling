@@ -10,6 +10,8 @@ from PIL import Image
 
 from src.core.image_processor import process_animated_gif, process_image, validate_image
 from src.core.video_processor import (
+    convert_image_to_video,
+    convert_images_to_video_slideshow,
     get_ffmpeg_path,
     get_ffmpeg_version,
     get_video_info,
@@ -19,6 +21,7 @@ from src.core.video_processor import (
 from src.utils.constants import (
     BLUESKY_SPECS,
     INSTAGRAM_SPECS,
+    SNAPCHAT_SPECS,
     TWITTER_SPECS,
 )
 
@@ -229,3 +232,148 @@ class TestVideoProcessing:
         assert result.processed_info.duration_seconds >= 1.0
         if result.path != sample_video:
             result.path.unlink(missing_ok=True)
+
+
+# ── Snapchat image→video conversion tests ───────────────────────────
+
+
+@pytest.fixture
+def landscape_jpeg(tmp_path):
+    """Create a 640x360 landscape JPEG for Snapchat conversion tests."""
+    img = Image.new('RGB', (640, 360), color='orange')
+    path = tmp_path / 'landscape.jpg'
+    img.save(str(path), 'JPEG', quality=85)
+    return path
+
+
+@pytest.fixture
+def portrait_jpeg(tmp_path):
+    """Create a 360x640 portrait JPEG (already Snapchat-friendly)."""
+    img = Image.new('RGB', (360, 640), color='cyan')
+    path = tmp_path / 'portrait.jpg'
+    img.save(str(path), 'JPEG', quality=85)
+    return path
+
+
+@pytest.fixture
+def landscape_jpegs(tmp_path):
+    """Create 3 landscape JPEGs for slideshow tests."""
+    paths = []
+    for i, color in enumerate(['red', 'green', 'blue']):
+        img = Image.new('RGB', (640, 360), color=color)
+        path = tmp_path / f'slide_{i}.jpg'
+        img.save(str(path), 'JPEG', quality=85)
+        paths.append(path)
+    return paths
+
+
+@pytest.mark.functional
+class TestSnapchatImageToVideoCrop:
+    """Snapchat single image → video with crop mode (default)."""
+
+    def test_landscape_image_produces_portrait_video(self, landscape_jpeg):
+        """A landscape image should be cropped to portrait and converted to MP4."""
+        output = convert_image_to_video(
+            landscape_jpeg, SNAPCHAT_SPECS, duration_seconds=2, snapchat_landscape_mode='crop'
+        )
+        try:
+            assert output.exists()
+            assert output.suffix == '.mp4'
+            info = get_video_info(output)
+            max_w, max_h = SNAPCHAT_SPECS.max_video_dimensions
+            assert info.width <= max_w
+            assert info.height <= max_h
+            # Crop mode: should fill the portrait frame (no letterboxing)
+            assert info.width == max_w or info.height == max_h
+            assert info.duration_seconds >= 1.5
+        finally:
+            output.unlink(missing_ok=True)
+
+    def test_portrait_image_passes_through(self, portrait_jpeg):
+        """A portrait image should not be cropped, just scaled to fit."""
+        output = convert_image_to_video(
+            portrait_jpeg, SNAPCHAT_SPECS, duration_seconds=2, snapchat_landscape_mode='crop'
+        )
+        try:
+            assert output.exists()
+            info = get_video_info(output)
+            max_w, max_h = SNAPCHAT_SPECS.max_video_dimensions
+            assert info.width <= max_w
+            assert info.height <= max_h
+        finally:
+            output.unlink(missing_ok=True)
+
+
+@pytest.mark.functional
+class TestSnapchatImageToVideoRotate:
+    """Snapchat single image → video with rotate mode."""
+
+    def test_landscape_image_rotated_to_portrait(self, landscape_jpeg):
+        """A landscape image should be rotated 90 degrees to portrait."""
+        output = convert_image_to_video(
+            landscape_jpeg, SNAPCHAT_SPECS, duration_seconds=2, snapchat_landscape_mode='rotate'
+        )
+        try:
+            assert output.exists()
+            assert output.suffix == '.mp4'
+            info = get_video_info(output)
+            max_w, max_h = SNAPCHAT_SPECS.max_video_dimensions
+            assert info.width <= max_w
+            assert info.height <= max_h
+            # After rotation, the original width (640) becomes height
+            # and original height (360) becomes width
+            assert info.height >= info.width, 'Rotated video should be taller than wide'
+        finally:
+            output.unlink(missing_ok=True)
+
+
+@pytest.mark.functional
+class TestSnapchatSlideshowCrop:
+    """Snapchat multi-image slideshow → video with crop mode."""
+
+    def test_slideshow_produces_video(self, landscape_jpegs):
+        """Multiple landscape images should become a single cropped slideshow video."""
+        output = convert_images_to_video_slideshow(
+            landscape_jpegs,
+            SNAPCHAT_SPECS,
+            image_duration_seconds=1.5,
+            transition_seconds=0.3,
+            snapchat_landscape_mode='crop',
+        )
+        try:
+            assert output.exists()
+            assert output.suffix == '.mp4'
+            info = get_video_info(output)
+            max_w, max_h = SNAPCHAT_SPECS.max_video_dimensions
+            assert info.width <= max_w
+            assert info.height <= max_h
+            # 3 images * 1.5s each = 4.5s, minus transitions
+            assert info.duration_seconds >= 3.0
+            assert info.duration_seconds <= SNAPCHAT_SPECS.max_video_duration_seconds
+        finally:
+            output.unlink(missing_ok=True)
+
+
+@pytest.mark.functional
+class TestSnapchatSlideshowRotate:
+    """Snapchat multi-image slideshow → video with rotate mode."""
+
+    def test_slideshow_rotated_produces_portrait_video(self, landscape_jpegs):
+        """Multiple landscape images should become a single rotated slideshow video."""
+        output = convert_images_to_video_slideshow(
+            landscape_jpegs,
+            SNAPCHAT_SPECS,
+            image_duration_seconds=1.5,
+            transition_seconds=0.3,
+            snapchat_landscape_mode='rotate',
+        )
+        try:
+            assert output.exists()
+            assert output.suffix == '.mp4'
+            info = get_video_info(output)
+            max_w, max_h = SNAPCHAT_SPECS.max_video_dimensions
+            assert info.width <= max_w
+            assert info.height <= max_h
+            assert info.duration_seconds >= 3.0
+        finally:
+            output.unlink(missing_ok=True)

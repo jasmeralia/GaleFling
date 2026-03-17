@@ -7,9 +7,32 @@ from dotenv import load_dotenv
 
 ENV_PATH = os.path.join(os.path.dirname(__file__), '.env')
 
+# Module-level reference to QApplication to prevent garbage collection.
+_qapp = None
+
 
 def pytest_configure(config):
+    global _qapp
     load_dotenv(ENV_PATH)
+    # QWebEngineWidgets must be imported before any QApplication is created.
+    # Set offscreen platform and import early so webview posting tests work.
+    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+    # Disable Chromium sandbox/GPU to prevent fatal abort in WSL offscreen mode.
+    os.environ.setdefault(
+        'QTWEBENGINE_CHROMIUM_FLAGS', '--no-sandbox --disable-gpu --disable-software-rasterizer'
+    )
+    try:
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication
+
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
+        import PyQt6.QtWebEngineWidgets  # noqa: F401
+
+        # Create QApplication early so Chromium initializes before tests run.
+        if QApplication.instance() is None:
+            _qapp = QApplication(['galefling_functional_tests'])
+    except ImportError:
+        pass
 
 
 # ── Helper to create a small test image on disk ─────────────────────

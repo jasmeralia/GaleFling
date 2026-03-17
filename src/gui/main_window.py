@@ -972,7 +972,7 @@ class MainWindow(QMainWindow):
             self._apply_count_restriction(media_paths)
             self._auto_save_draft()
 
-    def _test_connections(self):
+    def _test_connections(self) -> None:
         get_logger().info('User clicked Test Connections')
         self._status_bar.showMessage('Testing connections...')
         self._test_btn.setEnabled(False)

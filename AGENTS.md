@@ -72,9 +72,10 @@ galefling/
 - Prefer `.venv/bin/python` for project automation commands.
 
 ## Additional Documentation
-- `docs/architecture-overview.md` — deeper architecture and subsystem behavior
-- `docs/platform-specs.md` — platform limits, account caps, and posting constraints
-- `docs/media-processing.md` — image/video processing and conversion behavior
-- `docs/build-and-release.md` — build, tooling, packaging, and release mechanics
-- `docs/threads-integration.md` — Threads selector/cookie verification workflow
-- `docs/RELEASE-TESTING.md` — recommended manual pre-release testing scenarios
+- `docs/ARCHITECTURE_OVERVIEW.md` — deeper architecture and subsystem behavior
+- `docs/PLATFORM_SPECS.md` — platform limits, account caps, and posting constraints
+- `docs/MEDIA_PROCESSING.md` — image/video processing and conversion behavior
+- `docs/BUILD_AND_RELEASE.md` — build, tooling, packaging, and release mechanics
+- `docs/THREADS.md` — Threads selector/cookie verification workflow
+- `docs/RELEASE_TESTING.md` — recommended manual pre-release testing scenarios
+- `docs/FUNCTIONAL_TESTING.md` — functional test setup, credentials, and troubleshooting

@@ -5,13 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.4] - 2026-03-17
+
+### Added
+- OnlyFans composer click expansion: test attempts to click the compose area to expand the contenteditable editor before text injection
+- Snapchat text injection test for environments with WebGL support (native Windows)
+- Windows setup instructions in `docs/FUNCTIONAL_TESTING.md` with prerequisites, commands, and display mode comparison
+- `make test-functional-xvfb` target for running tests under Xvfb virtual display
+
+### Changed
+- Functional test conftest no longer forces offscreen mode when a real display (WSLg, X11, Wayland) is available — enables GPU-dependent tests on capable systems
+- Renamed docs to uppercase with underscores: `architecture-overview.md` → `ARCHITECTURE_OVERVIEW.md`, `build-and-release.md` → `BUILD_AND_RELEASE.md`, `media-processing.md` → `MEDIA_PROCESSING.md`, `platform-specs.md` → `PLATFORM_SPECS.md`, `threads-integration.md` → `THREADS.md`, `RELEASE-TESTING.md` → `RELEASE_TESTING.md`, `FUNCTIONAL_TESTS.md` → `FUNCTIONAL_TESTING.md`
+- Updated all cross-references in AGENTS.md and CHANGELOG.md to match renamed docs
+
 ## [1.7.3] - 2026-03-17
 
 ### Added
 - Snapchat image→video functional tests: single crop, single rotate, slideshow crop, slideshow rotate
 - WebView platform posting tests split by platform: FetLife (text/picture/video composers), Fansly (text injection), OnlyFans (auth), Snapchat (page load)
 - Shared `webview_helpers.py` module for QWebEngineView test utilities
-- Troubleshooting section in `docs/FUNCTIONAL_TESTS.md` for WebView test issues
+- Troubleshooting section in `docs/FUNCTIONAL_TESTING.md` for WebView test issues
 
 ### Fixed
 - QWebEngineView fatal abort in WSL offscreen mode: store QApplication at module level to prevent garbage collection, disable Chromium sandbox/GPU
@@ -51,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `make test-cov` now excludes functional tests by default to prevent CI failures
-- `docs/FUNCTIONAL_TESTS.md` rewritten as a setup and usage guide (was a planning document)
+- `docs/FUNCTIONAL_TESTING.md` rewritten as a setup and usage guide (was a planning document)
 
 ## [1.6.3] - 2026-03-10
 

@@ -1,10 +1,14 @@
 """Functional tests for OnlyFans WebView posting.
 
-OnlyFans composer requires click interaction to expand, so full text injection
-is not possible in offscreen mode. These tests verify session authentication only.
+OnlyFans composer requires click interaction to expand. In offscreen mode the
+composer div is absent; with a real display (WSLg, Xvfb) it may be accessible.
 
 Requires GALEFLING_DATA_DIR in .env with a valid OnlyFans session (onlyfans_1).
 """
+
+import json
+import os
+import uuid
 
 import pytest
 
@@ -27,7 +31,7 @@ def _skip_if_no_session(data_dir):
 
 @pytest.mark.functional
 class TestOnlyFansComposer:
-    """OnlyFans: verify page loads (composer not accessible in offscreen mode)."""
+    """OnlyFans: verify page loads and attempt composer interaction."""
 
     def test_page_loads_authenticated(self, galefling_data_dir):
         """Verify OnlyFans home page loads without login redirect."""
@@ -47,21 +51,123 @@ class TestOnlyFansComposer:
                 (function() {
                     return {
                         title: document.title,
-                        hasBody: document.body.innerHTML.length > 100,
-                        composerFound: !!document.querySelector(
-                            'div[contenteditable="true"].b-make-post__text'
-                        )
+                        hasBody: document.body.innerHTML.length > 100
                     };
                 })();
                 """,
             )
             assert isinstance(result, dict)
             assert result.get('hasBody'), 'Page body is empty'
-            if not result.get('composerFound'):
-                pytest.skip(
-                    'OnlyFans composer not accessible in offscreen mode '
-                    '(requires click interaction to expand)'
+        finally:
+            page.deleteLater()
+            profile.deleteLater()
+
+    def test_composer_accessible(self, galefling_data_dir):
+        """Check if the composer is present and attempt text injection."""
+        _skip_if_no_session(galefling_data_dir)
+        get_or_create_app()
+        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            ok, final_url = load_page(page, 'https://onlyfans.com/', timeout_ms=20000)
+            assert ok, f'Page load failed: {final_url}'
+            if '/login' in final_url.lower():
+                pytest.fail(f'OnlyFans session expired — redirected to login: {final_url}')
+            wait_ms(5000)
+
+            # Try to find the composer — it may need a click to expand
+            result = run_js(
+                page,
+                """
+                (function() {
+                    var composer = document.querySelector(
+                        'div[contenteditable="true"].b-make-post__text'
+                    );
+                    if (composer) return {composerFound: true, clicked: false};
+
+                    // Composer not in DOM yet — click the placeholder/compose area to expand it
+                    var placeholder = document.querySelector(
+                        '.b-make-post__placeholder, .b-make-post, '
+                        + '[data-post-create], .b-write-post, '
+                        + '.post-create, .create-post'
+                    );
+                    if (placeholder) {
+                        placeholder.click();
+                        return {composerFound: false, clicked: true, selector: placeholder.className};
+                    }
+
+                    // Try clicking any element that looks like a compose trigger
+                    var candidates = Array.from(document.querySelectorAll(
+                        'div[class*="make-post"], div[class*="write-post"], '
+                        + 'div[class*="create-post"], div[class*="compose"]'
+                    ));
+                    if (candidates.length > 0) {
+                        candidates[0].click();
+                        return {composerFound: false, clicked: true, selector: candidates[0].className};
+                    }
+
+                    return {
+                        composerFound: false,
+                        clicked: false,
+                        editableCount: document.querySelectorAll('[contenteditable="true"]').length
+                    };
+                })();
+                """,
+            )
+            assert isinstance(result, dict)
+
+            if result.get('clicked') and not result.get('composerFound'):
+                # Clicked the compose area — wait for the editor to appear
+                wait_ms(2000)
+                recheck = run_js(
+                    page,
+                    """
+                    (function() {
+                        var composer = document.querySelector(
+                            'div[contenteditable="true"].b-make-post__text'
+                        );
+                        return {
+                            composerFound: !!composer,
+                            editableCount: document.querySelectorAll(
+                                '[contenteditable="true"]'
+                            ).length
+                        };
+                    })();
+                    """,
                 )
+                if isinstance(recheck, dict):
+                    result = recheck
+
+            if not result.get('composerFound'):
+                platform = os.environ.get('QT_QPA_PLATFORM', 'default')
+                pytest.skip(
+                    f'OnlyFans composer not found after click attempt '
+                    f'(platform={platform}, '
+                    f'editables={result.get("editableCount", 0)}). '
+                    'May require full browser rendering.'
+                )
+
+            # Composer found — inject text
+            tag = uuid.uuid4().hex[:8]
+            test_text = f'GaleFling functional test {tag}'
+            inject_result = run_js(
+                page,
+                f"""
+                (function() {{
+                    var el = document.querySelector(
+                        'div[contenteditable="true"].b-make-post__text'
+                    );
+                    if (!el) return {{found: false}};
+                    el.focus();
+                    document.execCommand('insertText', false, {json.dumps(test_text)});
+                    return {{found: true, content: el.textContent.substring(0, 100)}};
+                }})();
+                """,
+            )
+            assert isinstance(inject_result, dict), f'JS returned: {inject_result}'
+            assert inject_result.get('found'), 'Composer disappeared after detection'
+            assert test_text in inject_result.get('content', ''), (
+                f'Text not injected: {inject_result}'
+            )
         finally:
             page.deleteLater()
             profile.deleteLater()

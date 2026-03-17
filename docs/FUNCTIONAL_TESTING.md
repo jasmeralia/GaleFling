@@ -1,8 +1,8 @@
-# Functional Tests
+# Functional Testing
 
 Functional tests exercise real platform APIs with real credentials. They are **local-only** — never run in CI — because they require secrets and active test accounts.
 
-## Quick Start
+## Quick Start (WSL / Linux)
 
 ```bash
 # 1. Copy the example env and fill in your credentials
@@ -10,9 +10,77 @@ cp tests/functional/.env.example tests/functional/.env
 
 # 2. Edit tests/functional/.env with your real values
 
-# 3. Run the functional tests
+# 3. Run functional tests (uses offscreen mode if no display)
 make test-functional PYTHON=.venv/bin/python
+
+# 4. Or with a virtual display for full WebGL support
+make test-functional-xvfb PYTHON=.venv/bin/python
 ```
+
+## Quick Start (Windows)
+
+### Prerequisites
+
+1. **Python 3.12+** — install from https://python.org or the Microsoft Store
+2. **ffmpeg** — required for video processing tests:
+   ```powershell
+   winget install Gyan.FFmpeg
+   ```
+   Or download from https://ffmpeg.org/download.html and add to `PATH`.
+3. **Project dependencies**:
+   ```powershell
+   cd path\to\GaleFling
+   python -m venv .venv
+   .venv\Scripts\pip install -r requirements.txt -r requirements-dev.txt
+   ```
+
+### Running Tests on Windows
+
+Windows has full GPU access, so WebView tests that need WebGL (Snapchat) work natively.
+
+```powershell
+# All functional tests
+.venv\Scripts\python -m pytest tests\functional\ -m functional -v --no-header
+
+# Specific platform only
+.venv\Scripts\python -m pytest tests\functional\test_webview_snapchat.py -m functional -v
+
+# Media processing only (no credentials needed)
+.venv\Scripts\python -m pytest tests\functional\test_media_processing.py -m functional -v
+```
+
+> **Note:** `make` is not required. The Makefile targets are convenience wrappers around `pytest` commands shown above. If you want `make` on Windows, install via `winget install GnuWin32.Make` or `choco install make`.
+
+### Windows .env Path
+
+On Windows, set the native path for `GALEFLING_DATA_DIR`:
+
+```env
+GALEFLING_DATA_DIR=C:\Users\you\AppData\Roaming\GaleFling
+```
+
+In WSL, use the Plan9 mount path instead:
+
+```env
+GALEFLING_DATA_DIR=/mnt/c/Users/you/AppData/Roaming/GaleFling
+```
+
+Easiest: export via **Settings > Advanced > Export Test Config** in GaleFling.
+
+## Display Modes and Platform Capabilities
+
+WebView tests behave differently depending on the display environment:
+
+| Environment | API tests | Media tests | FetLife | Fansly | OnlyFans | Snapchat |
+|---|---|---|---|---|---|---|
+| **Windows (native)** | All pass | All pass | Full | Text inject | Auth + composer | Full (WebGL) |
+| **WSLg (DISPLAY=:0)** | All pass | All pass | Full | Text inject | Auth only | JS fails (no WebGL) |
+| **Offscreen (no display)** | All pass | All pass | Full | Text inject | Auth only | JS fails |
+| **Xvfb (xvfb-run)** | All pass | All pass | Full | Text inject | Auth only | Depends on Mesa GL |
+
+**Windows is the recommended environment for full test coverage** because it has native GPU access required by Snapchat's WebGL-dependent web app.
+
+The conftest detects whether a display is available and only falls back to offscreen mode when one isn't. You can override this by setting `QT_QPA_PLATFORM=offscreen` explicitly.
 
 ## Configuration
 
@@ -57,35 +125,14 @@ INSTAGRAM_PAGE_ID=your-facebook-page-id
 
 #### WebView Platforms (Snapchat, OnlyFans, Fansly, FetLife)
 ```env
-GALEFLING_DATA_DIR=/path/to/GaleFling/AppData
+GALEFLING_DATA_DIR=C:\Users\you\AppData\Roaming\GaleFling
 ```
 - Set to the GaleFling application data directory containing `webprofiles/`
-- On Windows: `C:\Users\you\AppData\Roaming\GaleFling`
-- On WSL: `/mnt/c/Users/you/AppData/Roaming/GaleFling` (Plan9 path)
-- On Linux: `~/.config/GaleFling`
-- Easiest: export via **Settings > Advanced > Export Test Config** in GaleFling
-
-WebView platform tests validate session cookies and test composer page loading, text injection, and (where possible) form submission.
+- You must have logged into each platform in GaleFling at least once to create the session cookies
 
 ### Skipping Unconfigured Platforms
 
 Tests automatically **skip** when their credentials are absent — you only need to configure the platforms you want to test. Running with no `.env` at all will skip all platform API tests (media processing tests still run).
-
-## Running Tests
-
-```bash
-# All functional tests
-make test-functional PYTHON=.venv/bin/python
-
-# Specific platform only
-.venv/bin/python -m pytest tests/functional/test_bluesky_post.py -m functional -v
-
-# Media processing only (no credentials needed)
-.venv/bin/python -m pytest tests/functional/test_media_processing.py -m functional -v
-
-# WebView tests for a single platform
-.venv/bin/python -m pytest tests/functional/test_webview_fetlife.py -m functional -v
-```
 
 ## Test Structure
 
@@ -102,8 +149,8 @@ tests/functional/
 ├── test_webview_sessions.py     # WebView: session cookie validation (all 4 platforms)
 ├── test_webview_fetlife.py      # FetLife: text/picture/video composer tests
 ├── test_webview_fansly.py       # Fansly: text injection tests
-├── test_webview_onlyfans.py     # OnlyFans: authentication verification
-└── test_webview_snapchat.py     # Snapchat: page load verification
+├── test_webview_onlyfans.py     # OnlyFans: auth + composer click expansion
+└── test_webview_snapchat.py     # Snapchat: page load + text injection (needs WebGL)
 ```
 
 ### Test Ordering
@@ -142,17 +189,11 @@ Every test that creates a post **deletes it in the same test** to avoid pollutin
 | Test case                    | FetLife | Fansly | OnlyFans | Snapchat |
 |------------------------------|---------|--------|----------|----------|
 | Composer page loads          | x       | x      | x        | x        |
-| Text injection               | x       | x      | -        | -        |
+| Composer click expansion     | -       | -      | x        | -        |
+| Text injection               | x       | x      | x        | x        |
 | Text post submit             | x       | -      | -        | -        |
 | Picture composer elements    | x       | -      | -        | -        |
 | Video composer elements      | x       | -      | -        | -        |
-
-#### WebView Platform Limitations
-
-- **FetLife**: Full testing — text injection into ProseMirror editor, form submission via "Express Yourself" button, picture/video composer element verification. Post submission redirects to `/posts` feed rather than individual post URL, so auto-deletion is not possible. Manual cleanup required.
-- **Fansly**: Text injection into textarea works. Submit buttons are not rendered in offscreen mode (SPA renders them dynamically). Session validation confirmed.
-- **OnlyFans**: Composer div requires click interaction to expand, which is not automatable in offscreen mode. Session authentication is verified by confirming no redirect to `/login`.
-- **Snapchat**: Web app depends on WebGL/GPU, which is unavailable in QWebEngine offscreen mode. JS execution returns `None`. Only page load is tested.
 
 ### Media Processing (No Credentials)
 
@@ -187,7 +228,7 @@ Functional tests are **excluded from CI** via the `functional` pytest marker:
 ## Troubleshooting
 
 ### QWebEngineView crashes with "Fatal Python error: Aborted"
-The conftest.py sets `QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox --disable-gpu --disable-software-rasterizer` and creates a module-level QApplication to prevent garbage collection. If you still see crashes, ensure `QT_QPA_PLATFORM=offscreen` is set and that you're running from the project root.
+The conftest.py creates a module-level QApplication to prevent garbage collection, and sets `QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox --disable-gpu --disable-software-rasterizer` when in offscreen mode. If you still see crashes, try running with a real display (`DISPLAY=:0` on WSL) or on native Windows.
 
 ### WebView tests skip with "No X cookie database found"
 The platform's cookie database doesn't exist in `GALEFLING_DATA_DIR/webprofiles/<platform>_1/Cookies`. Log into the platform in GaleFling first to create the session.
@@ -196,7 +237,10 @@ The platform's cookie database doesn't exist in `GALEFLING_DATA_DIR/webprofiles/
 FetLife redirects to `/posts` after submission instead of the individual post page. Check your FetLife feed for posts containing "GaleFling functional test" and delete them manually.
 
 ### OnlyFans composer not found
-OnlyFans requires a click to expand the composer, which can't be automated in offscreen mode. The test verifies authentication only and skips with a message.
+The test attempts to click the compose area to expand the editor. If it still can't find the composer, the SPA may need full browser rendering. Run on Windows for the best chance of success.
 
-### Snapchat JS execution returns None
-Snapchat's web app requires WebGL/GPU which isn't available in Qt offscreen mode. The test skips automatically.
+### Snapchat JS execution fails
+Snapchat's web app requires WebGL with a real GPU. This works on native Windows but not in WSL (even with WSLg) or offscreen mode. The test skips automatically with a diagnostic message.
+
+### Tests pass on Windows but fail in WSL
+WebView platforms that depend on GPU rendering (Snapchat, some OnlyFans features) require native Windows. API-based platforms (Twitter, Bluesky, Instagram) and FetLife/Fansly work in both environments.

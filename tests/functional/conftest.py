@@ -11,16 +11,25 @@ ENV_PATH = os.path.join(os.path.dirname(__file__), '.env')
 _qapp = None
 
 
+def _has_display() -> bool:
+    """Return True if a real X11/Wayland display is available."""
+    return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
+
+
 def pytest_configure(config):
     global _qapp
     load_dotenv(ENV_PATH)
-    # QWebEngineWidgets must be imported before any QApplication is created.
-    # Set offscreen platform and import early so webview posting tests work.
-    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-    # Disable Chromium sandbox/GPU to prevent fatal abort in WSL offscreen mode.
-    os.environ.setdefault(
-        'QTWEBENGINE_CHROMIUM_FLAGS', '--no-sandbox --disable-gpu --disable-software-rasterizer'
-    )
+
+    # Only fall back to offscreen when no display is available (CI, headless).
+    # A real display (WSLg, Xvfb, native X) gives WebGL and full rendering.
+    if not _has_display():
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        # Disable Chromium sandbox/GPU to prevent fatal abort in offscreen mode.
+        os.environ.setdefault(
+            'QTWEBENGINE_CHROMIUM_FLAGS',
+            '--no-sandbox --disable-gpu --disable-software-rasterizer',
+        )
+
     try:
         from PyQt6.QtCore import Qt
         from PyQt6.QtWidgets import QApplication

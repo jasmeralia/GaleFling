@@ -1,4 +1,4 @@
-.PHONY: help install install-dev lint lint-fix format test test-cov test-functional build installer clean
+.PHONY: help install install-dev lint lint-fix format test test-cov test-functional test-functional-xvfb build installer clean
 
 PYTHON ?= python
 PIP ?= pip
@@ -33,6 +33,9 @@ test-cov: ## Run tests with coverage report
 
 test-functional: ## Run functional tests (requires credentials in tests/functional/.env)
 	$(PYTHON) -m pytest tests/functional/ -m functional -v --no-header
+
+test-functional-xvfb: ## Run functional tests under Xvfb (virtual display for WebGL)
+	xvfb-run -a $(PYTHON) -m pytest tests/functional/ -m functional -v --no-header
 
 build: ## Build standalone executable with PyInstaller
 	pyinstaller build/build.spec --distpath dist/ --workpath build/tmp --clean

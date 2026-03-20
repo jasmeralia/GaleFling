@@ -28,6 +28,8 @@ DEFAULT_CONFIG = {
     'last_image_directory': '',
     'auto_save_draft': True,
     'draft_auto_save_interval_seconds': 30,
+    'remote_debug_enabled': False,
+    'remote_debug_port': 9222,
 }
 
 
@@ -184,3 +186,22 @@ class ConfigManager:
     @last_selected_accounts.setter
     def last_selected_accounts(self, value: list[str]) -> None:
         self.set('last_selected_accounts', value)
+
+    @property
+    def remote_debug_enabled(self) -> bool:
+        return self._config.get('remote_debug_enabled', False)
+
+    @remote_debug_enabled.setter
+    def remote_debug_enabled(self, value: bool) -> None:
+        self.set('remote_debug_enabled', value)
+
+    @property
+    def remote_debug_port(self) -> int:
+        value = self._config.get('remote_debug_port', 9222)
+        if isinstance(value, int):
+            return max(1024, min(65535, value))
+        return 9222
+
+    @remote_debug_port.setter
+    def remote_debug_port(self, value: int) -> None:
+        self.set('remote_debug_port', max(1024, min(65535, int(value))))

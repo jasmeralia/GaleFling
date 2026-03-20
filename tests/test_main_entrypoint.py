@@ -332,6 +332,8 @@ def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
         debug_mode = True
         theme_mode = 'system'
         webview_compatibility_mode = False
+        remote_debug_enabled = False
+        remote_debug_port = 9222
 
     class DummyApp:
         def __init__(self, _args):

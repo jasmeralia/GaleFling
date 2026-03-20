@@ -41,37 +41,15 @@ def test_snapchat_is_webview():
     assert result.error_code == 'WV-PREFILL-FAILED'
 
 
-def test_snapchat_configures_safe_webview_settings(monkeypatch):
-    class DummySettings:
-        def __init__(self):
-            self.calls = []
-
-        def setAttribute(self, attr, value):  # noqa: N802
-            self.calls.append((attr, value))
-
-    class DummyPage:
-        def __init__(self, settings):
-            self._settings = settings
-
-        def settings(self):
-            return self._settings
-
-    class DummyWebAttribute:
-        WebGLEnabled = 'webgl'
-        Accelerated2dCanvasEnabled = 'canvas2d'
-
-    class DummyQWebEngineSettings:
-        WebAttribute = DummyWebAttribute
-
-    monkeypatch.setattr('src.platforms.snapchat.QWebEngineSettings', DummyQWebEngineSettings)
-    settings = DummySettings()
-    page = DummyPage(settings)
-
+def test_snapchat_does_not_restrict_webgl():
+    # WebGL and accelerated canvas are intentionally left enabled.
+    # Disabling them caused renderer ACCESS_VIOLATION crashes when the
+    # expired-session redirect landed on www.snapchat.com (marketing site),
+    # which uses GPU-heavy JavaScript.  The base class _configure_webview_page
+    # is a no-op, so Snapchat inherits the default (unrestricted) settings.
     p = SnapchatPlatform(account_id='snapchat_1')
-    p._configure_webview_page(page)
-
-    assert ('webgl', False) in settings.calls
-    assert ('canvas2d', False) in settings.calls
+    assert not hasattr(p, '_configure_webview_page') or p._configure_webview_page.__func__ is \
+        SnapchatPlatform.__bases__[0]._configure_webview_page
 
 
 def _write_cookie(path: Path, host: str, name: str, expires_utc: int):

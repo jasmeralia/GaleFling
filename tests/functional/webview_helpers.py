@@ -92,9 +92,19 @@ def run_js(page: QWebEnginePage, js: str, timeout_ms: int = 5000):
 
 
 def create_webview(data_dir: Path, account_id: str):
-    """Create a QWebEngineView with persistent cookies from the given profile."""
+    """Create a QWebEngineView with persistent cookies from the given profile.
+
+    Uses the same profile name and storage path as the app so that Chromium loads
+    the full persisted browser context (including Cloudflare fingerprint state) from
+    prior app sessions.  The app must NOT be running simultaneously — Chromium holds
+    an exclusive SQLite WAL lock on the cookie database.
+    """
     storage = data_dir / 'webprofiles' / account_id
-    profile = QWebEngineProfile(f'{account_id}_functest', None)
+    # Use the same profile name as the app (_get_profile_storage_path returns
+    # get_app_data_dir() / 'webprofiles' / account_id and passes .name to
+    # QWebEngineProfile).  A different name creates a fresh Chromium context with
+    # no Cloudflare session state, causing re-challenges on protected sites.
+    profile = QWebEngineProfile(account_id, None)
     profile.setPersistentStoragePath(str(storage))
     profile.setPersistentCookiesPolicy(
         QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
@@ -102,6 +112,8 @@ def create_webview(data_dir: Path, account_id: str):
     page = QWebEnginePage(profile)
     view = QWebEngineView()
     view.setPage(page)
+    view.resize(1280, 900)
+    view.show()
     return view, page, profile
 
 

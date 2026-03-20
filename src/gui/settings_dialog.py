@@ -55,6 +55,12 @@ class SettingsDialog(QDialog):
         self._config = config
         self._auth_manager = auth_manager
         self._twitter_pin_handlers: dict[str, object] = {}
+        # Holds the most recently used login-window platform so its
+        # QWebEngineProfile is not GC'd immediately after dialog.exec() returns.
+        # Chromium writes cookies asynchronously; releasing the profile too soon
+        # can interrupt pending writes.  Cleared when the next login window opens
+        # or when this dialog is closed.
+        self._pending_login_platform: object = None
 
         self.setWindowTitle('Settings')
         self.setMinimumSize(760, 680)
@@ -387,6 +393,30 @@ class SettingsDialog(QDialog):
                 '<i>Requires app restart to take effect. May improve stability on some systems.</i>'
             )
         )
+
+        # Remote debugging
+        self._remote_debug_cb = QCheckBox('Enable remote debugging (Chrome DevTools Protocol)')
+        remote_debug_port_layout = QHBoxLayout()
+        remote_debug_port_layout.addWidget(QLabel('Port:'))
+        self._remote_debug_port_spin = QSpinBox()
+        self._remote_debug_port_spin.setRange(1024, 65535)
+        self._remote_debug_port_spin.setValue(9222)
+        self._remote_debug_port_spin.setFixedWidth(80)
+        remote_debug_port_layout.addWidget(self._remote_debug_port_spin)
+        remote_debug_port_layout.addStretch()
+        webview_layout.addWidget(self._remote_debug_cb)
+        webview_layout.addLayout(remote_debug_port_layout)
+        webview_layout.addWidget(
+            QLabel(
+                '<i>Session only — not saved to config. Connect via '
+                'chrome://inspect or DevTools at the configured port.</i>'
+            )
+        )
+
+        # Pre-populate from config
+        self._remote_debug_cb.setChecked(self._config.remote_debug_enabled)
+        self._remote_debug_port_spin.setValue(self._config.remote_debug_port)
+
         layout.addWidget(webview_group)
 
         preview_group = QGroupBox('Preview')
@@ -453,6 +483,14 @@ class SettingsDialog(QDialog):
         self._config.debug_mode = self._debug_cb.isChecked()
         self._config.set('log_upload_enabled', self._log_upload_cb.isChecked())
         self._config.set('log_upload_endpoint', self._endpoint_edit.text())
+
+        # Remote debugging
+        remote_debug_changed = (
+            self._remote_debug_cb.isChecked() != self._config.remote_debug_enabled
+            or self._remote_debug_port_spin.value() != self._config.remote_debug_port
+        )
+        self._config.remote_debug_enabled = self._remote_debug_cb.isChecked()
+        self._config.remote_debug_port = self._remote_debug_port_spin.value()
 
         # Accounts - Twitter app credentials
         tw_key = self._tw_api_key.text().strip()
@@ -542,6 +580,12 @@ class SettingsDialog(QDialog):
                 self,
                 'Restart Required',
                 'WebView compatibility mode changes will apply after restarting GaleFling.',
+            )
+        if remote_debug_changed:
+            QMessageBox.information(
+                self,
+                'Restart Required',
+                'Remote debugging changes will apply after restarting GaleFling.',
             )
         self.accept()
 
@@ -957,8 +1001,12 @@ class SettingsDialog(QDialog):
             f'User selected Settings > {specs.platform_name} > Open Login Window',
             extra={'platform_id': platform_id, 'account_id': account_id},
         )
+        self._pending_login_platform = None  # release any previous platform first
         dialog = WebViewLoginDialog(platform, specs.platform_name, self)
         dialog.exec()
+        # Keep platform alive so its QWebEngineProfile is not GC'd before
+        # Chromium's background cookie writer flushes the session to disk.
+        self._pending_login_platform = platform
 
     def _reset_webview_session(self, platform_id: str, account_id: str):
         specs = PLATFORM_SPECS_MAP.get(platform_id)
@@ -991,6 +1039,9 @@ class SettingsDialog(QDialog):
             return
         try:
             shutil.rmtree(profile_path)
+            # Also evict the in-memory profile so the next login window
+            # starts with a fresh Chromium context rather than a stale one.
+            BaseWebViewPlatform._evict_profile(account_id)
             QMessageBox.information(
                 self,
                 'Session Reset',

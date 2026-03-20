@@ -1,7 +1,7 @@
 """Functional tests for OnlyFans WebView posting.
 
-OnlyFans composer requires click interaction to expand. In offscreen mode the
-composer div is absent; with a real display (WSLg, Xvfb) it may be accessible.
+OnlyFans composer requires click interaction to expand. Session expiry is
+detected via inline login form detection (OnlyFans does not redirect to /login).
 
 Requires GALEFLING_DATA_DIR in .env with a valid OnlyFans session (onlyfans_1).
 """
@@ -49,15 +49,25 @@ class TestOnlyFansComposer:
                 page,
                 """
                 (function() {
+                    // OnlyFans shows a login form inline at / when logged out
+                    var loginForm = document.querySelector(
+                        '.b-loginreg__form, .b-login-wrapper, input[type="email"], input[type="password"]'
+                    );
                     return {
                         title: document.title,
-                        hasBody: document.body.innerHTML.length > 100
+                        hasBody: document.body.innerHTML.length > 100,
+                        hasLoginForm: !!loginForm
                     };
                 })();
                 """,
             )
             assert isinstance(result, dict)
             assert result.get('hasBody'), 'Page body is empty'
+            if result.get('hasLoginForm'):
+                pytest.fail(
+                    'OnlyFans session expired — login form present at home page '
+                    '(re-authenticate via the GaleFling app)'
+                )
         finally:
             page.deleteLater()
             profile.deleteLater()
@@ -72,6 +82,24 @@ class TestOnlyFansComposer:
             assert ok, f'Page load failed: {final_url}'
             if '/login' in final_url.lower():
                 pytest.fail(f'OnlyFans session expired — redirected to login: {final_url}')
+            wait_ms(5000)
+
+            # Detect inline login form (OnlyFans serves it at / without redirecting)
+            login_check = run_js(
+                page,
+                """
+                (function() {
+                    return !!document.querySelector(
+                        '.b-loginreg__form, .b-login-wrapper, input[type="password"]'
+                    );
+                })();
+                """,
+            )
+            if login_check:
+                pytest.fail(
+                    'OnlyFans session expired — login form present at home page '
+                    '(re-authenticate via the GaleFling app)'
+                )
             wait_ms(5000)
 
             # Try to find the composer — it may need a click to expand

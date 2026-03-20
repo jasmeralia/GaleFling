@@ -165,6 +165,11 @@ class DummyTimer:
         self.interval_ms = None
         self.single_shot = False
 
+    @staticmethod
+    def singleShot(_delay, callback):  # noqa: N802
+        """Fire the callback immediately (no real delay in tests)."""
+        callback()
+
     def setSingleShot(self, value):  # noqa: N802
         self.single_shot = bool(value)
 

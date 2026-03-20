@@ -1,7 +1,6 @@
 """Functional tests for Fansly WebView posting.
 
-Tests text injection into the Fansly composer. Full submission is not automatable
-in offscreen mode because Fansly's SPA renders submit buttons dynamically.
+Tests text injection into the Fansly composer.
 
 Requires GALEFLING_DATA_DIR in .env with a valid Fansly session (fansly_1).
 """
@@ -51,8 +50,9 @@ class TestFanslyTextInjection:
         get_or_create_app()
         view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
-            ok, _ = load_page(page, 'https://fansly.com/', timeout_ms=20000)
-            assert ok
+            ok, final_url = load_page(page, 'https://fansly.com/', timeout_ms=20000)
+            assert ok, f'Page load failed: {final_url}'
+            assert '/login' not in final_url.lower(), f'Fansly session expired: {final_url}'
             wait_ms(5000)  # Cloudflare + SPA hydration
 
             tag = uuid.uuid4().hex[:8]

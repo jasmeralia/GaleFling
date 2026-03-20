@@ -100,6 +100,7 @@ def main():
     # Initialize config first
     config = ConfigManager()
     _apply_webview_compatibility_flags(config.webview_compatibility_mode)
+    _apply_remote_debugging(config.remote_debug_enabled, config.remote_debug_port)
 
     # Set up logging
     setup_logging(debug_mode=config.debug_mode)
@@ -124,6 +125,22 @@ def main():
     # Post-show actions
     window.restore_draft()
     window.check_for_updates_on_startup()
+    if config.remote_debug_enabled:
+        if not _check_remote_debug_port(config.remote_debug_port):
+            QMessageBox.warning(
+                window,
+                'Remote Debugging Port Conflict',
+                f'Port {config.remote_debug_port} is already in use.\n\n'
+                'Remote debugging may not work. Change the port in Settings \u2192 Advanced '
+                'or free the port and restart.',
+            )
+        else:
+            QMessageBox.warning(
+                window,
+                'Remote Debugging Active',
+                f'WebView remote debugging is enabled on port {config.remote_debug_port}.\n\n'
+                'Disable it in Settings \u2192 Advanced when you are done.',
+            )
 
     sys.exit(app.exec())
 
@@ -144,6 +161,27 @@ def _apply_webview_compatibility_flags(enabled: bool) -> None:
         os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = ' '.join(flags)
     else:
         os.environ.pop('QTWEBENGINE_CHROMIUM_FLAGS', None)
+
+
+def _apply_remote_debugging(enabled: bool, port: int) -> None:
+    """Set QTWEBENGINE_REMOTE_DEBUGGING before QtWebEngine initializes."""
+    if enabled:
+        os.environ['QTWEBENGINE_REMOTE_DEBUGGING'] = str(port)
+    else:
+        os.environ.pop('QTWEBENGINE_REMOTE_DEBUGGING', None)
+
+
+def _check_remote_debug_port(port: int) -> bool:
+    """Return True if the port is free, False if already in use."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(('127.0.0.1', port))
+            return True
+        except OSError:
+            return False
 
 
 def _install_exception_logging():

@@ -1,5 +1,4 @@
 {
-    "version": "1.7.4",
     "last_selected_platforms": [],
     "debug_mode": false,
     "auto_check_updates": true,
@@ -18,5 +17,7 @@
     },
     "last_image_directory": "",
     "auto_save_draft": true,
-    "draft_auto_save_interval_seconds": 30
+    "draft_auto_save_interval_seconds": 30,
+    "remote_debug_enabled": false,
+    "remote_debug_port": 9222
 }

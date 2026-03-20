@@ -12,7 +12,10 @@ _qapp = None
 
 
 def _has_display() -> bool:
-    """Return True if a real X11/Wayland display is available."""
+    """Return True if a real display is available (Windows native, X11, or Wayland)."""
+    import sys
+    if sys.platform == 'win32':
+        return True
     return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
 
 

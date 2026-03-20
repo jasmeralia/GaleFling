@@ -33,7 +33,26 @@ class BaseWebViewPlatform(BasePlatform):
         PREFILL_DELAY_MS: int — delay before injecting text (for Cloudflare sites)
         POLL_INTERVAL_MS: int — interval for polling DOM success state
         POLL_TIMEOUT_MS: int — max time to poll before giving up
+
+    Profile sharing
+    ---------------
+    Cloudflare Bot Management fingerprints each Chromium browser context
+    (Canvas, WebGL, TLS).  Creating a fresh QWebEngineProfile for every
+    operation (login window, connection test, posting panel) produces a new
+    context with a different fingerprint, causing Cloudflare to re-challenge
+    even when valid session cookies are present.
+
+    To avoid this, profiles are stored in a class-level registry keyed by
+    account_id.  Every platform instance for the same account reuses the
+    same QWebEngineProfile object — and therefore the same Chromium context —
+    for the lifetime of the application process.  The profile is NOT parented
+    to any transient widget; this also eliminates the Qt "Release of profile
+    requested but WebEnginePage still not deleted" ordering warning.
     """
+
+    # Maps account_id → QWebEngineProfile, shared across all platform instances
+    # for the same account within a single process lifetime.
+    _profile_registry: dict[str, 'QWebEngineProfile'] = {}
 
     COMPOSER_URL: str = ''
     TEXT_SELECTOR: str = ''
@@ -46,6 +65,16 @@ class BaseWebViewPlatform(BasePlatform):
         r'/sign[-_]?in(?:[/?#]|$)',
         r'/auth(?:[/?#]|$)',
     ]
+    # CSS selectors whose presence in the DOM after a successful page load
+    # indicates an expired session (e.g. an inline login form).  Subclasses
+    # that cannot rely on a URL redirect to signal session expiry should set
+    # this list.  The check runs as a JS querySelector after loadFinished.
+    SESSION_EXPIRED_SELECTORS: list[str] = []
+    # Milliseconds to wait after loadFinished before running the
+    # SESSION_EXPIRED_SELECTORS DOM check.  Set this on platforms whose login
+    # form is injected by a JS framework (e.g. Vue.js) rather than server-side
+    # rendered, so the framework has time to mount before the check runs.
+    SESSION_EXPIRED_CHECK_DELAY_MS: int = 0
     COOKIE_DOMAINS: list[str] = []
     AUTH_COOKIE_NAMES: list[str] = []
     AUTH_COOKIE_NAME_PATTERNS: list[str] = []
@@ -53,6 +82,12 @@ class BaseWebViewPlatform(BasePlatform):
     POLL_INTERVAL_MS: int = 500
     POLL_TIMEOUT_MS: int = 30000
     CONNECTION_TEST_TIMEOUT_MS: int = 12000
+    # Milliseconds to wait after creating the test QWebEngineProfile before
+    # issuing the first navigation.  Chromium needs time to start its browser
+    # context and load the persisted cookie store from disk; navigating
+    # immediately produces an unauthenticated request even though valid cookies
+    # exist on disk.  800 ms is enough for a cold-start profile on Windows.
+    CONNECTION_TEST_STARTUP_DELAY_MS: int = 800
     COOKIE_DB_TIMEOUT_SECONDS: float = 0.01
     COOKIE_NAME_SCAN_LIMIT: int = 250
 
@@ -78,15 +113,42 @@ class BaseWebViewPlatform(BasePlatform):
 
     # ── Profile & view management ───────────────────────────────────
 
+    @classmethod
+    def _get_or_create_profile(cls, account_id: str, storage_path: 'Path') -> 'QWebEngineProfile':
+        """Return the shared QWebEngineProfile for this account, creating it if needed.
+
+        The profile is owned by this registry (no Qt parent) so it is never
+        destroyed by transient widget cleanup.  All views for the same account
+        share the same Chromium browser context and therefore the same
+        Cloudflare fingerprint.
+        """
+        key = account_id or 'default'
+        if key not in cls._profile_registry:
+            profile = QWebEngineProfile(storage_path.name, None)
+            profile.setPersistentStoragePath(str(storage_path))
+            profile.setPersistentCookiesPolicy(
+                QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
+            )
+            cls._profile_registry[key] = profile
+        return cls._profile_registry[key]
+
+    @classmethod
+    def _evict_profile(cls, account_id: str) -> None:
+        """Remove the profile for this account from the registry.
+
+        Call this when the stored session is intentionally cleared (e.g. Reset
+        Session Cookies) so the next login window starts with a fresh context.
+        """
+        cls._profile_registry.pop(account_id or 'default', None)
+
     def create_webview(self, parent: QWidget | None = None) -> QWebEngineView:
-        """Create an isolated QWebEngineView with persistent cookies."""
+        """Create a QWebEngineView backed by the shared persistent profile."""
         storage_path = self._get_profile_storage_path()
 
-        self._profile = QWebEngineProfile(storage_path.name, parent)
-        self._profile.setPersistentStoragePath(str(storage_path))
-        self._profile.setPersistentCookiesPolicy(
-            QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
-        )
+        # Reuse the process-lifetime profile for this account.  The profile is
+        # NOT parented to `parent` so it survives the login dialog closing and
+        # is available for subsequent connection tests and posting windows.
+        self._profile = self._get_or_create_profile(self._account_id, storage_path)
 
         page = _LoggingWebEnginePage(self._profile, self, parent)
         self._configure_webview_page(page)
@@ -408,11 +470,11 @@ class BaseWebViewPlatform(BasePlatform):
             return False, 'WV-LOAD-FAILED'
 
         storage_path = self._get_profile_storage_path()
-        profile = QWebEngineProfile(f'{storage_path.name}_conn_test', None)
-        profile.setPersistentStoragePath(str(storage_path))
-        profile.setPersistentCookiesPolicy(
-            QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
-        )
+        # Always use the shared registry profile so the connection test runs
+        # in the same Chromium browser context as the login window and posting
+        # panel.  This ensures Cloudflare sees the same fingerprint it already
+        # accepted during login, rather than treating each test as a new bot.
+        profile = self._get_or_create_profile(self._account_id, storage_path)
         page = _LoggingWebEnginePage(profile, self, None)
 
         state: dict[str, object] = {
@@ -471,7 +533,33 @@ class BaseWebViewPlatform(BasePlatform):
             if bool(state.get('redirected_to_login')) or self._is_login_redirect_url(current):
                 _finish(False, 'WV-SESSION-EXPIRED')
                 return
-            _finish(True, None)
+            selectors = self.SESSION_EXPIRED_SELECTORS
+            if not selectors:
+                _finish(True, None)
+                return
+            combined = json.dumps(', '.join(selectors))
+
+            def _run_dom_check():
+                def _dom_result(found):
+                    if found:
+                        self._log_webview_debug(
+                            'Live connection test: expired session detected via DOM selector'
+                        )
+                        get_logger().warning(
+                            f'{self.get_platform_name()} connection test: '
+                            'expired session detected via DOM (inline login form present)'
+                        )
+                        _finish(False, 'WV-SESSION-EXPIRED')
+                    else:
+                        _finish(True, None)
+
+                page.runJavaScript(f'!!document.querySelector({combined})', _dom_result)
+
+            delay = self.SESSION_EXPIRED_CHECK_DELAY_MS
+            if delay > 0:
+                QTimer.singleShot(delay, _run_dom_check)
+            else:
+                _run_dom_check()
 
         page.urlChanged.connect(_on_url_changed)
         page.loadFinished.connect(_on_load_finished)
@@ -484,7 +572,14 @@ class BaseWebViewPlatform(BasePlatform):
             )
             self._log_webview_debug('Live connection test started', url=test_url)
             timeout.start(self.CONNECTION_TEST_TIMEOUT_MS)
-            page.load(QUrl(test_url))
+            # Defer the first navigation so Chromium has time to start its
+            # browser context and load persisted cookies from disk.  Without
+            # this delay the cookie store is empty and every request is
+            # unauthenticated regardless of what is stored on disk.
+            QTimer.singleShot(
+                self.CONNECTION_TEST_STARTUP_DELAY_MS,
+                lambda: page.load(QUrl(test_url)),
+            )
             loop.exec()
             get_logger().info(
                 f'{self.get_platform_name()} connection test finished '
@@ -507,7 +602,6 @@ class BaseWebViewPlatform(BasePlatform):
             with contextlib.suppress(TypeError, RuntimeError):
                 timeout.timeout.disconnect(_on_timeout)
             page.deleteLater()
-            profile.deleteLater()
 
     def _can_run_live_connection_test(self) -> bool:
         """Whether a live WebEngine-based connection test can run in this process."""
@@ -781,8 +875,18 @@ class BaseWebViewPlatform(BasePlatform):
 
     def test_connection(self) -> tuple[bool, str | None]:
         """WebView platforms can't easily test connections programmatically."""
+        account_key = self._account_id or 'default'
+        if account_key in BaseWebViewPlatform._profile_registry:
+            # The profile is already loaded in this process (login window was
+            # opened, or a previous connection test ran).  Skip the SQLite
+            # cookie check — Chromium may have the DB locked — and go straight
+            # to the live page-load test using the shared profile.
+            if not self._can_run_live_connection_test():
+                return True, None
+            return self._run_live_connection_test()
+        # Cold start: no profile in memory yet.  Check persisted cookies first
+        # so we don't spin up a Chromium context unnecessarily.
         if self.has_valid_session():
-            # In the running GUI app, perform a real page-load probe using stored cookies.
             if not self._can_run_live_connection_test():
                 self._log_webview_debug(
                     'Skipping live connection test (no QApplication instance available)'

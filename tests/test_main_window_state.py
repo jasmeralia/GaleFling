@@ -1,6 +1,7 @@
 import threading
 import time
 
+import src.gui.main_window as _main_window_module
 from PyQt6.QtWidgets import QDialog, QLabel, QMessageBox
 
 from src.gui.main_window import MainWindow
@@ -601,22 +602,31 @@ def test_test_connections_message_includes_usernames(qtbot, monkeypatch):
         'bluesky_alt': DummyPlatform(True, name='Bluesky (alt)'),
     }
 
-    captured = {}
+    # Patch the dialog to auto-accept when all results arrive so exec() doesn't block.
+    OrigDialog = _main_window_module._ConnectionTestProgressDialog
+    captured_dialog: dict = {}
 
-    def fake_message_box(_self, _title, message, *_args, **_kwargs):
-        captured['message'] = message
-        return 0
+    class AutoAcceptDialog(OrigDialog):
+        def _all_done(self):
+            super()._all_done()
+            captured_dialog['dialog'] = self
+            self.accept()
 
-    monkeypatch.setattr('src.gui.main_window.MainWindow._show_message_box', fake_message_box)
+    monkeypatch.setattr(_main_window_module, '_ConnectionTestProgressDialog', AutoAcceptDialog)
 
     window._test_connections()
 
-    assert '\u2714\ufe0f Bluesky (jasmeralia) connected.' in captured['message']
-    assert '\u2714\ufe0f Bluesky (alt) connected.' in captured['message']
-    assert (
-        '\u274c\ufe0f Twitter (jasmeralia) failed to connect: TW-AUTH-EXPIRED'
-        in captured['message']
-    )
+    dialog = captured_dialog.get('dialog')
+    assert dialog is not None
+
+    twitter_row = dialog._rows.get('twitter_1')
+    bluesky_row = dialog._rows.get('bluesky_1')
+    bluesky_alt_row = dialog._rows.get('bluesky_alt')
+
+    assert twitter_row is not None and '\u2718' in twitter_row['label'].text()
+    assert 'TW-AUTH-EXPIRED' in twitter_row['label'].text()
+    assert bluesky_row is not None and '\u2714' in bluesky_row['label'].text()
+    assert bluesky_alt_row is not None and '\u2714' in bluesky_alt_row['label'].text()
 
 
 def test_test_connections_disables_failed_platforms(qtbot, monkeypatch):
@@ -664,7 +674,15 @@ def test_test_connections_disables_failed_platforms(qtbot, monkeypatch):
     qtbot.addWidget(window)
     window._platforms['twitter_1'] = DummyPlatform()
 
-    monkeypatch.setattr('src.gui.main_window.MainWindow._show_message_box', lambda *_a, **_k: 0)
+    # Patch the dialog to auto-accept when all results arrive so exec() doesn't block.
+    OrigDialog = _main_window_module._ConnectionTestProgressDialog
+
+    class AutoAcceptDialog(OrigDialog):
+        def _all_done(self):
+            super()._all_done()
+            self.accept()
+
+    monkeypatch.setattr(_main_window_module, '_ConnectionTestProgressDialog', AutoAcceptDialog)
 
     assert 'twitter_1' in window._platform_selector.get_enabled()
     assert 'twitter_1' in window._platform_selector.get_selected()
@@ -712,7 +730,15 @@ def test_test_connections_runs_parallel_with_platform_serialization(qtbot, monke
         'bluesky_1': 'bluesky',
     }
 
-    monkeypatch.setattr('src.gui.main_window.MainWindow._show_message_box', lambda *_a, **_k: 0)
+    # Patch the dialog to auto-accept when all results arrive so exec() doesn't block.
+    OrigDialog = _main_window_module._ConnectionTestProgressDialog
+
+    class AutoAcceptDialog(OrigDialog):
+        def _all_done(self):
+            super()._all_done()
+            self.accept()
+
+    monkeypatch.setattr(_main_window_module, '_ConnectionTestProgressDialog', AutoAcceptDialog)
     monkeypatch.setattr(
         window,
         '_get_selected_enabled_platforms',
@@ -831,6 +857,16 @@ def test_action_logging_for_post_and_connections(qtbot, monkeypatch, tmp_path):
     logger = DummyLogger()
     monkeypatch.setattr('src.gui.main_window.get_logger', lambda: logger)
     monkeypatch.setattr('src.gui.main_window.MainWindow._show_message_box', lambda *_a, **_k: 0)
+
+    # Patch the dialog to auto-accept when all results arrive so exec() doesn't block.
+    OrigDialog = _main_window_module._ConnectionTestProgressDialog
+
+    class AutoAcceptDialog(OrigDialog):
+        def _all_done(self):
+            super()._all_done()
+            self.accept()
+
+    monkeypatch.setattr(_main_window_module, '_ConnectionTestProgressDialog', AutoAcceptDialog)
 
     window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
     qtbot.addWidget(window)

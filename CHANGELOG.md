@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.12] - 2026-03-20
+
+### Added
+- Remote debugging support: enable Chrome DevTools Protocol (CDP) access to WebView via Settings → Advanced, with configurable port (default 9222) and port-conflict warning on startup
+- Per-account process-lifetime WebView profile registry: all windows for the same account share a single Chromium browser context, preventing Cloudflare from re-challenging after login
+- DOM-based session expiry detection (`SESSION_EXPIRED_SELECTORS`) for platforms that render login forms inline without a URL redirect (OnlyFans)
+- `SESSION_EXPIRED_CHECK_DELAY_MS` class attribute to wait for JS-framework-rendered login forms before running the DOM check
+- `CONNECTION_TEST_STARTUP_DELAY_MS` class attribute to defer the first navigation until Chromium's cookie store has loaded from disk
+- FetLife: injected script fixes Vue-controlled "remember me" checkbox interaction in the embedded WebView
+- OnlyFans: injected script fixes Vue-controlled 2FA "remember me" checkbox; intercepts auth/2FA network requests for diagnostic logging
+- New per-platform setup docs in `docs/platforms/` for Bluesky, Fansly, FetLife, OnlyFans, Snapchat, Threads
+- `docs/testing/CHROME_DEBUGGING.md`: guide for using Chrome DevTools to inspect WebView sessions
+- `docs/plans/SNAPCHAT.md`, `docs/plans/INSTRUMENTATION.md`: planning documents for upcoming work
+- Connection test progress dialog: live per-account spinner rows with ✔/✘ results; failed WebView accounts show an inline "Open Login Window" button
+
+### Changed
+- Snapchat: replaced WebGL disabling with URL interception to prevent renderer crash (exit code −1073741819) on `www.snapchat.com/web`; session expiry now detected by subdomain (`www.snapchat.com` vs `web.snapchat.com`) rather than URL path patterns
+- Snapchat: post-login redirect to `www.snapchat.com/web` is intercepted and replaced with a direct navigation to `web.snapchat.com`
+- OnlyFans: added 8 s DOM check delay and 25 s connection test timeout to accommodate Cloudflare JS challenge; startup navigation delayed 2 s to allow cookie store initialisation; removed `sess` from auth cookie list
+- Connection test flow refactored: API platforms now run in a background `QThread` (groups in parallel, accounts within a group serialised); WebView platforms continue to run on the main thread; results shown in a live progress dialog instead of a summary message box
+- Settings dialog keeps the most recently used login platform alive briefly after the login window closes, preventing Chromium from interrupting background cookie writes
+- Reset Session Cookies now evicts the in-memory profile registry entry so the next login window starts with a fresh Chromium context
+- `default_config.json`: removed `version` key (version is derived solely from `src/utils/constants.py`)
+- Docs reorganised: platform guides moved to `docs/platforms/`, test guides to `docs/testing/`
+
 ## [1.7.4] - 2026-03-17
 
 ### Added

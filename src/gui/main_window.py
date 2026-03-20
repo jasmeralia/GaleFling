@@ -44,7 +44,7 @@ from src.gui.platform_selector import PlatformSelector
 from src.gui.post_composer import PostComposer
 from src.gui.results_dialog import ResultsDialog
 from src.gui.settings_dialog import SettingsDialog
-from src.gui.setup_wizard import SetupWizard
+from src.gui.setup_wizard import SetupWizard, WebViewLoginDialog
 from src.gui.update_dialog import UpdateAvailableDialog
 from src.gui.webview_panel import WebViewPanel
 from src.platforms.base_webview import BaseWebViewPlatform
@@ -152,6 +152,181 @@ class UpdateDownloadWorker(QThread):
                 with contextlib.suppress(OSError):
                     temp_path.unlink()
             self.finished.emit(False, None, str(exc))
+
+
+_SPINNER_CHARS = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+
+
+class _ConnectionTestWorker(QThread):
+    """Runs API-platform connection tests in background threads, one result at a time."""
+
+    result_ready = pyqtSignal(str, str, bool, object)  # account_id, display_name, success, error
+
+    def __init__(self, groups: list[list[str]], platforms: dict, get_display_name):
+        super().__init__()
+        self._groups = groups
+        self._platforms = platforms
+        self._get_display_name = get_display_name
+
+    def run(self):
+        max_workers = max(1, min(len(self._groups), 4))
+        with ThreadPoolExecutor(
+            max_workers=max_workers, thread_name_prefix='connection-test'
+        ) as executor:
+            futures = {
+                executor.submit(self._test_group, accounts): accounts
+                for accounts in self._groups
+            }
+            for future in as_completed(futures):
+                for account_id, display_name, success, error in future.result():
+                    self.result_ready.emit(account_id, display_name, success, error)
+
+    def _test_group(
+        self, account_ids: list[str]
+    ) -> list[tuple[str, str, bool, str | None]]:
+        results = []
+        for account_id in account_ids:
+            platform = self._platforms.get(account_id)
+            if not platform:
+                continue
+            display_name = self._get_display_name(account_id)
+            try:
+                success, error = platform.test_connection()
+            except Exception as exc:
+                get_logger().exception(
+                    'Connection test raised exception',
+                    extra={'account_id': account_id, 'error': str(exc)},
+                )
+                success = False
+                error = str(exc) or 'Connection test failed'
+            results.append((account_id, display_name, success, error))
+        return results
+
+
+class _ConnectionTestProgressDialog(QDialog):
+    """Live connection test window: spinner rows update to ✔/✘ as results arrive."""
+
+    def __init__(
+        self,
+        ordered_accounts: list[tuple[str, str]],
+        platforms: dict,
+        parent=None,
+        re_enable_callback=None,
+    ):
+        super().__init__(parent)
+        self._pending_login_platform = None  # GC guard for platform kept alive after login dialog
+        self._re_enable_callback = re_enable_callback
+        self._platforms = platforms
+        self._pending_count = len(ordered_accounts)
+        self._cancelled = False
+        self._spinner_frame = 0
+        self._rows: dict[str, dict] = {}  # account_id -> {label, row_layout, done}
+
+        self.setWindowTitle('Connection Test')
+        self.setMinimumWidth(480)
+
+        layout = QVBoxLayout(self)
+
+        for account_id, display_name in ordered_accounts:
+            row = QHBoxLayout()
+            label = QLabel(f'{_SPINNER_CHARS[0]}  {display_name}: Testing...')
+            label.setWordWrap(True)
+            row.addWidget(label, stretch=1)
+            layout.addLayout(row)
+            self._rows[account_id] = {
+                'label': label,
+                'display_name': display_name,
+                'row': row,
+                'done': False,
+            }
+
+        self._webview_note = QLabel(
+            'Failed platforms have been disabled. '
+            'Log in using the buttons above to re-enable them.'
+        )
+        self._webview_note.setWordWrap(True)
+        self._webview_note.hide()
+        layout.addWidget(self._webview_note)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self._cancel_btn = QPushButton('Cancel')
+        self._cancel_btn.clicked.connect(self._on_cancel)
+        btn_row.addWidget(self._cancel_btn)
+        self._close_btn = QPushButton('Close')
+        self._close_btn.setEnabled(False)
+        self._close_btn.setStyleSheet('QPushButton:disabled { color: grey; }')
+        self._close_btn.clicked.connect(self.accept)
+        btn_row.addWidget(self._close_btn)
+        layout.addLayout(btn_row)
+
+        self._spinner_timer = QTimer(self)
+        self._spinner_timer.timeout.connect(self._tick_spinners)
+        self._spinner_timer.start(80)
+
+    def _tick_spinners(self):
+        self._spinner_frame = (self._spinner_frame + 1) % len(_SPINNER_CHARS)
+        char = _SPINNER_CHARS[self._spinner_frame]
+        for row_data in self._rows.values():
+            if not row_data['done']:
+                row_data['label'].setText(f'{char}  {row_data["display_name"]}: Testing...')
+
+    def receive_result(self, account_id: str, display_name: str, success: bool, error):
+        if self._cancelled:
+            return
+        row_data = self._rows.get(account_id)
+        if row_data is None or row_data['done']:
+            return
+        row_data['done'] = True
+        if success:
+            row_data['label'].setText(f'\u2714  {display_name}: Connected')
+        else:
+            error_str = str(error) if error else 'Failed'
+            row_data['label'].setText(f'\u2718  {display_name}: {error_str}')
+            platform = self._platforms.get(account_id)
+            if error_str == 'WV-SESSION-EXPIRED' and isinstance(
+                platform, BaseWebViewPlatform
+            ):
+                login_btn = QPushButton('Open Login Window')
+                login_btn.clicked.connect(
+                    lambda checked, p=platform, n=display_name: self._open_login(p, n)
+                )
+                row_data['row'].addWidget(login_btn)
+                row_data['login_btn'] = login_btn
+                self._webview_note.show()
+        self._pending_count -= 1
+        if self._pending_count <= 0:
+            self._all_done()
+
+    def _all_done(self):
+        self._spinner_timer.stop()
+        self._cancel_btn.setEnabled(False)
+        self._close_btn.setEnabled(True)
+        self._close_btn.setStyleSheet('')  # restore default style now that it's active
+
+    def _on_cancel(self):
+        self._cancelled = True
+        self._spinner_timer.stop()
+        self.reject()
+
+    def _open_login(self, platform: 'BaseWebViewPlatform', display_name: str) -> None:
+        temp = type(platform)(
+            account_id=platform._account_id,
+            profile_name=platform._profile_name,
+        )
+        self._pending_login_platform = None
+        dialog = WebViewLoginDialog(temp, display_name, self)
+        dialog.exec()
+        self._pending_login_platform = temp
+        if dialog.login_detected and self._re_enable_callback:
+            self._re_enable_callback(platform._account_id)
+
+    def closeEvent(self, event):  # noqa: N802
+        if self._pending_count > 0 and not self._cancelled:
+            # Title-bar X acts like Cancel while tests are running
+            self._cancelled = True
+            self._spinner_timer.stop()
+        event.accept()
 
 
 class MainWindow(QMainWindow):
@@ -976,93 +1151,84 @@ class MainWindow(QMainWindow):
         get_logger().info('User clicked Test Connections')
         self._status_bar.showMessage('Testing connections...')
         self._test_btn.setEnabled(False)
-        QApplication.processEvents()
 
-        results: list[tuple[str, str, bool, str | None]] = []
-        failed_accounts: list[str] = []
         selected = self._get_selected_enabled_platforms()
-        selected_order = {account_id: idx for idx, account_id in enumerate(selected)}
+        if not selected:
+            self._test_btn.setEnabled(True)
+            self._status_bar.showMessage('Ready')
+            return
+
+        ordered_accounts = [
+            (aid, self._get_platform_display_name(aid)) for aid in selected
+        ]
+
         grouped_accounts: dict[str, list[str]] = {}
         for account_id in selected:
             group = self._get_platform_group(account_id)
             grouped_accounts.setdefault(group, []).append(account_id)
 
         webview_groups: list[list[str]] = []
-        parallel_groups: list[list[str]] = []
+        api_groups: list[list[str]] = []
         for accounts in grouped_accounts.values():
             platform = self._platforms.get(accounts[0])
             if isinstance(platform, BaseWebViewPlatform):
                 webview_groups.append(accounts)
             else:
-                parallel_groups.append(accounts)
+                api_groups.append(accounts)
 
-        if parallel_groups:
-            max_workers = max(1, min(len(parallel_groups), 4))
-            with ThreadPoolExecutor(
-                max_workers=max_workers, thread_name_prefix='connection-test'
-            ) as executor:
-                futures = [
-                    executor.submit(self._test_connection_group, accounts)
-                    for accounts in parallel_groups
-                ]
-                for accounts in webview_groups:
-                    results.extend(self._test_connection_group(accounts))
-                for future in as_completed(futures):
-                    results.extend(future.result())
-        else:
-            for accounts in webview_groups:
-                results.extend(self._test_connection_group(accounts))
-
-        results.sort(key=lambda item: selected_order.get(item[0], len(selected_order)))
-        for account_id, _display_name, success, _error in results:
-            if not success:
-                failed_accounts.append(account_id)
-
-        disabled_accounts = []
-        for account_id in failed_accounts:
-            if self._set_account_enabled(account_id, False):
-                disabled_accounts.append(account_id)
-        if disabled_accounts:
+        def _re_enable(account_id: str) -> None:
+            self._set_account_enabled(account_id, True)
             self._refresh_platform_state()
 
-        # Show results
-        msg_parts = []
-        for _account_id, pname, success, error in results:
-            if success:
-                msg_parts.append(f'\u2714\ufe0f {pname} connected.')
-            else:
-                msg_parts.append(f'\u274c\ufe0f {pname} failed to connect: {error}')
-        if disabled_accounts:
-            msg_parts.append('')
-            msg_parts.append('Failed platforms were disabled. Re-authenticate to re-enable them.')
-
-        self._show_message_box(
-            'Connection Test', '\n'.join(msg_parts), QMessageBox.Icon.Information
+        dialog = _ConnectionTestProgressDialog(
+            ordered_accounts, self._platforms, self, re_enable_callback=_re_enable
         )
+        self._apply_dialog_theme(dialog)
+
+        def _start_tests() -> None:
+            # API platforms: run in background thread; signal delivers results on main thread
+            if api_groups:
+                self._conn_test_worker = _ConnectionTestWorker(
+                    api_groups, self._platforms, self._get_platform_display_name
+                )
+                self._conn_test_worker.result_ready.connect(self._handle_api_conn_result)
+                self._conn_test_worker.result_ready.connect(dialog.receive_result)
+                self._conn_test_worker.start()
+
+            # WebView platforms: run sequentially on main thread (each uses a nested QEventLoop)
+            for accounts in webview_groups:
+                for account_id in accounts:
+                    if dialog._cancelled:
+                        break
+                    platform = self._platforms.get(account_id)
+                    if not platform:
+                        continue
+                    display_name = self._get_platform_display_name(account_id)
+                    try:
+                        success, error = platform.test_connection()
+                    except Exception as exc:
+                        get_logger().exception(
+                            'Connection test raised exception',
+                            extra={'account_id': account_id, 'error': str(exc)},
+                        )
+                        success = False
+                        error = str(exc) or 'Connection test failed'
+                    if not dialog._cancelled:
+                        dialog.receive_result(account_id, display_name, success, error)
+                        if not success and self._set_account_enabled(account_id, False):
+                            self._refresh_platform_state()
+
+        QTimer.singleShot(0, _start_tests)
+        dialog.exec()
         self._test_btn.setEnabled(True)
         self._status_bar.showMessage('Ready')
 
-    def _test_connection_group(
-        self, account_ids: list[str]
-    ) -> list[tuple[str, str, bool, str | None]]:
-        """Run connection tests sequentially for one platform group."""
-        results: list[tuple[str, str, bool, str | None]] = []
-        for account_id in account_ids:
-            platform = self._platforms.get(account_id)
-            if not platform:
-                continue
-            display_name = self._get_platform_display_name(account_id)
-            try:
-                success, error = platform.test_connection()
-            except Exception as exc:
-                get_logger().exception(
-                    'Connection test raised exception',
-                    extra={'account_id': account_id, 'error': str(exc)},
-                )
-                success = False
-                error = str(exc) or 'Connection test failed'
-            results.append((account_id, display_name, success, error))
-        return results
+    def _handle_api_conn_result(
+        self, account_id: str, display_name: str, success: bool, error
+    ) -> None:
+        """Disable failed API-platform accounts; called on the main thread via queued signal."""
+        if not success and self._set_account_enabled(account_id, False):
+            self._refresh_platform_state()
 
     def _set_account_enabled(self, account_id: str, enabled: bool) -> bool:
         """Persist an account enabled flag if the auth manager supports it."""

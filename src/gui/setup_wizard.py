@@ -1,6 +1,7 @@
 """First-run setup wizard for credential configuration."""
 
 import contextlib
+import json
 
 from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QPalette
@@ -545,6 +546,7 @@ class WebViewPlatformSetupPage(QWizardPage):
         self._platform_id = platform_id
         self._account_id = account_id
         self._platform_name = platform_name
+        self._pending_login_platform: object = None
         self.setAutoFillBackground(True)
 
         self.setTitle(f'Setup - {platform_name}')
@@ -630,8 +632,12 @@ class WebViewPlatformSetupPage(QWizardPage):
                 'This platform does not support embedded login.',
             )
             return
+        self._pending_login_platform = None  # release any previous platform first
         dialog = WebViewLoginDialog(platform, self._platform_name, self)
         dialog.exec()
+        # Keep platform alive so its QWebEngineProfile is not GC'd before
+        # Chromium's background cookie writer flushes the session to disk.
+        self._pending_login_platform = platform
         if dialog.login_detected:
             self._status_label.setText(
                 '<span style="color: #4CAF50; font-weight: bold;">\u2713 Login detected</span>'
@@ -692,14 +698,19 @@ class WebViewLoginDialog(QDialog):
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        view = self._platform.create_webview(self)
-        layout.addWidget(view, stretch=1)
-        page = view.page() if hasattr(view, 'page') else None
+        self._view = self._platform.create_webview(self)
+        layout.addWidget(self._view, stretch=1)
+        page = self._view.page() if hasattr(self._view, 'page') else None
         profile = page.profile() if page else None
         if profile is not None:
             self._cookie_store = profile.cookieStore()
             if self._cookie_store is not None:
                 self._cookie_store.cookieAdded.connect(self._on_cookie_added)
+        if page is not None:
+            page.loadFinished.connect(self._on_page_load_finished)
+
+        with contextlib.suppress(AttributeError, TypeError):
+            self._view.renderProcessTerminated.connect(self._on_render_crash)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
@@ -707,14 +718,53 @@ class WebViewLoginDialog(QDialog):
 
         self._platform.navigate_to_login()
 
-        # Poll as a lightweight fallback; primary detection is cookieAdded.
+        # Poll as a fallback; primary detection is cookieAdded and loadFinished.
         self._login_timer = QTimer(self)
         self._login_timer.setInterval(3000)
         self._login_timer.timeout.connect(self._check_login)
         self._login_timer.start()
 
+    def _on_page_load_finished(self, ok: bool):
+        """Check for existing session after each page load completes.
+
+        cookieAdded only fires when new cookies arrive — it misses the case where
+        the user already has a valid session and the page loads straight to the
+        feed/timeline without setting any new cookies.  This handler runs a DOM
+        check after every loadFinished so that pre-existing logins are detected.
+        """
+        if not ok or self.login_detected:
+            return
+        page = self._view.page() if self._view else None
+        if not page:
+            return
+        current_url = page.url().toString()
+        if not current_url or current_url == 'about:blank':
+            return
+        if self._platform._is_login_redirect_url(current_url):
+            return
+
+        selectors = getattr(self._platform, 'SESSION_EXPIRED_SELECTORS', [])
+        delay = getattr(self._platform, 'SESSION_EXPIRED_CHECK_DELAY_MS', 0)
+
+        def _do_dom_check():
+            if self.login_detected:
+                return
+            if not selectors:
+                self._mark_login_detected()
+                return
+            combined = json.dumps(', '.join(selectors))
+            page.runJavaScript(
+                f'!!document.querySelector({combined})',
+                lambda found: None if found else self._mark_login_detected(),
+            )
+
+        if delay > 0:
+            QTimer.singleShot(delay, _do_dom_check)
+        else:
+            _do_dom_check()
+
     def _check_login(self):
-        """Check if the user has successfully logged in."""
+        """Polling fallback: check session via cookie inspection."""
         if self.login_detected:
             return
         if self._platform.has_valid_session():
@@ -745,11 +795,33 @@ class WebViewLoginDialog(QDialog):
         )
         self._login_timer.stop()
 
-    def closeEvent(self, event):  # noqa: N802
+    def _on_render_crash(self, termination_status, exit_code: int):
+        """Handle WebView renderer crash — show a clear error in the status banner."""
         self._login_timer.stop()
+        self._status_banner.setText(
+            '\u26a0\ufe0f The browser crashed while loading this page '
+            f'(exit code: {exit_code}). '
+            'This can happen on Snapchat when the session has expired and the page '
+            'uses unsupported graphics. '
+            'Please close this window and re-open the login window to try again.'
+        )
+        self._status_banner.setStyleSheet(
+            'background-color: #FDECEA; color: #B71C1C; font-weight: bold; '
+            'padding: 8px; border-radius: 4px;'
+        )
+
+    def closeEvent(self, event):  # noqa: N802
+        if hasattr(self, '_login_timer'):
+            self._login_timer.stop()
         if self._cookie_store is not None:
             with contextlib.suppress(TypeError, RuntimeError):
                 self._cookie_store.cookieAdded.disconnect(self._on_cookie_added)
+        page = self._view.page() if (self._view and hasattr(self._view, 'page')) else None
+        if page is not None:
+            with contextlib.suppress(TypeError, RuntimeError):
+                page.loadFinished.disconnect(self._on_page_load_finished)
+        with contextlib.suppress(AttributeError, TypeError, RuntimeError):
+            self._view.renderProcessTerminated.disconnect(self._on_render_crash)
         event.accept()
 
 

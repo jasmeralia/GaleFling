@@ -46,7 +46,8 @@ class FetLifePlatform(BaseWebViewPlatform):
         """
         if not self._profile:
             return
-        if self._profile.scripts().find('galefling_fetlife_checkbox_fix'):
+        _scripts = self._profile.scripts()
+        if _scripts is None or _scripts.find('galefling_fetlife_checkbox_fix'):
             return
         js = r"""
 (function () {
@@ -176,7 +177,8 @@ class FetLifePlatform(BaseWebViewPlatform):
         script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         script.setRunsOnSubFrames(True)
-        self._profile.scripts().insert(script)
+        if (s := self._profile.scripts()) is not None:
+            s.insert(script)
 
     def get_platform_name(self) -> str:
         if self._profile_name:

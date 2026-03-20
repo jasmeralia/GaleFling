@@ -49,7 +49,8 @@ class OnlyFansPlatform(BaseWebViewPlatform):
             return
         # The profile is now shared across login and posting windows.  Guard
         # against re-injecting the script when create_webview is called again.
-        if self._profile.scripts().find('galefling_onlyfans_checkbox_fix'):
+        _scripts = self._profile.scripts()
+        if _scripts is None or _scripts.find('galefling_onlyfans_checkbox_fix'):
             return
         js = r"""
 (function () {
@@ -233,7 +234,8 @@ class OnlyFansPlatform(BaseWebViewPlatform):
         script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
         script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
         script.setRunsOnSubFrames(True)
-        self._profile.scripts().insert(script)
+        if (s := self._profile.scripts()) is not None:
+            s.insert(script)
 
     def get_platform_name(self) -> str:
         if self._profile_name:

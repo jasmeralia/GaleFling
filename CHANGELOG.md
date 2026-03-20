@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.13] - 2026-03-20
+
+### Fixed
+- Test suite: fixed 5 pre-existing failures — patched WER report collection in log uploader test, normalized path separators in webview and log directory tests, fixed Windows-incompatible raw backslashes in draft JSON fixture, and relaxed locked-DB timing threshold
+
 ## [1.7.12] - 2026-03-20
 
 ### Added

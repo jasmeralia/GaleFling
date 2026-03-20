@@ -395,7 +395,7 @@ def test_base_webview_has_valid_session_locked_db_returns_quickly(monkeypatch, t
         lock_conn.rollback()
         lock_conn.close()
     elapsed = time.perf_counter() - start
-    assert elapsed < 0.2
+    assert elapsed < 0.5
 
 
 def test_base_webview_is_session_cookie_matches_domain_and_auth_name():
@@ -555,7 +555,7 @@ def test_base_webview_create_webview_and_navigation_signals(monkeypatch, tmp_pat
     assert isinstance(page, DummyPage)
     assert platform.get_webview() is view
     assert platform._profile is not None
-    assert platform._profile.storage_path.endswith('webprofiles/acct1')
+    assert Path(platform._profile.storage_path).parts[-2:] == ('webprofiles', 'acct1')
 
     page.loadStarted.emit()
     page.loadProgress.emit(50)

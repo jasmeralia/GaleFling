@@ -69,6 +69,7 @@ def test_upload_success_includes_logs_and_screenshots(tmp_path, monkeypatch):
     monkeypatch.setattr(log_uploader, 'get_installation_id', lambda: 'install-123')
     monkeypatch.setattr(log_uploader, 'get_os_info', lambda: {'platform': 'TestOS', 'version': '1'})
     monkeypatch.setattr(log_uploader, 'get_ffmpeg_version', lambda: '7.1.1-custom')
+    monkeypatch.setattr(LogUploader, '_collect_wer_reports', lambda _self: [])
 
     captured = {}
 

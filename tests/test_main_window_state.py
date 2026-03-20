@@ -1,9 +1,11 @@
+import json
 import threading
 import time
+from pathlib import Path
 
-import src.gui.main_window as _main_window_module
 from PyQt6.QtWidgets import QDialog, QLabel, QMessageBox
 
+import src.gui.main_window as _main_window_module
 from src.gui.main_window import MainWindow
 from src.utils.constants import MAX_MEDIA_ATTACHMENTS, AccountConfig
 
@@ -185,7 +187,7 @@ def test_help_open_log_directory_action(qtbot, monkeypatch, tmp_path):
     action.trigger()
 
     assert logs_dir.exists()
-    assert opened['path'] == str(logs_dir)
+    assert Path(opened['path']) == logs_dir
 
 
 def test_help_menu_items_are_alphabetical(qtbot):
@@ -603,10 +605,10 @@ def test_test_connections_message_includes_usernames(qtbot, monkeypatch):
     }
 
     # Patch the dialog to auto-accept when all results arrive so exec() doesn't block.
-    OrigDialog = _main_window_module._ConnectionTestProgressDialog
+    orig_dialog = _main_window_module._ConnectionTestProgressDialog
     captured_dialog: dict = {}
 
-    class AutoAcceptDialog(OrigDialog):
+    class AutoAcceptDialog(orig_dialog):
         def _all_done(self):
             super()._all_done()
             captured_dialog['dialog'] = self
@@ -675,9 +677,9 @@ def test_test_connections_disables_failed_platforms(qtbot, monkeypatch):
     window._platforms['twitter_1'] = DummyPlatform()
 
     # Patch the dialog to auto-accept when all results arrive so exec() doesn't block.
-    OrigDialog = _main_window_module._ConnectionTestProgressDialog
+    orig_dialog = _main_window_module._ConnectionTestProgressDialog
 
-    class AutoAcceptDialog(OrigDialog):
+    class AutoAcceptDialog(orig_dialog):
         def _all_done(self):
             super()._all_done()
             self.accept()
@@ -731,9 +733,9 @@ def test_test_connections_runs_parallel_with_platform_serialization(qtbot, monke
     }
 
     # Patch the dialog to auto-accept when all results arrive so exec() doesn't block.
-    OrigDialog = _main_window_module._ConnectionTestProgressDialog
+    orig_dialog = _main_window_module._ConnectionTestProgressDialog
 
-    class AutoAcceptDialog(OrigDialog):
+    class AutoAcceptDialog(orig_dialog):
         def _all_done(self):
             super()._all_done()
             self.accept()
@@ -859,9 +861,9 @@ def test_action_logging_for_post_and_connections(qtbot, monkeypatch, tmp_path):
     monkeypatch.setattr('src.gui.main_window.MainWindow._show_message_box', lambda *_a, **_k: 0)
 
     # Patch the dialog to auto-accept when all results arrive so exec() doesn't block.
-    OrigDialog = _main_window_module._ConnectionTestProgressDialog
+    orig_dialog = _main_window_module._ConnectionTestProgressDialog
 
-    class AutoAcceptDialog(OrigDialog):
+    class AutoAcceptDialog(orig_dialog):
         def _all_done(self):
             super()._all_done()
             self.accept()
@@ -1609,14 +1611,12 @@ def test_restore_draft_restores_text_media_and_legacy_processed_images(
     processed.write_bytes(b'processed')
     draft = tmp_path / 'current_draft.json'
     draft.write_text(
-        (
-            '{'
-            '"text":"draft text",'
-            f'"media_paths":["{media}"],'
-            '"selected_platforms":["twitter_1"],'
-            f'"processed_images":{{"twitter":"{processed}"}}'
-            '}'
-        ),
+        json.dumps({
+            'text': 'draft text',
+            'media_paths': [str(media)],
+            'selected_platforms': ['twitter_1'],
+            'processed_images': {'twitter': str(processed)},
+        }),
         encoding='utf-8',
     )
 

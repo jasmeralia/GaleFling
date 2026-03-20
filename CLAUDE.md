@@ -28,7 +28,7 @@ See [AGENTS.md](AGENTS.md) for mandatory rules, the release checklist, project s
 
 ## Commands — Windows
 
-- **Run lint:** `.venv/Scripts/python.exe -m ruff check src tests`
+- **Run lint:** `.venv/Scripts/python.exe -m ruff check src tests && .venv/Scripts/python.exe -m ruff format --check src tests`
 - **Run tests:** `.venv/Scripts/python.exe -m pytest tests/ --cov=src --ignore=tests/functional`
 - **Run functional tests:** `.venv/Scripts/python.exe -m pytest tests/functional/ -v`
 

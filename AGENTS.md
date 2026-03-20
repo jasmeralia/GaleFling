@@ -38,8 +38,8 @@ All build artifacts derive from this one string automatically — do not create 
 **Rule: never hard-code a version string in any file other than `src/utils/constants.py` and `README.md`.**
 
 ## Release Checklist
-1. Run `make lint PYTHON=.venv/bin/python` and confirm success.
-2. Run `make test-cov PYTHON=.venv/bin/python` and confirm success.
+1. Run `make lint PYTHON=.venv/Scripts/python.exe` (Windows) or `make lint PYTHON=.venv/bin/python` (Linux/WSL) and confirm success.
+2. Run `make test-cov PYTHON=.venv/Scripts/python.exe` (Windows) or `make test-cov PYTHON=.venv/bin/python` (Linux/WSL) and confirm success.
 3. Before any **minor** version bump (`Y` in `X.Y.Z`), confirm with the user first.
 4. Bump version in exactly two places:
    - `src/utils/constants.py` — `APP_VERSION = 'X.Y.Z'`
@@ -82,7 +82,7 @@ galefling/
 - Platform failures should not block posting to other platforms.
 - Keep behavior non-destructive and understandable for non-technical users.
 - Keep lint/tests green as the default quality gate.
-- Prefer `.venv/bin/python` for project automation commands.
+- Prefer `.venv/Scripts/python.exe` (Windows) or `.venv/bin/python` (Linux/WSL) for project automation commands.
 
 ## Additional Documentation
 - `docs/ARCHITECTURE_OVERVIEW.md` — deeper architecture and subsystem behavior

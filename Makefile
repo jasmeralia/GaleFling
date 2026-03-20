@@ -47,6 +47,6 @@ run: ## Run the application
 	$(PYTHON) src/main.py
 
 clean: ## Remove build artifacts
-	rm -rf dist/ build/tmp/ htmlcov/ .pytest_cache/ .ruff_cache/
+	rm -rf dist/ build/tmp/ htmlcov/ .pytest_cache/ .ruff_cache/ 2>/dev/null || true
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -name '*.pyc' -delete 2>/dev/null || true

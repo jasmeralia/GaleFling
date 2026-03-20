@@ -28,12 +28,11 @@ See [AGENTS.md](AGENTS.md) for mandatory rules, the release checklist, project s
 
 ## Commands — Windows
 
-- **Run lint:** `.venv/Scripts/python.exe -m ruff check src tests && .venv/Scripts/python.exe -m ruff format --check src tests`
-- **Run mypy:** `.venv/Scripts/python.exe -m mypy src/`
-- **Run tests:** `.venv/Scripts/python.exe -m pytest tests/ --cov=src --ignore=tests/functional`
+- **Run lint:** `make lint PYTHON=.venv/Scripts/python.exe`
+- **Run tests:** `make test-cov PYTHON=.venv/Scripts/python.exe`
 - **Run functional tests:** `.venv/Scripts/python.exe -m pytest tests/functional/ -v`
 
-> **Release checklist note:** On Windows, `make lint` is not available. Run ruff and mypy separately (see commands above) — both must pass before release. Run tests with `--ignore=tests/functional` (functional tests require a display and are run separately). Do not run functional tests as part of the release checklist on Windows.
+> **Release checklist note:** `make test-cov` excludes functional tests via the `not functional` marker. Do not run functional tests as part of the release checklist on Windows (they require a display and live credentials).
 - **Build exe:** `.venv/Scripts/python.exe -m PyInstaller build/build.spec --noconfirm`
 - **Build installer:** `"C:/Program Files (x86)/NSIS/makensis.exe" build/installer.nsi`
 

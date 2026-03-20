@@ -113,8 +113,7 @@ class TestSnapchatComposer:
             )
             assert isinstance(result, dict), f'JS returned: {result}'
             has_upload = (
-                result.get('fileInputCount', 0) > 0
-                or result.get('uploadTriggerCount', 0) > 0
+                result.get('fileInputCount', 0) > 0 or result.get('uploadTriggerCount', 0) > 0
             )
             if not has_upload:
                 pytest.skip(

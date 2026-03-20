@@ -1611,12 +1611,14 @@ def test_restore_draft_restores_text_media_and_legacy_processed_images(
     processed.write_bytes(b'processed')
     draft = tmp_path / 'current_draft.json'
     draft.write_text(
-        json.dumps({
-            'text': 'draft text',
-            'media_paths': [str(media)],
-            'selected_platforms': ['twitter_1'],
-            'processed_images': {'twitter': str(processed)},
-        }),
+        json.dumps(
+            {
+                'text': 'draft text',
+                'media_paths': [str(media)],
+                'selected_platforms': ['twitter_1'],
+                'processed_images': {'twitter': str(processed)},
+            }
+        ),
         encoding='utf-8',
     )
 

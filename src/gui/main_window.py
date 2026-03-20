@@ -174,16 +174,13 @@ class _ConnectionTestWorker(QThread):
             max_workers=max_workers, thread_name_prefix='connection-test'
         ) as executor:
             futures = {
-                executor.submit(self._test_group, accounts): accounts
-                for accounts in self._groups
+                executor.submit(self._test_group, accounts): accounts for accounts in self._groups
             }
             for future in as_completed(futures):
                 for account_id, display_name, success, error in future.result():
                     self.result_ready.emit(account_id, display_name, success, error)
 
-    def _test_group(
-        self, account_ids: list[str]
-    ) -> list[tuple[str, str, bool, str | None]]:
+    def _test_group(self, account_ids: list[str]) -> list[tuple[str, str, bool, str | None]]:
         results = []
         for account_id in account_ids:
             platform = self._platforms.get(account_id)
@@ -241,8 +238,7 @@ class _ConnectionTestProgressDialog(QDialog):
             }
 
         self._webview_note = QLabel(
-            'Failed platforms have been disabled. '
-            'Log in using the buttons above to re-enable them.'
+            'Failed platforms have been disabled. Log in using the buttons above to re-enable them.'
         )
         self._webview_note.setWordWrap(True)
         self._webview_note.hide()
@@ -284,9 +280,7 @@ class _ConnectionTestProgressDialog(QDialog):
             error_str = str(error) if error else 'Failed'
             row_data['label'].setText(f'\u2718  {display_name}: {error_str}')
             platform = self._platforms.get(account_id)
-            if error_str == 'WV-SESSION-EXPIRED' and isinstance(
-                platform, BaseWebViewPlatform
-            ):
+            if error_str == 'WV-SESSION-EXPIRED' and isinstance(platform, BaseWebViewPlatform):
                 login_btn = QPushButton('Open Login Window')
                 login_btn.clicked.connect(
                     lambda checked, p=platform, n=display_name: self._open_login(p, n)
@@ -1158,9 +1152,7 @@ class MainWindow(QMainWindow):
             self._status_bar.showMessage('Ready')
             return
 
-        ordered_accounts = [
-            (aid, self._get_platform_display_name(aid)) for aid in selected
-        ]
+        ordered_accounts = [(aid, self._get_platform_display_name(aid)) for aid in selected]
 
         grouped_accounts: dict[str, list[str]] = {}
         for account_id in selected:

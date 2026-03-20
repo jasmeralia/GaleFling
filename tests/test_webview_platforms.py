@@ -48,8 +48,11 @@ def test_snapchat_does_not_restrict_webgl():
     # which uses GPU-heavy JavaScript.  The base class _configure_webview_page
     # is a no-op, so Snapchat inherits the default (unrestricted) settings.
     p = SnapchatPlatform(account_id='snapchat_1')
-    assert not hasattr(p, '_configure_webview_page') or p._configure_webview_page.__func__ is \
-        SnapchatPlatform.__bases__[0]._configure_webview_page
+    assert (
+        not hasattr(p, '_configure_webview_page')
+        or p._configure_webview_page.__func__
+        is SnapchatPlatform.__bases__[0]._configure_webview_page
+    )
 
 
 def _write_cookie(path: Path, host: str, name: str, expires_utc: int):

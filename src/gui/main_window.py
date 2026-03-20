@@ -211,7 +211,9 @@ class _ConnectionTestProgressDialog(QDialog):
         re_enable_callback=None,
     ):
         super().__init__(parent)
-        self._pending_login_platform: BaseWebViewPlatform | None = None  # GC guard for platform kept alive after login dialog
+        self._pending_login_platform: BaseWebViewPlatform | None = (
+            None  # GC guard for platform kept alive after login dialog
+        )
         self._re_enable_callback = re_enable_callback
         self._platforms = platforms
         self._pending_count = len(ordered_accounts)

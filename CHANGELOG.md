@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.18] - 2026-03-25
+
+### Added
+- `make test-functional-cmd` and `make venv-win` targets to run functional tests as a native Windows process from WSL via PowerShell, giving full GPU/display access for WebView tests.
+
+### Changed
+- `requirements-dev.txt` now includes `requirements.txt` via `-r`, so a single `pip install -r requirements-dev.txt` installs all dependencies.
+- Functional test conftest now sets `--no-sandbox` for QtWebEngineProcess when running from a UNC network path (e.g. WSL filesystem via `\\wsl.localhost\...`), fixing WebView test failures when invoked via `make test-functional-cmd`.
+
 ## [1.7.17] - 2026-03-20
 
 ### Changed

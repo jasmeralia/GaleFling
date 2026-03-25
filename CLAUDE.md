@@ -24,7 +24,7 @@ See [AGENTS.md](AGENTS.md) for mandatory rules, the release checklist, project s
 
 - **Run lint:** `make lint PYTHON=.venv/bin/python`
 - **Run tests:** `make test-cov PYTHON=.venv/bin/python`
-- **Run functional tests:** `python -m pytest tests/functional/ -v`
+- **Run functional tests:** `make test-functional-cmd` (via cmd.exe for native Windows GPU/display) or `python -m pytest tests/functional/ -v` (offscreen/WSL)
 
 ## Commands — Windows
 

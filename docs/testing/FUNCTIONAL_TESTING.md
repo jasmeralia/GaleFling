@@ -15,7 +15,15 @@ make test-functional PYTHON=.venv/bin/python
 
 # 4. Or with a virtual display for full WebGL support
 make test-functional-xvfb PYTHON=.venv/bin/python
+
+# 5. Or via cmd.exe for native Windows process (full GPU/display, best for WebView tests)
+#    First-time setup: create the Windows venv (only needed once)
+make venv-win
+#    Then run tests
+make test-functional-cmd
 ```
+
+> **WSL tip:** `make test-functional-cmd` invokes `cmd.exe` directly so pytest runs as a native Windows process with full GPU and display — same results as running on Windows natively. It uses a separate `.venv-win` directory because a WSL-created venv only has `bin/python`, not `Scripts/python.exe`. Run `make venv-win` once to create it. It uses the Windows Python Launcher (`py.exe`) by default, which ships with official Python installs and is more reliable than `python.exe` (which may redirect to the Microsoft Store). Override with `WIN_PYTHON` if needed, e.g. `make venv-win WIN_PYTHON="py -3.12"`.
 
 ## Quick Start (Windows)
 
@@ -74,6 +82,7 @@ WebView tests behave differently depending on the display environment:
 | Environment | API tests | Media tests | FetLife | Fansly | OnlyFans | Snapchat |
 |---|---|---|---|---|---|---|
 | **Windows (native)** | All pass | All pass | Full | Text inject | Auth + composer | Full (WebGL) |
+| **WSL → cmd.exe** | All pass | All pass | Full | Text inject | Auth + composer | Full (WebGL) |
 | **WSLg (DISPLAY=:0)** | All pass | All pass | Full | Text inject | Auth only | JS fails (no WebGL) |
 | **Offscreen (no display)** | All pass | All pass | Full | Text inject | Auth only | JS fails |
 | **Xvfb (xvfb-run)** | All pass | All pass | Full | Text inject | Auth only | Depends on Mesa GL |

@@ -20,6 +20,18 @@ def _has_display() -> bool:
     return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
 
 
+def _running_from_network_path() -> bool:
+    """Return True if the Python executable lives on a UNC/network path.
+
+    Chromium refuses to launch QtWebEngineProcess with sandboxing enabled when
+    the executable is on a network path (e.g. \\\\wsl.localhost\\... when running
+    via PowerShell from WSL). --no-sandbox is required in that case.
+    """
+    import sys
+
+    return sys.platform == 'win32' and sys.executable.startswith('\\\\')
+
+
 def pytest_configure(config):
     global _qapp
     load_dotenv(ENV_PATH)
@@ -33,6 +45,11 @@ def pytest_configure(config):
             'QTWEBENGINE_CHROMIUM_FLAGS',
             '--no-sandbox --disable-gpu --disable-software-rasterizer',
         )
+    elif _running_from_network_path():
+        # Chromium sandbox is incompatible with UNC network paths (e.g. WSL
+        # filesystem accessed via \\wsl.localhost\...). Disable sandbox only;
+        # GPU is still available since this is a native Windows process.
+        os.environ.setdefault('QTWEBENGINE_CHROMIUM_FLAGS', '--no-sandbox')
 
     try:
         from PyQt6.QtCore import Qt

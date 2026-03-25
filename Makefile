@@ -1,7 +1,8 @@
-.PHONY: help install install-dev lint lint-fix format test test-cov test-functional test-functional-xvfb build installer clean
+.PHONY: help install install-dev lint lint-fix format test test-cov test-functional test-functional-xvfb test-functional-cmd venv-win build installer clean
 
 PYTHON ?= python
 PIP ?= pip
+WIN_PYTHON ?= py
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -10,7 +11,7 @@ help: ## Show this help
 install: ## Install runtime dependencies
 	$(PIP) install -r requirements.txt
 
-install-dev: install ## Install runtime + dev dependencies
+install-dev: ## Install all dependencies (runtime + dev)
 	$(PIP) install -r requirements-dev.txt
 
 lint: ## Run ruff linter, formatter check, and mypy
@@ -36,6 +37,18 @@ test-functional: ## Run functional tests (requires credentials in tests/function
 
 test-functional-xvfb: ## Run functional tests under Xvfb (virtual display for WebGL)
 	xvfb-run -a $(PYTHON) -m pytest tests/functional/ -m functional -v --no-header
+
+POWERSHELL := /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+
+venv-win: ## Create a Windows venv at .venv-win via PowerShell (needed for test-functional-cmd)
+	@WIN_DIR=$$(wslpath -w "$(CURDIR)"); \
+	printf "Set-Location '%s'; $(WIN_PYTHON) -m venv .venv-win; .venv-win\\\\Scripts\\\\pip install -r requirements-dev.txt\n" "$$WIN_DIR" | \
+	$(POWERSHELL) -NoProfile -Command -
+
+test-functional-cmd: ## Run functional tests via PowerShell (WSL → native Windows process, full GPU/display)
+	@WIN_DIR=$$(wslpath -w "$(CURDIR)"); \
+	printf "Set-Location '%s'; .venv-win\\\\Scripts\\\\python.exe -m pytest tests\\\\functional -m functional -v --no-header\n" "$$WIN_DIR" | \
+	$(POWERSHELL) -NoProfile -Command -
 
 build: ## Build standalone executable with PyInstaller
 	pyinstaller build/build.spec --distpath dist/ --workpath build/tmp --clean

@@ -64,3 +64,4 @@ htmlcov
 build/build/
 *.har
 *.code-workspace
+.serena/

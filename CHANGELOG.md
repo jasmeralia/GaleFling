@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.20] - 2026-03-26
+
+### Changed
+- Functional test documentation updated: `make test-functional-cmd` is now clearly marked as the required command in WSL (running tests directly via `python -m pytest` in WSL skips all WebView tests).
+- `make help` now labels each target with its required environment: `[Linux/WSL]`, `[WSL→Win]`, or `[Windows]`.
+
+## [1.7.19] - 2026-03-26
+
+### Fixed
+- Threads platform was not appearing as enabled in the main window after login: `ThreadsPlatform` was missing from `_PLATFORM_FACTORIES` in `main_window.py`, so Threads accounts were silently skipped when building the platform list.
+- Threads login button in Settings showed "platform not supported" modal: `ThreadsPlatform` was missing from `_create_webview_platform()` in `settings_dialog.py` (import, cookie domain map, and factory case all added).
+- Threads URLs updated from `threads.net` to `threads.com` following Meta's domain migration (`COMPOSER_URL`, `LOGIN_URL`, `SUCCESS_URL_PATTERN`, `COOKIE_DOMAINS`); `threads.net` retained in `COOKIE_DOMAINS` for backwards compatibility.
+
 ## [1.7.18] - 2026-03-25
 
 ### Added

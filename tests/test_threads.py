@@ -80,15 +80,15 @@ def test_threads_get_specs():
 
 
 def test_threads_composer_url():
-    assert ThreadsPlatform.COMPOSER_URL == 'https://www.threads.net/'
+    assert ThreadsPlatform.COMPOSER_URL == 'https://www.threads.com/'
 
 
 def test_threads_login_url():
-    assert ThreadsPlatform.LOGIN_URL == 'https://www.threads.net/login'
+    assert ThreadsPlatform.LOGIN_URL == 'https://www.threads.com/login'
 
 
 def test_threads_cookie_domains():
-    assert 'threads.net' in ThreadsPlatform.COOKIE_DOMAINS
+    assert 'threads.com' in ThreadsPlatform.COOKIE_DOMAINS
 
 
 def test_threads_text_selector_nonempty():
@@ -101,14 +101,14 @@ def test_threads_auth_cookie_names_nonempty():
 
 def test_threads_success_url_pattern_matches_post():
     pattern = ThreadsPlatform.SUCCESS_URL_PATTERN
-    assert re.search(pattern, 'https://www.threads.net/@rinthemodel/post/ABC123xyz')
-    assert re.search(pattern, 'https://www.threads.net/@user.name/post/CDefGHijkL')
+    assert re.search(pattern, 'https://www.threads.com/@rinthemodel/post/ABC123xyz')
+    assert re.search(pattern, 'https://www.threads.com/@user.name/post/CDefGHijkL')
 
 
 def test_threads_success_url_pattern_no_match_home():
     pattern = ThreadsPlatform.SUCCESS_URL_PATTERN
-    assert not re.search(pattern, 'https://www.threads.net/')
-    assert not re.search(pattern, 'https://www.threads.net/login')
+    assert not re.search(pattern, 'https://www.threads.com/')
+    assert not re.search(pattern, 'https://www.threads.com/login')
 
 
 def test_threads_is_webview_platform():
@@ -136,10 +136,10 @@ def test_threads_build_result_not_confirmed():
 def test_threads_build_result_confirmed_with_url():
     p = ThreadsPlatform(account_id='threads_1', profile_name='rinthemodel')
     p._post_confirmed = True
-    p._captured_post_url = 'https://www.threads.net/@rinthemodel/post/ABC123'
+    p._captured_post_url = 'https://www.threads.com/@rinthemodel/post/ABC123'
     result = p.build_result()
     assert result.success is True
-    assert result.post_url == 'https://www.threads.net/@rinthemodel/post/ABC123'
+    assert result.post_url == 'https://www.threads.com/@rinthemodel/post/ABC123'
     assert result.url_captured is True
     assert result.user_confirmed is True
 
@@ -180,7 +180,7 @@ def test_threads_no_session_without_auth_cookie(monkeypatch, tmp_path):
 
     future_expiry = 20_000_000_000_000_000
     # Non-auth cookie should not count
-    _write_cookie(cookie_path, '.threads.net', '_ga', future_expiry)
+    _write_cookie(cookie_path, '.threads.com', '_ga', future_expiry)
     assert platform.has_valid_session() is False
 
 
@@ -193,5 +193,5 @@ def test_threads_session_with_auth_cookie(monkeypatch, tmp_path):
 
     future_expiry = 20_000_000_000_000_000
     # AUTH_COOKIE_NAMES[0] ('sessionid') should be accepted
-    _write_cookie(cookie_path, '.threads.net', ThreadsPlatform.AUTH_COOKIE_NAMES[0], future_expiry)
+    _write_cookie(cookie_path, '.threads.com', ThreadsPlatform.AUTH_COOKIE_NAMES[0], future_expiry)
     assert platform.has_valid_session() is True

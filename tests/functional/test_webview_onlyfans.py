@@ -3,7 +3,9 @@
 OnlyFans composer requires click interaction to expand. Session expiry is
 detected via inline login form detection (OnlyFans does not redirect to /login).
 
-Requires GALEFLING_DATA_DIR in .env with a valid OnlyFans session (onlyfans_1).
+Requires GALEFLING_DATA_DIR and ONLYFANS_EMAIL / ONLYFANS_PASSWORD in .env.
+If ONLYFANS_TOTP_SECRET is also set, it is used to satisfy 2FA prompts
+automatically. If the session cookie is still valid the login flow is skipped.
 """
 
 import json
@@ -15,8 +17,8 @@ import pytest
 from tests.functional.webview_helpers import (
     create_webview,
     get_or_create_app,
-    has_cookie_db,
     load_page,
+    login_onlyfans,
     run_js,
     wait_ms,
 )
@@ -24,32 +26,57 @@ from tests.functional.webview_helpers import (
 ACCOUNT_ID = 'onlyfans_1'
 
 
-def _skip_if_no_session(data_dir):
-    if not has_cookie_db(data_dir, ACCOUNT_ID):
-        pytest.skip('No OnlyFans cookie database found')
+def _ensure_session(page, credentials: dict) -> None:
+    """Verify we have a valid OnlyFans session, logging in if needed.
+
+    Loads the OnlyFans home page, checks for the inline login form, and
+    calls login_onlyfans if the session has expired. Calls pytest.skip if
+    login cannot be completed.
+    """
+    ok, final_url = load_page(page, 'https://onlyfans.com/', timeout_ms=20000)
+    assert ok, f'Page load failed: {final_url}'
+
+    # OnlyFans uses Vue.js — wait for the SPA + Cloudflare to hydrate before
+    # checking whether the login form is present.
+    wait_ms(8000)
+
+    login_check = run_js(
+        page,
+        """
+        (function() {
+            return !!document.querySelector(
+                '.b-loginreg__form, .b-login-wrapper, input[type="password"]'
+            );
+        })();
+        """,
+    )
+
+    if login_check:
+        success = login_onlyfans(
+            page,
+            credentials['email'],
+            credentials['password'],
+            credentials.get('totp_secret'),
+        )
+        if not success:
+            pytest.skip('OnlyFans login failed — check credentials or TOTP secret in .env')
 
 
 @pytest.mark.functional
 class TestOnlyFansComposer:
     """OnlyFans: verify page loads and attempt composer interaction."""
 
-    def test_page_loads_authenticated(self, galefling_data_dir):
-        """Verify OnlyFans home page loads without login redirect."""
-        _skip_if_no_session(galefling_data_dir)
+    def test_page_loads_authenticated(self, galefling_data_dir, onlyfans_credentials):
+        """Verify OnlyFans home page loads in an authenticated state."""
         get_or_create_app()
         view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
-            ok, final_url = load_page(page, 'https://onlyfans.com/', timeout_ms=20000)
-            assert ok, f'Page load failed: {final_url}'
-            if '/login' in final_url.lower():
-                pytest.fail(f'OnlyFans session expired — redirected to login: {final_url}')
-            wait_ms(5000)
+            _ensure_session(page, onlyfans_credentials)
 
             result = run_js(
                 page,
                 """
                 (function() {
-                    // OnlyFans shows a login form inline at / when logged out
                     var loginForm = document.querySelector(
                         '.b-loginreg__form, .b-login-wrapper, input[type="email"], input[type="password"]'
                     );
@@ -63,43 +90,19 @@ class TestOnlyFansComposer:
             )
             assert isinstance(result, dict)
             assert result.get('hasBody'), 'Page body is empty'
-            if result.get('hasLoginForm'):
-                pytest.fail(
-                    'OnlyFans session expired — login form present at home page '
-                    '(re-authenticate via the GaleFling app)'
-                )
+            assert not result.get('hasLoginForm'), (
+                'OnlyFans login form still present after authentication'
+            )
         finally:
             page.deleteLater()
             profile.deleteLater()
 
-    def test_composer_accessible(self, galefling_data_dir):
+    def test_composer_accessible(self, galefling_data_dir, onlyfans_credentials):
         """Check if the composer is present and attempt text injection."""
-        _skip_if_no_session(galefling_data_dir)
         get_or_create_app()
         view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
-            ok, final_url = load_page(page, 'https://onlyfans.com/', timeout_ms=20000)
-            assert ok, f'Page load failed: {final_url}'
-            if '/login' in final_url.lower():
-                pytest.fail(f'OnlyFans session expired — redirected to login: {final_url}')
-            wait_ms(5000)
-
-            # Detect inline login form (OnlyFans serves it at / without redirecting)
-            login_check = run_js(
-                page,
-                """
-                (function() {
-                    return !!document.querySelector(
-                        '.b-loginreg__form, .b-login-wrapper, input[type="password"]'
-                    );
-                })();
-                """,
-            )
-            if login_check:
-                pytest.fail(
-                    'OnlyFans session expired — login form present at home page '
-                    '(re-authenticate via the GaleFling app)'
-                )
+            _ensure_session(page, onlyfans_credentials)
             wait_ms(5000)
 
             # Try to find the composer — it may need a click to expand

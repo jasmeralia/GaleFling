@@ -35,6 +35,7 @@ from src.platforms.fansly import FanslyPlatform
 from src.platforms.fetlife import FetLifePlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
+from src.platforms.threads import ThreadsPlatform
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
 from src.utils.helpers import get_app_data_dir
@@ -48,6 +49,7 @@ class SettingsDialog(QDialog):
         'onlyfans': OnlyFansPlatform.COOKIE_DOMAINS,
         'fansly': FanslyPlatform.COOKIE_DOMAINS,
         'fetlife': FetLifePlatform.COOKIE_DOMAINS,
+        'threads': ThreadsPlatform.COOKIE_DOMAINS,
     }
 
     def __init__(self, config: ConfigManager, auth_manager: AuthManager, parent=None):
@@ -985,6 +987,8 @@ class SettingsDialog(QDialog):
             return FanslyPlatform(account_id=account_id, profile_name=profile_name)
         if platform_id == 'fetlife':
             return FetLifePlatform(account_id=account_id, profile_name=profile_name)
+        if platform_id == 'threads':
+            return ThreadsPlatform(account_id=account_id, profile_name=profile_name)
         return None
 
     def _open_webview_login_window(self, platform_id: str, account_id: str):

@@ -14,49 +14,59 @@ install: ## Install runtime dependencies
 install-dev: ## Install all dependencies (runtime + dev)
 	$(PIP) install -r requirements-dev.txt
 
-lint: ## Run ruff linter, formatter check, and mypy
+lint: ## [Linux/WSL] Run ruff linter, formatter check, and mypy
 	$(PYTHON) -m ruff check src/ tests/ infrastructure/
 	$(PYTHON) -m ruff format --check src/ tests/ infrastructure/
 	$(PYTHON) -m mypy src/
 	shellcheck infrastructure/deploy.sh scripts/commit_with_changelog_notes.sh
 
-lint-fix: ## Auto-fix lint issues and format code
+lint-fix: ## [Linux/WSL] Auto-fix lint issues and format code
 	$(PYTHON) -m ruff check --fix src/ tests/ infrastructure/
 	$(PYTHON) -m ruff format src/ tests/ infrastructure/
 
-format: lint-fix ## Alias for lint-fix
+format: lint-fix ## [Linux/WSL] Alias for lint-fix
 
-test: ## Run test suite
+test: ## [Linux/WSL] Run test suite
 	$(PYTHON) -m pytest tests/ -v
 
-test-cov: ## Run tests with coverage report
+test-cov: ## [Linux/WSL] Run tests with coverage (excludes functional)
 	$(PYTHON) -m pytest tests/ -v -m "not functional" --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml:coverage.xml --junitxml=junit.xml -o junit_family=legacy
 
-test-functional: ## Run functional tests (requires credentials in tests/functional/.env)
+test-functional: ## [Linux/WSL] Run functional tests directly (WebView tests skipped without display)
 	$(PYTHON) -m pytest tests/functional/ -m functional -v --no-header
 
-test-functional-xvfb: ## Run functional tests under Xvfb (virtual display for WebGL)
+test-functional-xvfb: ## [Linux/WSL] Run functional tests under Xvfb virtual display
 	xvfb-run -a $(PYTHON) -m pytest tests/functional/ -m functional -v --no-header
 
 POWERSHELL := /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
 
-venv-win: ## Create a Windows venv at .venv-win via PowerShell (needed for test-functional-cmd)
+venv-win: ## [WSL→Win] Create Windows venv at .venv-win via PowerShell (run once first)
 	@WIN_DIR=$$(wslpath -w "$(CURDIR)"); \
 	printf "Set-Location '%s'; $(WIN_PYTHON) -m venv .venv-win; .venv-win\\\\Scripts\\\\pip install -r requirements-dev.txt\n" "$$WIN_DIR" | \
 	$(POWERSHELL) -NoProfile -Command -
 
-test-functional-cmd: ## Run functional tests via PowerShell (WSL → native Windows process, full GPU/display)
+test-functional-cmd: ## [WSL→Win] Run functional tests via PowerShell (native GPU/display, use this in WSL)
 	@WIN_DIR=$$(wslpath -w "$(CURDIR)"); \
 	printf "Set-Location '%s'; .venv-win\\\\Scripts\\\\python.exe -m pytest tests\\\\functional -m functional -v --no-header\n" "$$WIN_DIR" | \
 	$(POWERSHELL) -NoProfile -Command -
 
-build: ## Build standalone executable with PyInstaller
+build: ## [Windows] Build standalone executable with PyInstaller
 	pyinstaller build/build.spec --distpath dist/ --workpath build/tmp --clean
 
-installer: build ## Build NSIS installer (requires makensis)
+installer: build ## [Windows] Build exe + NSIS installer
 	makensis build/installer.nsi
 
-run: ## Run the application
+build-wsl: ## [WSL→Win] Build standalone executable via PowerShell dispatch to .venv-win
+	@WIN_DIR=$$(wslpath -w "$(CURDIR)"); \
+	printf "Set-Location '%s'; .venv-win\\\\Scripts\\\\python.exe -m PyInstaller build/build.spec --distpath dist/ --workpath build/tmp --clean\n" "$$WIN_DIR" | \
+	$(POWERSHELL) -NoProfile -Command -
+
+installer-wsl: build-wsl ## [WSL→Win] Build exe + NSIS installer via PowerShell (use this in WSL)
+	@WIN_DIR=$$(wslpath -w "$(CURDIR)"); \
+	printf "Set-Location '%s'; & 'C:\\\\Program Files (x86)\\\\NSIS\\\\makensis.exe' build\\\\installer.nsi\n" "$$WIN_DIR" | \
+	$(POWERSHELL) -NoProfile -Command -
+
+run: ## [Linux/WSL] Run the application
 	$(PYTHON) src/main.py
 
 clean: ## Remove build artifacts

@@ -6,3 +6,4 @@ ruff>=0.8.0
 mypy>=1.8.0
 types-requests>=2.32.0
 pyinstaller>=6.3.0
+pyotp>=2.9.0

@@ -24,7 +24,8 @@ See [AGENTS.md](AGENTS.md) for mandatory rules, the release checklist, project s
 
 - **Run lint:** `make lint PYTHON=.venv/bin/python`
 - **Run tests:** `make test-cov PYTHON=.venv/bin/python`
-- **Run functional tests:** `make test-functional-cmd` (via cmd.exe for native Windows GPU/display) or `python -m pytest tests/functional/ -v` (offscreen/WSL)
+- **Run functional tests:** `make test-functional-cmd` — always use this in WSL; it dispatches via cmd.exe for native Windows GPU/display. Do NOT run functional tests directly with `python -m pytest` in WSL — WebView tests will be skipped.
+- **Build exe + installer:** `make installer-wsl` (dispatches to Windows Python in `.venv-win` via PowerShell — run `make venv-win` once first)
 
 ## Commands — Windows
 
@@ -44,6 +45,10 @@ See [AGENTS.md](AGENTS.md) for mandatory rules, the release checklist, project s
 | Logs | `C:\Users\storm\AppData\Roaming\GaleFling\logs\` | `/mnt/c/Users/storm/AppData/Roaming/GaleFling/logs/` |
 | WebView profiles | `C:\Users\storm\AppData\Roaming\GaleFling\webprofiles\<account_id>\` | `/mnt/c/Users/storm/AppData/Roaming/GaleFling/webprofiles/<account_id>/` |
 | Cookie DB | `C:\Users\storm\AppData\Roaming\GaleFling\webprofiles\<account_id>\Cookies` | `/mnt/c/Users/storm/AppData/Roaming/GaleFling/webprofiles/<account_id>/Cookies` |
+
+## Security Rules
+
+- **Never log, echo, print, or display the values of any variables read from `tests/functional/.env`** — this includes passwords, API keys, TOTP secrets, and any other credentials. Do not include credential values in tool call arguments, code comments, assistant responses, or debug output of any kind.
 
 ## Debug Workflow
 

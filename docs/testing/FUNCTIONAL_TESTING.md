@@ -79,13 +79,13 @@ Easiest: export via **Settings > Advanced > Export Test Config** in GaleFling.
 
 WebView tests behave differently depending on the display environment:
 
-| Environment | API tests | Media tests | FetLife | Fansly | OnlyFans | Snapchat |
-|---|---|---|---|---|---|---|
-| **Windows (native)** | All pass | All pass | Full | Text inject | Auth + composer | Full (WebGL) |
-| **WSL → cmd.exe** | All pass | All pass | Full | Text inject | Auth + composer | Full (WebGL) |
-| **WSLg (DISPLAY=:0)** | All pass | All pass | Full | Text inject | Auth only | JS fails (no WebGL) |
-| **Offscreen (no display)** | All pass | All pass | Full | Text inject | Auth only | JS fails |
-| **Xvfb (xvfb-run)** | All pass | All pass | Full | Text inject | Auth only | Depends on Mesa GL |
+| Environment | API tests | Media tests | FetLife | Fansly | OnlyFans | Threads | Snapchat |
+|---|---|---|---|---|---|---|---|
+| **Windows (native)** | All pass | All pass | Full | Text inject | Auth + composer | Auth + text | Full (WebGL) |
+| **WSL → cmd.exe** | All pass | All pass | Full | Text inject | Auth + composer | Auth + text | Full (WebGL) |
+| **WSLg (DISPLAY=:0)** | All pass | All pass | Full | Text inject | Auth only | Auth + text | JS fails (no WebGL) |
+| **Offscreen (no display)** | All pass | All pass | Full | Text inject | Auth only | Auth + text | JS fails |
+| **Xvfb (xvfb-run)** | All pass | All pass | Full | Text inject | Auth only | Auth + text | Depends on Mesa GL |
 
 **Windows is the recommended environment for full test coverage** because it has native GPU access required by Snapchat's WebGL-dependent web app.
 
@@ -132,23 +132,77 @@ INSTAGRAM_PAGE_ID=your-facebook-page-id
 - The token needs `instagram_basic`, `instagram_content_publish`, and `pages_read_engagement` permissions
 - Use the Graph API Explorer to generate a long-lived token
 
-#### WebView Platforms (Snapchat, OnlyFans, Fansly, FetLife)
+#### WebView Platforms — Common
+
+All WebView platform tests also require:
 ```env
 GALEFLING_DATA_DIR=C:\Users\you\AppData\Roaming\GaleFling
 ```
-- Set to the GaleFling application data directory containing `webprofiles/`
-- You must have logged into each platform in GaleFling at least once to create the session cookies
+Set to the GaleFling application data directory containing `webprofiles/`. This is where the persistent browser profile (including cookies) is stored. Export via **Settings > Advanced > Export Test Config** or set manually.
+
+#### OnlyFans (WebView)
+```env
+ONLYFANS_EMAIL=your-email@example.com
+ONLYFANS_PASSWORD=your-password
+ONLYFANS_TOTP_SECRET=BASE32SECRETHERE
+```
+- `ONLYFANS_TOTP_SECRET` is the base32-encoded seed from your authenticator app
+  (the same secret you scanned as a QR code when setting up 2FA). It is only
+  required if the account has two-factor authentication enabled.
+- If the session cookie in `GALEFLING_DATA_DIR` is still valid, the login flow
+  is skipped and the test proceeds immediately.
+- If the cookie has expired, the test logs in automatically using the credentials
+  above, including submitting a fresh TOTP code if a 2FA prompt appears.
+
+#### Fansly (WebView)
+```env
+FANSLY_EMAIL=your-email@example.com
+FANSLY_PASSWORD=your-password
+```
+- If the session cookie is still valid, the login flow is skipped.
+- If the cookie has expired, the test logs in automatically.
+
+#### FetLife (WebView)
+```env
+FETLIFE_EMAIL=your-email@example.com
+FETLIFE_PASSWORD=your-password
+```
+- If the session cookie is still valid, the login flow is skipped.
+- If the cookie has expired, the test logs in via `https://fetlife.com/login`
+  automatically.
+
+#### Threads (WebView)
+```env
+THREADS_USERNAME=your-instagram-username-or-email
+THREADS_PASSWORD=your-password
+```
+- Threads uses Instagram/Meta credentials for login via `threads.net/login`.
+- If the session cookie is still valid, the login flow is skipped.
+- If the cookie has expired, the test logs in automatically.
+- **Note:** The Threads platform is not yet finalized. Some selectors are marked
+  `THREADS_PLACEHOLDER` in `ThreadsPlatform` and have not been verified against the
+  live site. Tests that rely on those selectors will skip with a diagnostic message
+  rather than fail, and both the platform class and the tests should be updated together
+  once the selectors are confirmed.
+
+#### Snapchat (WebView)
+```env
+SNAPCHAT_USERNAME=your-username-or-email
+SNAPCHAT_PASSWORD=your-password
+```
+- If the session cookie is still valid, the login flow is skipped.
+- If the cookie has expired, the test logs in automatically via `accounts.snapchat.com`.
 
 ### Skipping Unconfigured Platforms
 
-Tests automatically **skip** when their credentials are absent — you only need to configure the platforms you want to test. Running with no `.env` at all will skip all platform API tests (media processing tests still run).
+Tests automatically **skip** when their credentials are absent — you only need to configure the platforms you want to test. Running with no `.env` at all will skip all platform API and WebView tests (media processing tests still run).
 
 ## Test Structure
 
 ```
 tests/functional/
 ├── conftest.py                  # Credential loading, skip-if-missing fixtures, media fixtures
-├── webview_helpers.py           # Shared QWebEngineView helpers for webview tests
+├── webview_helpers.py           # Shared QWebEngineView helpers and per-platform login flows
 ├── .env.example                 # Template showing required vars (committed)
 ├── .env                         # Actual credentials (gitignored)
 ├── test_bluesky_post.py         # Bluesky: auth, text, image, video, char limit
@@ -159,16 +213,38 @@ tests/functional/
 ├── test_webview_fetlife.py      # FetLife: text/picture/video composer tests
 ├── test_webview_fansly.py       # Fansly: text injection tests
 ├── test_webview_onlyfans.py     # OnlyFans: auth + composer click expansion
+├── test_webview_threads.py      # Threads: auth + text injection (selectors TBD)
 └── test_webview_snapchat.py     # Snapchat: page load + text injection (needs WebGL)
 ```
 
+### Session-or-Login Flow
+
+WebView posting tests (FetLife, Fansly, OnlyFans) use a **session-or-login** approach:
+
+1. A persistent browser profile is loaded from `GALEFLING_DATA_DIR/webprofiles/<account_id>/`.
+2. The test navigates to the platform URL.
+3. If the session cookie is still valid, the test proceeds immediately.
+4. If the session has expired (login form detected or redirect to login URL), the test
+   performs an automated login using the credentials from `.env`.
+5. If login fails (wrong credentials, unexpected form structure, etc.), the test
+   **skips** with a diagnostic message rather than failing.
+
+After a successful automated login, the new session cookies are persisted to the
+`webprofiles/` directory — so subsequent runs will skip the login step again until
+the next expiry.
+
 ### Test Ordering
 
-Each platform test module starts with a `TestXxxConnection` class that validates authentication before any posting tests run. If connection tests fail, you know immediately that the credentials are wrong — no need to debug post failures.
+Each platform test module starts with a connection/page-load test that validates
+authentication before any posting tests run. If that test fails, the credentials or
+session state need attention — no need to debug post failures.
 
 ### Post Cleanup
 
-Every test that creates a post **deletes it in the same test** to avoid polluting test accounts. Tests use UUID tags in post text to avoid duplicate-post rejections. FetLife text posts redirect to the feed after submission rather than to the individual post, so manual cleanup may be needed.
+Every test that creates a post **deletes it in the same test** to avoid polluting
+test accounts. Tests use UUID tags in post text to avoid duplicate-post rejections.
+FetLife text posts redirect to the feed after submission rather than to the
+individual post, so manual cleanup may be needed.
 
 ## What's Tested
 
@@ -187,22 +263,24 @@ Every test that creates a post **deletes it in the same test** to avoid pollutin
 
 ### WebView Platform Session Tests
 
-| Test case                  | Snapchat | OnlyFans | Fansly | FetLife |
-|----------------------------|----------|----------|--------|---------|
-| Cookie database exists     | x        | x        | x      | x       |
-| has_valid_session()        | x        | x        | x      | x       |
-| Platform specs consistency | x        | x        | x      | x       |
+| Test case                  | Snapchat | OnlyFans | Fansly | FetLife | Threads |
+|----------------------------|----------|----------|--------|---------|---------|
+| Cookie database exists     | x        | x        | x      | x       | x       |
+| has_valid_session()        | x        | x        | x      | x       | x       |
+| Platform specs consistency | x        | x        | x      | x       | x       |
 
 ### WebView Platform Posting Tests
 
-| Test case                    | FetLife | Fansly | OnlyFans | Snapchat |
-|------------------------------|---------|--------|----------|----------|
-| Composer page loads          | x       | x      | x        | x        |
-| Composer click expansion     | -       | -      | x        | -        |
-| Text injection               | x       | x      | x        | x        |
-| Text post submit             | x       | -      | -        | -        |
-| Picture composer elements    | x       | -      | -        | -        |
-| Video composer elements      | x       | -      | -        | -        |
+| Test case                    | FetLife | Fansly | OnlyFans | Threads | Snapchat |
+|------------------------------|---------|--------|----------|---------|----------|
+| Composer page loads          | x       | x      | x        | x       | x        |
+| Composer click expansion     | -       | -      | x        | -       | -        |
+| Text injection               | x       | x      | x        | x *     | x        |
+| Text post submit             | x       | -      | -        | -       | -        |
+| Picture composer elements    | x       | -      | -        | -       | -        |
+| Video composer elements      | x       | -      | -        | -       | -        |
+
+\* Threads text injection uses an unverified selector (`THREADS_PLACEHOLDER`). The test skips gracefully if the selector doesn't match the live site.
 
 ### Media Processing (No Credentials)
 
@@ -239,8 +317,11 @@ Functional tests are **excluded from CI** via the `functional` pytest marker:
 ### QWebEngineView crashes with "Fatal Python error: Aborted"
 The conftest.py creates a module-level QApplication to prevent garbage collection, and sets `QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox --disable-gpu --disable-software-rasterizer` when in offscreen mode. If you still see crashes, try running with a real display (`DISPLAY=:0` on WSL) or on native Windows.
 
-### WebView tests skip with "No X cookie database found"
-The platform's cookie database doesn't exist in `GALEFLING_DATA_DIR/webprofiles/<platform>_1/Cookies`. Log into the platform in GaleFling first to create the session.
+### WebView session tests skip with "No X cookie database found"
+The platform's cookie database doesn't exist in `GALEFLING_DATA_DIR/webprofiles/<platform>_1/Cookies`. The posting tests for all four WebView platforms will create the session automatically using the credentials in `.env`.
+
+### OnlyFans / Fansly / FetLife login fails during test
+Check that the credentials in `.env` are correct. For OnlyFans with 2FA, verify that `ONLYFANS_TOTP_SECRET` is set to the raw base32 seed (not a time-based code). If the account is locked or requires email verification, complete that step manually in the GaleFling app first.
 
 ### FetLife post not auto-deleted
 FetLife redirects to `/posts` after submission instead of the individual post page. Check your FetLife feed for posts containing "GaleFling functional test" and delete them manually.

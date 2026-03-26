@@ -5,7 +5,8 @@ Tests the three FetLife composer types (text, picture, video):
 - Picture: verify file input and upload button are present
 - Video: verify file input and upload button are present
 
-Requires GALEFLING_DATA_DIR in .env with a valid FetLife session (fetlife_1).
+Requires GALEFLING_DATA_DIR and FETLIFE_EMAIL / FETLIFE_PASSWORD in .env.
+If the session cookie is still valid the login flow is skipped.
 """
 
 import json
@@ -17,8 +18,8 @@ import pytest
 from tests.functional.webview_helpers import (
     create_webview,
     get_or_create_app,
-    has_cookie_db,
     load_page,
+    login_fetlife,
     run_js,
     wait_ms,
 )
@@ -26,37 +27,50 @@ from tests.functional.webview_helpers import (
 ACCOUNT_ID = 'fetlife_1'
 
 
-def _skip_if_no_session(data_dir):
-    if not has_cookie_db(data_dir, ACCOUNT_ID):
-        pytest.skip('No FetLife cookie database found')
+def _ensure_session(page, credentials: dict) -> None:
+    """Verify we have a valid FetLife session, logging in if needed.
+
+    Navigates to the text composer page (which redirects to /login when the
+    session is expired) and calls login_fetlife if authentication is required.
+    Calls pytest.skip if login cannot be completed.
+    """
+    ok, final_url = load_page(page, 'https://fetlife.com/posts/new?source=Feed')
+    if not ok:
+        pytest.skip(f'FetLife page load failed: {final_url}')
+
+    if '/login' in final_url.lower():
+        success = login_fetlife(page, credentials['email'], credentials['password'])
+        if not success:
+            pytest.skip('FetLife login failed — check credentials in .env')
+        # After login, navigate back to the composer
+        ok, final_url = load_page(page, 'https://fetlife.com/posts/new?source=Feed')
+        if not ok or '/login' in final_url.lower():
+            pytest.skip('FetLife composer unreachable after login')
 
 
 @pytest.mark.functional
 class TestFetLifeTextPost:
     """FetLife text post: inject text, submit form, capture URL, delete."""
 
-    def test_composer_loads(self, galefling_data_dir):
-        """Verify the text composer page loads without login redirect."""
-        _skip_if_no_session(galefling_data_dir)
+    def test_composer_loads(self, galefling_data_dir, fetlife_credentials):
+        """Verify the text composer page loads in an authenticated state."""
         get_or_create_app()
         view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
-            ok, final_url = load_page(page, 'https://fetlife.com/posts/new?source=Feed')
-            assert ok, f'Page load failed (url={final_url})'
+            _ensure_session(page, fetlife_credentials)
+            final_url = page.url().toString()
             assert '/login' not in final_url.lower(), f'Redirected to login: {final_url}'
             assert 'posts/new' in final_url, f'Unexpected URL: {final_url}'
         finally:
             page.deleteLater()
             profile.deleteLater()
 
-    def test_text_injection(self, galefling_data_dir):
+    def test_text_injection(self, galefling_data_dir, fetlife_credentials):
         """Verify text can be injected into the ProseMirror editor."""
-        _skip_if_no_session(galefling_data_dir)
         get_or_create_app()
         view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
-            ok, _ = load_page(page, 'https://fetlife.com/posts/new?source=Feed')
-            assert ok
+            _ensure_session(page, fetlife_credentials)
             wait_ms(2000)
 
             tag = uuid.uuid4().hex[:8]
@@ -80,16 +94,13 @@ class TestFetLifeTextPost:
             page.deleteLater()
             profile.deleteLater()
 
-    def test_text_post_submit_and_delete(self, galefling_data_dir):
+    def test_text_post_submit_and_delete(self, galefling_data_dir, fetlife_credentials):
         """Submit a text post, capture the URL, then attempt deletion."""
-        _skip_if_no_session(galefling_data_dir)
         get_or_create_app()
         view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
         post_url = None
         try:
-            ok, final_url = load_page(page, 'https://fetlife.com/posts/new?source=Feed')
-            assert ok, f'Page load failed: {final_url}'
-            assert '/login' not in final_url.lower(), f'Session expired: {final_url}'
+            _ensure_session(page, fetlife_credentials)
             wait_ms(3000)
 
             # Inject text
@@ -225,12 +236,15 @@ class TestFetLifeTextPost:
 class TestFetLifePictureComposer:
     """FetLife picture composer: verify page loads and elements are present."""
 
-    def test_picture_composer_loads(self, galefling_data_dir):
+    def test_picture_composer_loads(self, galefling_data_dir, fetlife_credentials):
         """Verify the picture composer loads with file input and submit button."""
-        _skip_if_no_session(galefling_data_dir)
         get_or_create_app()
         view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
+            # Establish session via the text composer (handles login redirect)
+            _ensure_session(page, fetlife_credentials)
+
+            # Now navigate to the picture composer
             ok, final_url = load_page(
                 page, 'https://fetlife.com/pictures/new?source=Main+Navigation'
             )
@@ -274,12 +288,15 @@ class TestFetLifePictureComposer:
 class TestFetLifeVideoComposer:
     """FetLife video composer: verify page loads and elements are present."""
 
-    def test_video_composer_loads(self, galefling_data_dir):
+    def test_video_composer_loads(self, galefling_data_dir, fetlife_credentials):
         """Verify the video composer loads with file input and submit button."""
-        _skip_if_no_session(galefling_data_dir)
         get_or_create_app()
         view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
+            # Establish session via the text composer (handles login redirect)
+            _ensure_session(page, fetlife_credentials)
+
+            # Now navigate to the video composer
             ok, final_url = load_page(page, 'https://fetlife.com/videos/new?source=Main+Navigation')
             assert ok, f'Page load failed: {final_url}'
             assert '/login' not in final_url.lower(), f'Session expired: {final_url}'

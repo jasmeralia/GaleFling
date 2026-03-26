@@ -212,3 +212,52 @@ def galefling_data_dir():
     if not path.is_dir():
         pytest.skip(f'GALEFLING_DATA_DIR does not exist: {data_dir}')
     return path
+
+
+@pytest.fixture
+def onlyfans_credentials():
+    email = os.environ.get('ONLYFANS_EMAIL')
+    password = os.environ.get('ONLYFANS_PASSWORD')
+    if not email or not password:
+        pytest.skip('OnlyFans credentials not configured')
+    return {
+        'email': email,
+        'password': password,
+        'totp_secret': os.environ.get('ONLYFANS_TOTP_SECRET'),
+    }
+
+
+@pytest.fixture
+def fansly_credentials():
+    email = os.environ.get('FANSLY_EMAIL')
+    password = os.environ.get('FANSLY_PASSWORD')
+    if not email or not password:
+        pytest.skip('Fansly credentials not configured')
+    return {'email': email, 'password': password}
+
+
+@pytest.fixture
+def fetlife_credentials():
+    email = os.environ.get('FETLIFE_EMAIL')
+    password = os.environ.get('FETLIFE_PASSWORD')
+    if not email or not password:
+        pytest.skip('FetLife credentials not configured')
+    return {'email': email, 'password': password}
+
+
+@pytest.fixture
+def threads_credentials():
+    username = os.environ.get('THREADS_USERNAME')
+    password = os.environ.get('THREADS_PASSWORD')
+    if not username or not password:
+        pytest.skip('Threads credentials not configured')
+    return {'username': username, 'password': password}
+
+
+@pytest.fixture
+def snapchat_credentials():
+    username = os.environ.get('SNAPCHAT_USERNAME')
+    password = os.environ.get('SNAPCHAT_PASSWORD')
+    if not username or not password:
+        pytest.skip('Snapchat credentials not configured')
+    return {'username': username, 'password': password}

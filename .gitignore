@@ -66,3 +66,4 @@ build/build/
 *.har
 *.code-workspace
 .serena/
+.claude/settings.local.json

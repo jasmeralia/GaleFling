@@ -635,6 +635,12 @@ class WebViewPlatformSetupPage(QWizardPage):
         self._pending_login_platform = None  # release any previous platform first
         dialog = WebViewLoginDialog(platform, self._platform_name, self)
         dialog.exec()
+        # Schedule the dialog (and its QWebEngineView/Page) for deletion via the
+        # Qt event loop.  Direct deletion or relying on parent-child GC bypasses
+        # Chromium's CrBrowserMain teardown sequence, leaving stale VSync services
+        # alive against the profile.  deleteLater() lets the event loop process
+        # WebContents destruction before the profile is reused by the next dialog.
+        dialog.deleteLater()
         # Keep platform alive so its QWebEngineProfile is not GC'd before
         # Chromium's background cookie writer flushes the session to disk.
         self._pending_login_platform = platform

@@ -132,6 +132,16 @@ class FetLifePlatform(BaseWebViewPlatform):
             input.style.pointerEvents = 'auto';
             input.style.opacity = '1';
 
+            // Auto-check the "remember me" checkbox on the login page.
+            // FetLife is a server-rendered Rails form — a direct property set is
+            // sufficient; no Vue prototype-setter dance needed.
+            if ((input.name === 'user[remember_me]' || input.id === 'remember_me')
+                    && !input.checked) {
+                input.checked = true;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                console.log('[GaleFling] FetLife remember_me auto-checked');
+            }
+
             // Intercept direct clicks on the now-visible input (capture phase so we
             // run before Vue/React's synthetic event handlers).
             if (!input._gl_click_fixed) {

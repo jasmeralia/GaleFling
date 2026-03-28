@@ -158,6 +158,11 @@ def login_fetlife(page: QWebEnginePage, email: str, password: str) -> bool:
             document.execCommand('insertText', false, {json.dumps(email)});
             passwordInput.focus();
             document.execCommand('insertText', false, {json.dumps(password)});
+            var rememberCb = document.querySelector(
+                'input[name="user[remember_me]"], input[name="remember_me"], '
+                + 'input[id="remember_me"], input[id="user_remember_me"]'
+            );
+            if (rememberCb && !rememberCb.checked) {{ rememberCb.checked = true; }}
             var submitBtn = document.querySelector(
                 'input[type="submit"], button[type="submit"]'
             );
@@ -357,6 +362,29 @@ def login_onlyfans(
         except Exception:
             return False
 
+        # Check the "remember me / trust this device" checkbox before submitting
+        # so the resulting session cookie has a longer expiry.
+        run_js(
+            page,
+            """
+            (function() {
+                var cb = document.querySelector(
+                    '.b-2fa input[type="checkbox"], '
+                    + 'input[name="remember_me"], input[name="trust"], '
+                    + 'input[id*="remember" i], input[id*="trust" i]'
+                );
+                if (!cb || cb.checked) return;
+                var desc = Object.getOwnPropertyDescriptor(
+                    window.HTMLInputElement.prototype, 'checked'
+                );
+                if (desc && desc.set) { desc.set.call(cb, true); }
+                else { cb.checked = true; }
+                cb.dispatchEvent(new Event('input', {bubbles: true}));
+                cb.dispatchEvent(new Event('change', {bubbles: true}));
+            })();
+            """,
+        )
+
         totp_result = run_js(
             page,
             f"""
@@ -395,7 +423,13 @@ def login_onlyfans(
         })();
         """,
     )
-    return not (isinstance(final_check, dict) and final_check.get('hasLoginForm'))
+    logged_in = not (isinstance(final_check, dict) and final_check.get('hasLoginForm'))
+    if logged_in:
+        # Chromium flushes its cookie store to SQLite asynchronously. Give it
+        # time to write the new session cookies before any has_valid_session()
+        # check reads the DB directly.
+        wait_ms(4000)
+    return logged_in
 
 
 def login_threads(page: QWebEnginePage, username: str, password: str) -> bool:

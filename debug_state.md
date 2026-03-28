@@ -2,78 +2,87 @@
 
 ## Issue Summary
 
-FetLife and OnlyFans "remember me" checkboxes appear visually unchecked after clicking, even though the underlying state change is functional. FetLife is confirmed working at the data layer; OnlyFans state persists post-tick but 2FA submission not yet confirmed.
+Two separate open issues:
 
-## Reproduction Steps
+**1. App crash opening OnlyFans login window (Settings dialog)**
+Fatal Python error: Aborted on CrBrowserMain after page loaded successfully. Root cause: `WebViewLoginDialog` was never explicitly deleted after `exec()` returned — it persisted as a live child widget holding an active Chromium WebContents open against the shared `QWebEngineProfile`. When a new login dialog created a new page on the same profile, two WebContents existed simultaneously on the same browser context, causing a VSync service conflict and abort. Fix: `dialog.deleteLater()` added after `exec()` in both `settings_dialog.py` and `setup_wizard.py`. Not yet built/installed.
 
-1. Install latest build and open GaleFling
-2. Open FetLife login (Settings → FetLife → Log In)
-3. Click the "Remember me" checkbox — observe it does not appear checked
-4. Submit login form
-5. Open OnlyFans login, proceed to 2FA screen
-6. Click the "Remember this device" checkbox — observe visual state
+**2. OnlyFans 2FA "remember this device" checkbox — visual and server confirmation pending**
+Vue state confirmed accepted (`checked=true` post-tick), but: (a) custom visual may not turn blue (`syncVisual` selector unconfirmed), (b) `remember_me: true` not confirmed reaching the server (no `[GaleFling] OF fetch intercepted` log seen). Session is currently broken — `auth_id` cookie was deleted during debugging; needs manual re-login through the app.
 
-## Observed Behavior
+---
 
-- FetLife: checkbox appears visually unchecked after clicking, but `user[remember_me]=1` IS sent in the form POST body
-- OnlyFans: checkbox state now persists through Vue re-renders (`checked=true` confirmed post-tick), but visual fill may not update if `.b-input-radio__label` selector doesn't match
+## Reproduction Steps (crash)
+
+1. Open the app
+2. Open Settings → OnlyFans → Open Login Window
+3. Log in (or just open and close the window)
+4. Open Settings → OnlyFans → Open Login Window again
+5. App crashes with `Fatal Python error: Aborted` on CrBrowserMain
+
+(May also reproduce after previously using the Setup Wizard for any WebView platform in the same process lifetime.)
+
+## Observed Behavior (crash)
+
+- `VSyncService: Failed to find adapter (via EnumAdapters1)` — twice during WebView creation
+- `Page load finished ok=True`
+- `QDxgiVSyncService not destroyed in time`
+- `QEventDispatcherWin32::wakeUp: Failed to post a message (Invalid window handle.)`
+- `Fatal Python error: Aborted` on `CrBrowserMain`
+- Traceback: `settings_dialog.py:1010 _open_webview_login_window` → `dialog.exec()`
 
 ## Expected Behavior
 
-- FetLife: checkbox should visually appear checked after clicking (FetLife's custom styled element should reflect state)
-- OnlyFans: custom checkbox visual should turn blue when checked; `remember_me: true` should appear in the 2FA API request body
+Login window opens without crash.
 
-------------------------------------------------------------------------
+---
 
 ## Current Hypotheses (MAX 5)
 
-1. [High] FetLife visual broken by injected CSS — `opacity:1; position:static` renders native browser checkbox alongside FetLife's custom element, disrupting layout so the custom element never updates. Fix committed (CSS reduced to `pointer-events: auto` only) but not yet built/installed.
-2. [Medium] OnlyFans `syncVisual` silently failing — `.b-input-radio__label` selector may not match actual DOM structure; no log confirmation the color update runs. Need a console.log inside syncVisual to verify.
-3. [Low] OnlyFans 2FA API call unconfirmed — user did not submit the 2FA form during the logged session; fetch interceptor presence is unverified at submission time.
+1. [High — fix applied] Stale Chromium WebContents from previous dialog — `WebViewLoginDialog` persisted as child widget after `exec()`, holding live WebContents against the shared `QWebEngineProfile`. Second dialog on same profile → two active WebContents → VSync conflict → abort. Fix: `dialog.deleteLater()` added.
+2. [Medium] OnlyFans `syncVisual` selector mismatch — `.b-input-radio__label` may not match the actual DOM; no log confirmation the color update runs.
+3. [Medium] OnlyFans fetch interceptor timing — no `[GaleFling] OF fetch intercepted` log entry seen; `remember_me: true` reaching the server unconfirmed.
 
-> Remove invalidated hypotheses each cycle. Do NOT let this grow.
+---
 
-------------------------------------------------------------------------
+## Evidence
 
-## Evidence (Relevant Only)
+**Crash:**
+- `app_20260328_115651.log` 12:33:09 — full sequence above
+- `fatal_errors.log` — Aborted on CrBrowserMain, traceback to `settings_dialog.py:1010`
 
-- `[GaleFling] FetLife checkbox change dispatched, checked=true`
-- `[GaleFling] FetLife checkbox post-tick (Vue re-render window), checked=true` ← Vue accepted
-- `[GaleFling] FetLife form-submit FormData: ... user[remember_me]=1` ← confirmed sent
+**OnlyFans checkbox:**
 - `[GaleFling] OF checkbox change dispatched, checked=true`
-- `[GaleFling] OF checkbox post-tick (Vue re-render window), checked=true` ← Vue accepted
-- Subsequent OF MutationObserver callbacks: `checked=true` ← persists (old `input.click()` would reset to false)
-- OF checkbox `opacity=0` throughout — hidden, custom visual drives appearance
-- FetLife post-login: many `name=toggle id=` checkbox log entries — unrelated page toggles, not the remember-me input
+- `[GaleFling] OF checkbox post-tick (Vue re-render window), checked=true`
+- No `[GaleFling] OF fetch intercepted` entry observed
 
-------------------------------------------------------------------------
+---
 
 ## What Has Been Tried
 
-- Attempt 1 (pre-session): `input.click()` on OnlyFans — Vue reset checked=false on re-render. Failed.
-- Attempt 2: FetLife CSS `opacity:1; position:static` — made native input visible but broke layout; custom element never updated. Visually broken.
-- Attempt 3 (current): `triggerFrameworkChange` (prototype setter + input/change events) for both platforms — Vue state confirmed accepted post-tick. Functionally correct.
-- Attempt 4 (committed, not built): Remove aggressive FetLife CSS, keep only `pointer-events:auto`. Expected to fix visual.
+- Crash fix (not yet built): `dialog.deleteLater()` added after `exec()` in `settings_dialog.py` and `setup_wizard.py`
+- OnlyFans remember_me: prototype setter + `input`/`change` events — Vue accepted. Functionally correct but visual/server unverified.
 
-------------------------------------------------------------------------
+---
 
 ## Files / Components of Interest
 
-- `src/platforms/fetlife.py` — `_inject_checkbox_fix` (CSS injection + click intercept)
-- `src/platforms/onlyfans.py` — `_inject_2fa_checkbox_fix` (triggerFrameworkChange + syncVisual + fetch interceptor)
+- `src/gui/settings_dialog.py:1008` — `_open_webview_login_window` (crash fix applied)
+- `src/gui/setup_wizard.py:635` — `_open_login_window` (crash fix applied)
+- `src/platforms/onlyfans.py` — `_inject_2fa_checkbox_fix` (`syncVisual`, fetch interceptor)
 
-------------------------------------------------------------------------
+---
 
 ## Current Build Info
 
-- App version: 1.7.11 (constants.py bumped, not yet built with FetLife CSS fix)
-- Log analyzed: `app_20260320_083314.log`
-- Run timestamp: 2026-03-20 08:33–08:35
+- App version: 1.7.20 (crash fix not yet in a build)
+- Log analyzed: `app_20260328_115651.log`
+- Run timestamp: 2026-03-28 12:33
 
-------------------------------------------------------------------------
+---
 
 ## Next Step (SINGLE ACTION)
 
-Build and install 1.7.11 with the FetLife CSS fix, then test FetLife login visually to confirm the native checkbox no longer appears. If still broken, add `console.log` inside OnlyFans `syncVisual` before the next session.
+Build and install a new version with the crash fix, then re-open the OnlyFans login window from Settings to confirm no abort.
 
-------------------------------------------------------------------------
+---

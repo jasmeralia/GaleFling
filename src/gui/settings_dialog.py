@@ -4,11 +4,13 @@ import json
 import shutil
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import cast
 
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QFileDialog,
@@ -27,7 +29,9 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.auth_manager import AuthManager
+from src.core.aws_utils import check_s3_connection
 from src.core.config_manager import ConfigManager
+from src.core.credential_importer import ImportResult, import_credentials
 from src.core.logger import get_logger
 from src.gui.setup_wizard import WebViewLoginDialog
 from src.platforms.base_webview import BaseWebViewPlatform
@@ -39,6 +43,15 @@ from src.platforms.threads import ThreadsPlatform
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
 from src.utils.helpers import get_app_data_dir
+
+
+def _mask_credential(value: str, visible_chars: int = 4) -> str:
+    """Return ``value`` with all but the last ``visible_chars`` chars replaced with '*'."""
+    if not value:
+        return ''
+    if len(value) <= visible_chars:
+        return '*' * len(value)
+    return '*' * (len(value) - visible_chars) + value[-visible_chars:]
 
 
 class SettingsDialog(QDialog):
@@ -80,6 +93,7 @@ class SettingsDialog(QDialog):
         self._create_twitter_tab(tabs)
         self._create_bluesky_tab(tabs)
         self._create_instagram_tab(tabs)
+        self._create_meta_tab(tabs)
 
         self._webview_profile_edits: dict[str, QLineEdit] = {}
         for platform_id, specs in PLATFORM_SPECS_MAP.items():
@@ -319,6 +333,143 @@ class SettingsDialog(QDialog):
         scroll.setWidget(widget)
         tabs.addTab(scroll, 'Instagram')
 
+    def _create_meta_tab(self, tabs: QTabWidget) -> None:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        status_group = QGroupBox('Connection Status')
+        status_layout = QFormLayout(status_group)
+        status_layout.addRow(
+            QLabel(
+                '<i>OAuth connect flows are not yet available. '
+                'Import app credentials via Settings → Advanced to prepare for Phase 3.</i>'
+            ),
+            QLabel(),
+        )
+
+        self._meta_status_labels: dict[str, QLabel] = {}
+        for provider, display_name in [
+            ('meta_threads', 'Threads'),
+            ('meta_instagram', 'Instagram'),
+            ('meta_facebook_page', 'Facebook Page'),
+        ]:
+            lbl = QLabel()
+            status_layout.addRow(f'{display_name}:', lbl)
+            self._meta_status_labels[provider] = lbl
+
+        layout.addWidget(status_group)
+        self._refresh_meta_status()
+
+        layout.addStretch()
+        scroll.setWidget(widget)
+        tabs.addTab(scroll, 'Meta')
+
+    def _refresh_meta_status(self) -> None:
+        """Update Meta connection status labels from stored credentials."""
+        credential_checks = {
+            'meta_threads': self._auth_manager.has_meta_threads_app_credentials,
+            'meta_instagram': self._auth_manager.has_meta_instagram_app_credentials,
+            'meta_facebook_page': self._auth_manager.has_meta_facebook_app_credentials,
+        }
+        for provider, has_creds_fn in credential_checks.items():
+            label = self._meta_status_labels.get(provider)
+            if label is None:
+                continue
+            if has_creds_fn():
+                label.setText('App credentials configured — not yet connected')
+            else:
+                label.setText('Credentials missing')
+
+    def _refresh_aws_display(self) -> None:
+        """Reload AWS credential display widgets from stored credentials."""
+        aws_creds = self._auth_manager.get_aws_media_staging_credentials()
+        raw_key_id = aws_creds.get('access_key_id', '') if aws_creds else ''
+        masked = _mask_credential(raw_key_id)
+        self._aws_key_id_label.setText(masked if masked else '(not configured)')
+        self._aws_region_label.setText(
+            aws_creds.get('region', 'us-west-2') if aws_creds else 'us-west-2'
+        )
+        self._aws_bucket_edit.setText(
+            aws_creds.get('media_staging_bucket', '') if aws_creds else ''
+        )
+
+    def _import_credentials_from_json(self) -> None:
+        get_logger().info('User selected Settings > Import Credentials from JSON')
+        path_str, _ = QFileDialog.getOpenFileName(
+            self,
+            'Import Credentials',
+            '',
+            'JSON Files (*.json);;All Files (*)',
+        )
+        if not path_str:
+            return
+
+        result: ImportResult = import_credentials(Path(path_str), self._auth_manager)
+
+        if result.errors:
+            QMessageBox.warning(
+                self,
+                'Import Failed',
+                'Credential import failed:\n' + '\n'.join(result.errors),
+            )
+            return
+
+        lines: list[str] = []
+        if result.imported:
+            lines.append('Imported: ' + ', '.join(result.imported))
+        if result.skipped:
+            lines.append('Skipped (incomplete): ' + ', '.join(result.skipped))
+
+        if not result.imported:
+            QMessageBox.information(
+                self,
+                'Nothing Imported',
+                'No complete credential sections were found in the file.\n'
+                + ('\n'.join(lines) if lines else ''),
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            'Import Successful',
+            'Credentials imported successfully.\n\n' + '\n'.join(lines),
+        )
+        self._refresh_meta_status()
+        self._refresh_aws_display()
+
+    def _test_s3_connection(self) -> None:
+        get_logger().info('User selected Settings > Test S3 Connection')
+        aws_creds = self._auth_manager.get_aws_media_staging_credentials()
+        if not aws_creds:
+            QMessageBox.warning(
+                self, 'No Credentials', 'AWS credentials have not been imported yet.'
+            )
+            return
+
+        bucket = self._aws_bucket_edit.text().strip() or aws_creds.get('media_staging_bucket', '')
+        if not bucket:
+            QMessageBox.warning(self, 'No Bucket', 'S3 bucket name is not configured.')
+            return
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            ok, msg = check_s3_connection(
+                access_key_id=aws_creds['access_key_id'],
+                secret_access_key=aws_creds['secret_access_key'],
+                region=aws_creds.get('region', 'us-west-2'),
+                bucket=bucket,
+            )
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if ok:
+            QMessageBox.information(self, 'S3 Connection OK', 'S3 connection test passed.')
+        else:
+            QMessageBox.warning(self, 'S3 Connection Failed', f'S3 connection test failed:\n{msg}')
+
     def _create_webview_platform_tab(self, tabs: QTabWidget, platform_id: str, specs):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -466,6 +617,48 @@ class SettingsDialog(QDialog):
         export_layout.addWidget(export_test_btn)
         layout.addWidget(export_group)
 
+        # Credential import
+        import_group = QGroupBox('Credential Import')
+        import_layout = QVBoxLayout(import_group)
+        import_layout.addWidget(
+            QLabel(
+                '<i>Import app-level credentials for Meta (Threads/Instagram/Facebook), '
+                'Twitter OAuth 2.0, and AWS from a JSON file provided by your administrator. '
+                'The file is not modified or deleted by GaleFling after import.</i>'
+            )
+        )
+        import_btn = QPushButton('Import Credentials from JSON\u2026')
+        import_btn.clicked.connect(self._import_credentials_from_json)
+        import_layout.addWidget(import_btn)
+        layout.addWidget(import_group)
+
+        # AWS media staging
+        aws_group = QGroupBox('AWS Media Staging')
+        aws_layout = QFormLayout(aws_group)
+
+        aws_creds = self._auth_manager.get_aws_media_staging_credentials()
+        raw_key_id = aws_creds.get('access_key_id', '') if aws_creds else ''
+        masked_key_id = _mask_credential(raw_key_id)
+        self._aws_key_id_label = QLabel(masked_key_id if masked_key_id else '(not configured)')
+        aws_layout.addRow('Access Key ID:', self._aws_key_id_label)
+
+        self._aws_region_label = QLabel(
+            aws_creds.get('region', 'us-west-2') if aws_creds else 'us-west-2'
+        )
+        aws_layout.addRow('Region:', self._aws_region_label)
+
+        self._aws_bucket_edit = QLineEdit(
+            aws_creds.get('media_staging_bucket', '') if aws_creds else ''
+        )
+        self._aws_bucket_edit.setPlaceholderText('galefling-media-staging-\u2026')
+        aws_layout.addRow('S3 Bucket Name:', self._aws_bucket_edit)
+
+        test_s3_btn = QPushButton('Test S3 Connection')
+        test_s3_btn.clicked.connect(self._test_s3_connection)
+        aws_layout.addRow('', test_s3_btn)
+
+        layout.addWidget(aws_group)
+
         layout.addStretch()
         return widget
 
@@ -574,6 +767,18 @@ class SettingsDialog(QDialog):
                         account_id=account_id,
                         profile_name=profile_name,
                     )
+                )
+
+        # AWS — update bucket name if the user edited it directly
+        aws_bucket_text = self._aws_bucket_edit.text().strip()
+        if aws_bucket_text:
+            existing_aws = self._auth_manager.get_aws_media_staging_credentials()
+            if existing_aws and existing_aws.get('media_staging_bucket') != aws_bucket_text:
+                self._auth_manager.save_aws_media_staging_credentials(
+                    existing_aws['access_key_id'],
+                    existing_aws['secret_access_key'],
+                    existing_aws.get('region', 'us-west-2'),
+                    aws_bucket_text,
                 )
 
         self._config.save()
@@ -912,6 +1117,39 @@ class SettingsDialog(QDialog):
             lines.append(f'INSTAGRAM_ACCESS_TOKEN={ig_creds.get("access_token", "")}')
             lines.append(f'INSTAGRAM_BUSINESS_ACCOUNT_ID={ig_creds.get("account_id", "")}')
             lines.append(f'INSTAGRAM_PAGE_ID={ig_creds.get("page_id", "")}')
+            lines.append('')
+
+        # Meta app credentials
+        for meta_display, get_fn, prefix in [
+            ('Threads', self._auth_manager.get_meta_threads_app_credentials, 'META_THREADS'),
+            ('Instagram', self._auth_manager.get_meta_instagram_app_credentials, 'META_INSTAGRAM'),
+            ('Facebook', self._auth_manager.get_meta_facebook_app_credentials, 'META_FACEBOOK'),
+        ]:
+            meta_creds = get_fn()
+            if meta_creds:
+                lines.append(f'# Meta {meta_display} app credentials')
+                lines.append(f'{prefix}_APP_ID={meta_creds.get("app_id", "")}')
+                lines.append(f'{prefix}_APP_SECRET={meta_creds.get("app_secret", "")}')
+                lines.append('')
+
+        # Twitter OAuth 2.0
+        tw_oauth2 = self._auth_manager.get_twitter_oauth2_app_credentials()
+        if tw_oauth2:
+            lines.append('# Twitter OAuth 2.0 app credentials')
+            lines.append(f'TWITTER_CLIENT_ID={tw_oauth2.get("client_id", "")}')
+            lines.append(f'TWITTER_CLIENT_SECRET={tw_oauth2.get("client_secret", "")}')
+            lines.append('')
+
+        # AWS media staging
+        aws_creds = self._auth_manager.get_aws_media_staging_credentials()
+        if aws_creds:
+            lines.append('# AWS media staging')
+            lines.append(f'AWS_MEDIA_STAGING_ACCESS_KEY_ID={aws_creds.get("access_key_id", "")}')
+            lines.append(
+                f'AWS_MEDIA_STAGING_SECRET_ACCESS_KEY={aws_creds.get("secret_access_key", "")}'
+            )
+            lines.append(f'AWS_MEDIA_STAGING_REGION={aws_creds.get("region", "us-west-2")}')
+            lines.append(f'AWS_MEDIA_STAGING_BUCKET={aws_creds.get("media_staging_bucket", "")}')
             lines.append('')
 
         # WebView platforms — data directory

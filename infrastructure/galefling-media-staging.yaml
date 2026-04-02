@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  GaleFling – Media staging S3 bucket for Instagram/Threads publishing.
+  Objects are publicly readable via bucket policy so Meta can fetch them
+  at publish time. Objects expire automatically after 7 days.
+
+Parameters:
+  BucketNameSuffix:
+    Type: String
+    Description: >
+      Unique suffix appended to "galefling-media-staging-" to form the bucket name.
+      Use a short alphanumeric identifier, e.g. "jas".
+    AllowedPattern: '[a-z0-9\-]+'
+    ConstraintDescription: Lowercase letters, numbers, and hyphens only.
+
+Resources:
+
+  # ── S3 Bucket ────────────────────────────────────────────────────────
+  MediaStagingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'galefling-media-staging-${BucketNameSuffix}'
+      # Block ACL-based public access; allow policy-based public access
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+      # Versioning disabled — staging use only
+      VersioningConfiguration:
+        Status: Suspended
+      # SSE-S3 encryption at rest (objects are intentionally public; KMS adds no value)
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteStagedMedia
+            Status: Enabled
+            ExpirationInDays: 7
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  # ── Bucket policy: anonymous GetObject ───────────────────────────────
+  MediaStagingBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaStagingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub 'arn:aws:s3:::${MediaStagingBucket}/*'
+
+  # ── IAM user for GaleFling PutObject access ──────────────────────────
+  MediaStagingUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: galefling-media-staging
+      Policies:
+        - PolicyName: GaleFlingMediaStagingPutOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AllowPutObject
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub 'arn:aws:s3:::${MediaStagingBucket}/*'
+
+  # ── IAM access key ────────────────────────────────────────────────────
+  # NOTE: The SecretAccessKey is only retrievable at creation time via
+  # !GetAtt MediaStagingAccessKey.SecretAccessKey — CloudFormation cannot
+  # surface it after the fact. Retrieve it immediately post-deploy from
+  # the stack Outputs or via: aws iam create-access-key --user-name galefling-media-staging
+  MediaStagingAccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref MediaStagingUser
+
+Outputs:
+  BucketName:
+    Description: Name of the S3 media staging bucket
+    Value: !Ref MediaStagingBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'
+
+  MediaStagingUserArn:
+    Description: ARN of the GaleFling media staging IAM user
+    Value: !GetAtt MediaStagingUser.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-UserArn'
+
+  AccessKeyId:
+    Description: Access key ID for the media staging IAM user
+    Value: !Ref MediaStagingAccessKey
+    Export:
+      Name: !Sub '${AWS::StackName}-AccessKeyId'
+
+  SecretAccessKey:
+    Description: >
+      Secret access key for the media staging IAM user.
+      Only available immediately after stack creation — store it securely now.
+    Value: !GetAtt MediaStagingAccessKey.SecretAccessKey

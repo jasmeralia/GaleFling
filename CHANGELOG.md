@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-04-02
+
+### Added
+- **Infrastructure:** `infrastructure/galefling-media-staging.yaml` CloudFormation stack for the S3 media staging bucket used by Instagram and Threads publishing. Configures public-read bucket policy, 7-day object expiry lifecycle rule, 1-day incomplete multipart upload abort rule, SSE-S3 encryption, and a dedicated IAM user (`galefling-media-staging`) with `s3:PutObject`-only access.
+- **Credential import:** New "Import Credentials from JSON…" button in Settings → Advanced. Imports app-level credentials for Meta Threads, Meta Instagram, Meta Facebook, Twitter OAuth 2.0, and AWS media staging from a single JSON file. Partial imports (missing platforms) are valid. Credentials are stored locally; the source file is not modified.
+- **AWS settings:** New AWS Media Staging group in Settings → Advanced showing the configured Access Key ID (partially masked), Region (read-only, `us-west-2`), S3 Bucket Name field, and a "Test S3 Connection" button that performs a `PutObject` probe to verify credentials and bucket access.
+- **Meta tab in Settings:** New Meta tab showing per-platform connection status for Threads, Instagram, and Facebook Page. OAuth connect flows are not yet implemented (Phase 3).
+- **`AuthManager`:** New credential storage methods for Meta app credentials (Threads, Instagram, Facebook), Twitter OAuth 2.0 app credentials (stored separately from existing OAuth 1.0a credentials to preserve backward compatibility), and AWS media staging credentials.
+- `boto3` added to `requirements.txt` for S3 operations.
+
 ## [1.7.20] - 2026-03-26
 
 ### Changed

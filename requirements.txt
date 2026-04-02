@@ -9,3 +9,4 @@ packaging>=24.0
 python-dotenv>=1.0.0
 ffmpeg-python>=0.2.0
 imageio-ffmpeg>=0.5.1
+boto3>=1.34.0

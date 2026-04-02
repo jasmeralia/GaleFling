@@ -22,6 +22,10 @@ ignore_missing_imports = false
 module = ["imageio_ffmpeg", "ffmpeg"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["boto3", "botocore", "botocore.exceptions"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

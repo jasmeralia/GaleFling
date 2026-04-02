@@ -197,6 +197,102 @@ class AuthManager:
         """Save shared Twitter developer app credentials."""
         self._save_json('twitter_app_auth.json', {'api_key': api_key, 'api_secret': api_secret})
 
+    # ── Twitter OAuth 2.0 app credentials ──────────────────────────
+
+    def get_twitter_oauth2_app_credentials(self) -> dict[str, str] | None:
+        """Return the Twitter OAuth 2.0 app credentials (client_id, client_secret)."""
+        data = self._load_json('twitter_oauth2_app_auth.json')
+        if data and all(k in data for k in ('client_id', 'client_secret')):
+            return data
+        return None
+
+    def save_twitter_oauth2_app_credentials(self, client_id: str, client_secret: str) -> None:
+        """Persist Twitter OAuth 2.0 app credentials (separate from OAuth 1.0a)."""
+        self._save_json(
+            'twitter_oauth2_app_auth.json', {'client_id': client_id, 'client_secret': client_secret}
+        )
+
+    def has_twitter_oauth2_app_credentials(self) -> bool:
+        return self.get_twitter_oauth2_app_credentials() is not None
+
+    # ── Meta app credentials ────────────────────────────────────────
+
+    def get_meta_threads_app_credentials(self) -> dict[str, str] | None:
+        """Return the Meta Threads app credentials (app_id, app_secret)."""
+        data = self._load_json('meta_threads_app_auth.json')
+        if data and all(k in data for k in ('app_id', 'app_secret')):
+            return data
+        return None
+
+    def save_meta_threads_app_credentials(self, app_id: str, app_secret: str) -> None:
+        """Persist Meta Threads app credentials."""
+        self._save_json('meta_threads_app_auth.json', {'app_id': app_id, 'app_secret': app_secret})
+
+    def has_meta_threads_app_credentials(self) -> bool:
+        return self.get_meta_threads_app_credentials() is not None
+
+    def get_meta_instagram_app_credentials(self) -> dict[str, str] | None:
+        """Return the Meta Instagram app credentials (app_id, app_secret)."""
+        data = self._load_json('meta_instagram_app_auth.json')
+        if data and all(k in data for k in ('app_id', 'app_secret')):
+            return data
+        return None
+
+    def save_meta_instagram_app_credentials(self, app_id: str, app_secret: str) -> None:
+        """Persist Meta Instagram app credentials."""
+        self._save_json(
+            'meta_instagram_app_auth.json', {'app_id': app_id, 'app_secret': app_secret}
+        )
+
+    def has_meta_instagram_app_credentials(self) -> bool:
+        return self.get_meta_instagram_app_credentials() is not None
+
+    def get_meta_facebook_app_credentials(self) -> dict[str, str] | None:
+        """Return the Meta Facebook app credentials (app_id, app_secret)."""
+        data = self._load_json('meta_facebook_app_auth.json')
+        if data and all(k in data for k in ('app_id', 'app_secret')):
+            return data
+        return None
+
+    def save_meta_facebook_app_credentials(self, app_id: str, app_secret: str) -> None:
+        """Persist Meta Facebook app credentials."""
+        self._save_json('meta_facebook_app_auth.json', {'app_id': app_id, 'app_secret': app_secret})
+
+    def has_meta_facebook_app_credentials(self) -> bool:
+        return self.get_meta_facebook_app_credentials() is not None
+
+    # ── AWS media staging credentials ───────────────────────────────
+
+    def get_aws_media_staging_credentials(self) -> dict[str, str] | None:
+        """Return the AWS media staging credentials."""
+        data = self._load_json('aws_media_staging_auth.json')
+        if data and all(
+            k in data for k in ('access_key_id', 'secret_access_key', 'media_staging_bucket')
+        ):
+            return data
+        return None
+
+    def save_aws_media_staging_credentials(
+        self,
+        access_key_id: str,
+        secret_access_key: str,
+        region: str,
+        media_staging_bucket: str,
+    ) -> None:
+        """Persist AWS media staging credentials."""
+        self._save_json(
+            'aws_media_staging_auth.json',
+            {
+                'access_key_id': access_key_id,
+                'secret_access_key': secret_access_key,
+                'region': region,
+                'media_staging_bucket': media_staging_bucket,
+            },
+        )
+
+    def has_aws_media_staging_credentials(self) -> bool:
+        return self.get_aws_media_staging_credentials() is not None
+
     # ── Low-level JSON I/O ──────────────────────────────────────────
 
     def _load_json(self, filename: str) -> dict[str, Any] | None:

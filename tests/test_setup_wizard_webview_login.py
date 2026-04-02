@@ -98,6 +98,9 @@ def test_webview_setup_page_detected_does_not_auto_advance(qtbot, monkeypatch):
         def exec(self):
             return 0
 
+        def deleteLater(self):
+            pass
+
     monkeypatch.setattr('src.gui.setup_wizard.WebViewLoginDialog', _DummyDialog)
 
     class _DummyWizard:
@@ -138,6 +141,9 @@ def test_webview_setup_page_not_detected_uses_delayed_refresh(qtbot, monkeypatch
 
         def exec(self):
             return 0
+
+        def deleteLater(self):
+            pass
 
     monkeypatch.setattr('src.gui.setup_wizard.WebViewLoginDialog', _DummyDialog)
 

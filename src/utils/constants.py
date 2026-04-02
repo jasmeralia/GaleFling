@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 APP_NAME = 'GaleFling'
-APP_VERSION = '1.8.0'
+APP_VERSION = '1.8.1'
 APP_ORG = 'Winds of Storm'
 LOG_UPLOAD_ENDPOINT = 'https://galefling.jasmer.tools/logs/upload'
 
@@ -200,6 +200,54 @@ THREADS_SPECS = PlatformSpecs(
     max_media_attachments=10,
 )
 
+META_THREADS_API_SPECS = PlatformSpecs(
+    platform_name='Threads (API)',
+    max_image_dimensions=(1440, 1440),
+    max_file_size_mb=8.0,
+    supported_formats=['JPEG', 'PNG'],
+    max_text_length=500,
+    platform_color='#000000',
+    api_type='graph_api',
+    auth_method='oauth2',
+    max_accounts=2,
+    supported_video_formats=['MP4', 'MOV'],
+    max_video_dimensions=(1920, 1080),
+    max_video_file_size_mb=1024.0,
+    max_video_duration_seconds=300,
+    max_media_attachments=10,
+)
+
+META_INSTAGRAM_API_SPECS = PlatformSpecs(
+    platform_name='Instagram (API)',
+    max_image_dimensions=(1440, 1440),
+    max_file_size_mb=8.0,
+    supported_formats=['JPEG', 'PNG'],
+    max_text_length=2200,
+    platform_color='#E1306C',
+    api_type='graph_api',
+    auth_method='oauth2',
+    max_accounts=2,
+    supported_video_formats=['MP4'],
+    max_video_dimensions=(1920, 1080),
+    max_video_file_size_mb=100.0,
+    max_video_duration_seconds=60,
+)
+
+META_FACEBOOK_PAGE_SPECS = PlatformSpecs(
+    platform_name='Facebook Page',
+    max_image_dimensions=(4096, 4096),
+    max_file_size_mb=10.0,
+    supported_formats=['JPEG', 'PNG'],
+    max_text_length=63206,
+    platform_color='#1877F2',
+    api_type='graph_api',
+    auth_method='oauth2',
+    max_accounts=1,
+    supported_video_formats=['MP4', 'MOV'],
+    max_video_dimensions=(1920, 1080),
+    max_video_file_size_mb=10240.0,
+)
+
 PLATFORM_SPECS_MAP: dict[str, PlatformSpecs] = {
     'twitter': TWITTER_SPECS,
     'bluesky': BLUESKY_SPECS,
@@ -209,6 +257,9 @@ PLATFORM_SPECS_MAP: dict[str, PlatformSpecs] = {
     'fansly': FANSLY_SPECS,
     'fetlife': FETLIFE_SPECS,
     'threads': THREADS_SPECS,
+    'meta_threads': META_THREADS_API_SPECS,
+    'meta_instagram': META_INSTAGRAM_API_SPECS,
+    'meta_facebook_page': META_FACEBOOK_PAGE_SPECS,
 }
 
 

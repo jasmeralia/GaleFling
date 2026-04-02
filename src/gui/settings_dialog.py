@@ -333,55 +333,124 @@ class SettingsDialog(QDialog):
         scroll.setWidget(widget)
         tabs.addTab(scroll, 'Instagram')
 
+    # Meta provider config: (provider_id, display_name, max_accounts, account_ids)
+    _META_PROVIDERS: list[tuple[str, str, int, list[str]]] = [
+        ('meta_threads', 'Threads', 2, ['meta_threads_1', 'meta_threads_2']),
+        ('meta_instagram', 'Instagram', 2, ['meta_instagram_1', 'meta_instagram_2']),
+        ('meta_facebook_page', 'Facebook Page', 1, ['meta_facebook_page_1']),
+    ]
+
     def _create_meta_tab(self, tabs: QTabWidget) -> None:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
 
         widget = QWidget()
+        self._meta_tab_widget = widget
         layout = QVBoxLayout(widget)
 
-        status_group = QGroupBox('Connection Status')
-        status_layout = QFormLayout(status_group)
-        status_layout.addRow(
-            QLabel(
-                '<i>OAuth connect flows are not yet available. '
-                'Import app credentials via Settings → Advanced to prepare for Phase 3.</i>'
-            ),
-            QLabel(),
-        )
-
-        self._meta_status_labels: dict[str, QLabel] = {}
-        for provider, display_name in [
-            ('meta_threads', 'Threads'),
-            ('meta_instagram', 'Instagram'),
-            ('meta_facebook_page', 'Facebook Page'),
-        ]:
-            lbl = QLabel()
-            status_layout.addRow(f'{display_name}:', lbl)
-            self._meta_status_labels[provider] = lbl
-
-        layout.addWidget(status_group)
-        self._refresh_meta_status()
+        # Per-provider sections; populated by _refresh_meta_status
+        self._meta_provider_groups: dict[str, QGroupBox] = {}
+        for provider, display_name, _max, _ids in self._META_PROVIDERS:
+            group = QGroupBox(display_name)
+            layout.addWidget(group)
+            self._meta_provider_groups[provider] = group
 
         layout.addStretch()
         scroll.setWidget(widget)
         tabs.addTab(scroll, 'Meta')
+        self._refresh_meta_status()
 
     def _refresh_meta_status(self) -> None:
-        """Update Meta connection status labels from stored credentials."""
-        credential_checks = {
+        """Rebuild the Meta tab provider sections from current auth state."""
+        app_cred_fns = {
             'meta_threads': self._auth_manager.has_meta_threads_app_credentials,
             'meta_instagram': self._auth_manager.has_meta_instagram_app_credentials,
             'meta_facebook_page': self._auth_manager.has_meta_facebook_app_credentials,
         }
-        for provider, has_creds_fn in credential_checks.items():
-            label = self._meta_status_labels.get(provider)
-            if label is None:
-                continue
-            if has_creds_fn():
-                label.setText('App credentials configured — not yet connected')
-            else:
-                label.setText('Credentials missing')
+        get_app_cred_fns = {
+            'meta_threads': self._auth_manager.get_meta_threads_app_credentials,
+            'meta_instagram': self._auth_manager.get_meta_instagram_app_credentials,
+            'meta_facebook_page': self._auth_manager.get_meta_facebook_app_credentials,
+        }
+
+        for provider, display_name, _max_accounts, candidate_ids in self._META_PROVIDERS:
+            group = self._meta_provider_groups[provider]
+            # Clear existing layout contents
+            old_layout = group.layout()
+            if old_layout is not None:
+                while old_layout.count():
+                    item = old_layout.takeAt(0)
+                    if item is not None:
+                        w = item.widget()
+                        if w is not None:
+                            w.deleteLater()
+            group_layout = (
+                QVBoxLayout(group) if old_layout is None else cast(QVBoxLayout, old_layout)
+            )
+
+            has_app_creds = app_cred_fns[provider]()
+            cred_status = (
+                'App credentials: configured'
+                if has_app_creds
+                else 'App credentials: missing — import via Settings → Advanced'
+            )
+            cred_label = QLabel(f'<i>{cred_status}</i>')
+            group_layout.addWidget(cred_label)
+
+            connected_accounts = self._auth_manager.get_accounts_for_platform(provider)
+
+            for account in connected_accounts:
+                row_widget = QWidget()
+                row = QHBoxLayout(row_widget)
+                row.setContentsMargins(0, 0, 0, 0)
+                creds = self._auth_manager.get_account_credentials(account.account_id)
+                name = account.profile_name or account.account_id
+                expires_note = ''
+                if creds:
+                    expires_at = creds.get('expires_at') or creds.get('user_token_expires_at')
+                    if expires_at:
+                        expires_note = f' — expires {expires_at[:10]}'
+                row.addWidget(QLabel(f'{name}{expires_note}'))
+                row.addStretch()
+                disconnect_btn = QPushButton('Disconnect')
+                disconnect_btn.setProperty('account_id', account.account_id)
+                disconnect_btn.clicked.connect(
+                    lambda checked, aid=account.account_id: self._disconnect_meta_account(aid)
+                )
+                row.addWidget(disconnect_btn)
+                group_layout.addWidget(row_widget)
+
+            if not connected_accounts:
+                group_layout.addWidget(QLabel('<i>No accounts connected.</i>'))
+
+            # Connect button — pick first unused candidate ID
+            used_ids = {a.account_id for a in connected_accounts}
+            next_id = next((cid for cid in candidate_ids if cid not in used_ids), None)
+            can_connect = has_app_creds and next_id is not None
+            connect_btn = QPushButton(f'Connect {display_name} Account')
+            connect_btn.setEnabled(can_connect)
+            connect_btn.clicked.connect(
+                lambda checked, p=provider, aid=next_id, gcf=get_app_cred_fns[provider]: (
+                    self._launch_meta_connect(p, aid, gcf()) if aid is not None else None
+                )
+            )
+            group_layout.addWidget(connect_btn)
+
+    def _launch_meta_connect(self, provider: str, account_id: str, app_creds: dict) -> None:
+        from src.core.meta_oauth import MetaOAuthFlow
+        from src.gui.meta_connect_dialog import MetaConnectDialog
+
+        get_logger().info(f'User selected Settings > Meta > Connect {provider}')
+        flow = MetaOAuthFlow(provider, app_creds['app_id'], app_creds['app_secret'])
+        dlg = MetaConnectDialog(provider, flow, account_id, self._auth_manager, parent=self)
+        dlg.exec()
+        self._refresh_meta_status()
+
+    def _disconnect_meta_account(self, account_id: str) -> None:
+        get_logger().info(f'User selected Settings > Meta > Disconnect {account_id}')
+        self._auth_manager.remove_account(account_id)
+        self._auth_manager.clear_account_credentials(account_id)
+        self._refresh_meta_status()
 
     def _refresh_aws_display(self) -> None:
         """Reload AWS credential display widgets from stored credentials."""

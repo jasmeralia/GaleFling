@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - 2026-04-02
+
+### Added
+- **Meta OAuth connect flows (Phase 3):** Settings → Meta tab now has functional "Connect Account" buttons for Threads, Instagram, and Facebook Page. Each flow opens the system browser, captures the OAuth callback via a temporary localhost HTTP server, exchanges for a long-lived token, and stores credentials. Facebook Page connections include a page selector when the user manages multiple pages. Disconnect buttons remove the account and its stored token.
+- **`MetaOAuthFlow`:** New `src/core/meta_oauth.py` module handling auth URL construction, short-lived → long-lived token exchange, user info fetch, and Facebook Page listing/token exchange for all three Meta providers.
+- **`MetaOAuthWorker` / `MetaConnectDialog`:** New `src/gui/meta_connect_dialog.py` providing background-thread OAuth execution with a progress dialog UI.
+- **Platform specs:** `META_THREADS_API_SPECS`, `META_INSTAGRAM_API_SPECS`, and `META_FACEBOOK_PAGE_SPECS` added to `PLATFORM_SPECS_MAP` in `constants.py`.
+
 ## [1.8.0] - 2026-04-02
 
 ### Added

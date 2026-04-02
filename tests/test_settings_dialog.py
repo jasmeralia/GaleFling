@@ -497,7 +497,7 @@ def test_settings_dialog_open_webview_login_window(qtbot, tmp_path, monkeypatch)
             calls['opened'] = True
             return 0
 
-        def deleteLater(self):
+        def deleteLater(self):  # noqa: N802
             pass
 
     monkeypatch.setattr('src.gui.settings_dialog.WebViewLoginDialog', DummyLoginDialog)

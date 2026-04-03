@@ -38,6 +38,8 @@ All build artifacts derive from this one string automatically — do not create 
 **Rule: never hard-code a version string in any file other than `src/utils/constants.py` and `README.md`.**
 
 ## Release Checklist
+
+> **Sync notice:** This checklist is duplicated in `CLAUDE.md`. Any changes must be made in **both** files.
 1. Run `make lint PYTHON=.venv/Scripts/python.exe` (Windows) or `make lint PYTHON=.venv/bin/python` (Linux/WSL) and confirm success.
 2. Run `make test-cov PYTHON=.venv/Scripts/python.exe` (Windows) or `make test-cov PYTHON=.venv/bin/python` (Linux/WSL) and confirm success.
 3. Before any **minor** version bump (`Y` in `X.Y.Z`), confirm with the user first.

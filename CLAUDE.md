@@ -12,11 +12,27 @@
 9. **Never log, echo, print, or display the values of any variables read from `tests/functional/.env`** — this includes passwords, API keys, TOTP secrets, and any other credentials. Do not include credential values in tool call arguments, code comments, assistant responses, or debug output of any kind.
 
 Trigger phrase: **"follow the release checklist"**
-- When the user says this, execute every step in the checklist in `AGENTS.md`.
+- When the user says this, execute every step in the Release Checklist below.
+
+## Release Checklist
+
+> **Sync notice:** This checklist is duplicated from `AGENTS.md`. Any changes must be made in **both** files.
+
+1. Run `make lint PYTHON=.venv/Scripts/python.exe` (Windows) or `make lint PYTHON=.venv/bin/python` (Linux/WSL) and confirm success.
+2. Run `make test-cov PYTHON=.venv/Scripts/python.exe` (Windows) or `make test-cov PYTHON=.venv/bin/python` (Linux/WSL) and confirm success.
+3. Before any **minor** version bump (`Y` in `X.Y.Z`), confirm with the user first.
+4. Bump version in exactly two places:
+   - `src/utils/constants.py` — `APP_VERSION = 'X.Y.Z'`
+   - `README.md` — Current Version line and Release Build badge tag (`branch=vX.Y.Z`)
+5. Add the new version entry at the top of `CHANGELOG.md`.
+6. Commit with message: `Release vX.Y.Z`.
+7. Tag: `vX.Y.Z`.
+8. Push `master` and tags.
+9. Summarize checklist results (lint, tests, version/tag state) in your final response.
 
 ---
 
-See [AGENTS.md](AGENTS.md) for the full release checklist, project structure, architecture, and conventions.
+See [AGENTS.md](AGENTS.md) for project structure, architecture, and conventions.
 
 ## Additional Documentation
 

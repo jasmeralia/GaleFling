@@ -15,8 +15,8 @@ GaleFling is a Windows GUI application for posting to multiple social platforms 
 4. Make the smallest effective change unless the user requests a broader refactor.
 5. If project knowledge changes materially, update `AGENTS.md` and/or docs in `docs/`.
 6. Any new menu option must add a log entry in the form: `User selected <Menu> > <Action>`.
-7. **Functional tests and core code must stay in sync.** If a functional test reveals that a platform's session expiry, login detection, or DOM behavior is different from what the core code assumes (e.g. inline login form vs. URL redirect), update *both* the test logic and the corresponding platform class in `src/platforms/`. Do not fix the test without fixing the core, or vice versa.
-8. For iterative debugging, use the debug-state workflow defined in `CLAUDE.md` and the corresponding skill instead of relying on long-lived chat history.
+7. **Tests and core code must stay in sync.** If a test (unit or functional) reveals that behavior differs from what the core code assumes, update *both* the test logic and the corresponding core code. Do not fix the test without fixing the core, or vice versa. For unit tests that mock dependencies, ensure the mock assumptions still match the real behavior of what is being mocked.
+8. For iterative debugging, use the debug-state workflow defined in `CLAUDE.md` instead of relying on long-lived chat history.
 9. **Never log, echo, print, or display the values of any variables read from `tests/functional/.env`** — this includes passwords, API keys, TOTP secrets, and any other credentials. Do not include credential values in tool call arguments, code comments, assistant responses, or debug output of any kind.
 
 Trigger phrase: **"follow the release checklist"**

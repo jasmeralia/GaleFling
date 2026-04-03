@@ -1,6 +1,22 @@
 # GaleFling - Claude Code Context
 
-See [AGENTS.md](AGENTS.md) for mandatory rules, the release checklist, project structure, architecture, and conventions. **Always read AGENTS.md before starting any task.**
+## Mandatory Agent Rules
+1. After any code or docs change, run the full Release Checklist unless the user explicitly says not to.
+2. Do not skip linting or tests.
+3. If lint/tests fail, fix them before concluding.
+4. Make the smallest effective change unless the user requests a broader refactor.
+5. If project knowledge changes materially, update `AGENTS.md` and/or docs in `docs/`.
+6. Any new menu option must add a log entry in the form: `User selected <Menu> > <Action>`.
+7. **Functional tests and core code must stay in sync.** If a functional test reveals that a platform's session expiry, login detection, or DOM behavior is different from what the core code assumes (e.g. inline login form vs. URL redirect), update *both* the test logic and the corresponding platform class in `src/platforms/`. Do not fix the test without fixing the core, or vice versa.
+8. For iterative debugging, use the debug slash commands (`/triage_logs`, `/triage_crash`, `/save_debug`, `/resume_debug`, `/clean_debug`) instead of relying on long-lived chat history.
+9. **Never log, echo, print, or display the values of any variables read from `tests/functional/.env`** — this includes passwords, API keys, TOTP secrets, and any other credentials. Do not include credential values in tool call arguments, code comments, assistant responses, or debug output of any kind.
+
+Trigger phrase: **"follow the release checklist"**
+- When the user says this, execute every step in the checklist in `AGENTS.md`.
+
+---
+
+See [AGENTS.md](AGENTS.md) for the full release checklist, project structure, architecture, and conventions.
 
 ## Additional Documentation
 

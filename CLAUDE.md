@@ -52,21 +52,20 @@ See [AGENTS.md](AGENTS.md) for mandatory rules, the release checklist, project s
 
 ## Debug Workflow
 
-Use the debug-state workflow skill for iterative debugging.
+Use the debug slash commands for iterative debugging across sessions.
 
-Available triggers:
-- `triage_logs`
-- `triage_crash`
-- `save_debug`
-- `resume_debug`
-- `clean_debug`
+Available commands:
+- `/triage_logs` — analyze the newest app log and form hypotheses
+- `/triage_crash` — analyze the newest crash log and form hypotheses
+- `/save_debug` — persist current debug state to `debug_state.md`
+- `/resume_debug` — resume from `debug_state.md` after a session reset or `/clear`
+- `/clean_debug` — compact `debug_state.md` without losing live reasoning state
 
 Rules:
 - `debug_state.md` is the single source of truth across debug sessions.
 - Do not rely on long-lived chat history for iterative debugging.
-- After a failed run, use `triage_logs` unless the user reports a crash.
-- After a crash, use `triage_crash`.
-- After triage, use `save_debug` to persist the current issue state.
-- After a session reset or `/clear`, use `resume_debug`.
-- If `debug_state.md` becomes noisy or bloated, use `clean_debug`.
-- If a trigger is used, invoke the corresponding skill behavior directly.
+- After a failed run, use `/triage_logs` unless the user reports a crash.
+- After a crash, use `/triage_crash`.
+- After triage, use `/save_debug` to persist the current issue state.
+- After a session reset or `/clear`, use `/resume_debug`.
+- If `debug_state.md` becomes noisy or bloated, use `/clean_debug`.

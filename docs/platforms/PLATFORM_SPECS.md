@@ -9,11 +9,12 @@ Quick reference for all platform limits and capabilities. For credential setup a
 | Bluesky | [BLUESKY.md](BLUESKY.md) | API |
 | Twitter / X | [TWITTER.md](TWITTER.md) | API |
 | Instagram | [INSTAGRAM.md](INSTAGRAM.md) | API |
+| Threads | [THREADS.md](THREADS.md) | API |
+| Facebook | [FACEBOOK.md](FACEBOOK.md) | API |
 | Snapchat | [SNAPCHAT.md](SNAPCHAT.md) | WebView |
 | OnlyFans | [ONLYFANS.md](ONLYFANS.md) | WebView |
 | Fansly | [FANSLY.md](FANSLY.md) | WebView |
 | FetLife | [FETLIFE.md](FETLIFE.md) | WebView |
-| Threads | [THREADS.md](THREADS.md) | WebView |
 
 ## Source of Truth
 
@@ -26,11 +27,12 @@ Platform limits and capabilities are defined in `src/utils/constants.py` (`Platf
 | Twitter | 2 | OAuth 1.0a (PIN flow) |
 | Bluesky | 2 | App password |
 | Instagram | 2 | Graph API OAuth2 |
+| Threads | 2 | Threads OAuth2 (API) |
+| Facebook | 1 | Facebook Login for Business OAuth2 (API) |
 | Snapchat | 2 | Session cookie (WebView) |
 | OnlyFans | 1 | Session cookie (WebView) |
 | Fansly | 1 | Session cookie (WebView) |
 | FetLife | 1 | Session cookie (WebView) |
-| Threads | 2 | Session cookie (WebView) |
 
 ## Image Limits
 
@@ -39,11 +41,12 @@ Platform limits and capabilities are defined in `src/utils/constants.py` (`Platf
 | Twitter | 4096 × 4096 | 5 MB | JPEG, PNG, GIF, WEBP | 4 |
 | Bluesky | 2000 × 2000 | 1 MB | JPEG, PNG | 4 |
 | Instagram | 1440 × 1440 | 8 MB | JPEG, PNG | 1 |
+| Threads | 1440 × 1440 | 8 MB | JPEG, PNG | 10 |
+| Facebook | 4096 × 4096 | 10 MB | JPEG, PNG | 1 |
 | Snapchat | — | — | — | — (video only) |
 | OnlyFans | 4096 × 4096 | 50 MB | JPEG, PNG, WEBP | 4 |
 | Fansly | 4096 × 4096 | 50 MB | JPEG, PNG, WEBP | 4 |
 | FetLife | 4096 × 4096 | 20 MB | JPEG, PNG | 1 |
-| Threads | 1440 × 1440 | 10 MB | JPEG, PNG, GIF | 10 |
 
 ## Video Limits
 
@@ -52,11 +55,12 @@ Platform limits and capabilities are defined in `src/utils/constants.py` (`Platf
 | Twitter | MP4 | 1920 × 1200 | 512 MB | 140 s |
 | Bluesky | MP4 | 1920 × 1080 | 50 MB | 60 s |
 | Instagram | MP4 | 1920 × 1080 | 100 MB | 60 s |
+| Threads | MP4, MOV | 1920 × 1080 | 1 GB | 300 s |
+| Facebook | MP4, MOV | 1920 × 1080 | 10 GB | — |
 | Snapchat | MP4 | 1080 × 1920 | 50 MB | 60 s |
 | OnlyFans | MP4, MOV | 3840 × 2160 | 5120 MB | — |
 | Fansly | MP4, MOV | 3840 × 2160 | 5120 MB | — |
 | FetLife | MP4 | 1920 × 1080 | 500 MB | — |
-| Threads | MP4 | 1920 × 1080 | 1024 MB | 300 s |
 
 ## Text Limits
 
@@ -65,11 +69,12 @@ Platform limits and capabilities are defined in `src/utils/constants.py` (`Platf
 | Twitter | 280 chars | Yes | — |
 | Bluesky | 300 chars | Yes | URLs auto-linked via facets |
 | Instagram | 2200 chars | Yes | — |
+| Threads | 500 chars | Yes | — |
+| Facebook | 63,206 chars | Yes | — |
 | Snapchat | — | No | Text not supported on web composer |
 | OnlyFans | 1000 chars | Yes | — |
 | Fansly | 3000 chars | Yes | — |
 | FetLife | Unlimited | No | Separate composers for text vs media |
-| Threads | 500 chars | Yes | Selectors unverified — see THREADS.md |
 
 ## Behavioral Flags
 
@@ -78,11 +83,12 @@ Platform limits and capabilities are defined in `src/utils/constants.py` (`Platf
 | Twitter | No | Yes | No | No |
 | Bluesky | No | Yes | No | No |
 | Instagram | No | Yes | No | No |
+| Threads | No | Yes | No | No |
+| Facebook | No | Yes | No | No |
 | Snapchat | Yes | No (SPA) | No | **Yes (WebGL)** |
 | OnlyFans | Yes | No (SPA) | Yes | No |
 | Fansly | Yes | No (SPA) | Yes | No |
 | FetLife | Yes | Yes | Yes (cookie-only check) | No |
-| Threads | Yes | Unverified | No | No |
 
 ## Key Capability Flags in Code
 
@@ -93,8 +99,16 @@ Platform limits and capabilities are defined in `src/utils/constants.py` (`Platf
 - `api_type`, `requires_user_confirm` — posting model
 - `max_media_attachments` — attachment cap
 
+The specs objects for Threads and Facebook are `META_THREADS_API_SPECS` and
+`META_FACEBOOK_PAGE_SPECS` in `src/utils/constants.py`, registered under the
+`meta_threads` and `meta_facebook_page` keys in `PLATFORM_SPECS_MAP`.
+
 ## Behavior Notes
 
 - Platform restrictions are enforced dynamically in the composer and selector.
 - Unsupported static image formats may be auto-converted (e.g. WEBP → JPEG for Bluesky).
 - Single static images attached for Snapchat are auto-converted to MP4 (video-only web path).
+- Threads and Instagram (API path) require media to be staged to S3 before the publish
+  API call. This is handled transparently by GaleFling's `MediaStager` component.
+- Facebook Page posting uses the Facebook Pages API and does not require S3 staging,
+  though GaleFling may route media through S3 for implementation consistency.

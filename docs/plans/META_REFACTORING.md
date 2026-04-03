@@ -13,7 +13,10 @@ This document is meant to give an implementation-oriented overview of:
 3. how to obtain them,
 4. how to model them in the app,
 5. how app credentials are distributed to users,
-6. how media is staged to S3 for Instagram and Threads publishing.
+6. how media is staged to S3 for Instagram and Threads publishing,
+7. which legacy WebView code must be removed,
+8. what test coverage is required,
+9. which integration points must be wired before the plan is considered complete.
 
 ---
 
@@ -679,25 +682,118 @@ Each flow:
 - Handle upload failures gracefully (do not attempt Meta publish if S3 upload failed)
 - No explicit cleanup needed; lifecycle policy handles expiry
 
-### Phase 6 — Minimal publishing support
+### Phase 6 — API platform adapters
 
-Implement only these post types first:
-- Threads: text, image, carousel
-- Instagram: image, video, carousel feed posts
-- Facebook Page: text/link/image posts
+Implement publishing adapters for:
+- `src/platforms/meta_threads.py` — `MetaThreadsPlatform` (text, image, video, carousel)
+- `src/platforms/meta_facebook_page.py` — `MetaFacebookPagePlatform` (text/link, photo, video)
+- Update `src/platforms/meta_instagram.py` / `instagram.py` as needed to align with the
+  Instagram Login path and `META_INSTAGRAM_API_SPECS`
 
-### Phase 7 — Destination selection
+### Phase 7 — Remove WebView Threads implementation
+
+The WebView-based Threads implementation is superseded by the API adapter in Phase 6.
+All of the following must be removed before this plan is considered complete:
+
+- [ ] Delete `src/platforms/threads.py` (the `ThreadsPlatform` WebView class)
+- [ ] Remove the `threads` platform factory entry from `src/gui/main_window.py`
+- [ ] Remove the WebView Threads setup pages and account entries from
+      `src/gui/setup_wizard.py` (`ThreadsSetupPage`, `threads_1`/`threads_2` accounts)
+- [ ] Remove the legacy `THREADS_SPECS` constant and `'threads'` key from
+      `PLATFORM_SPECS_MAP` in `src/utils/constants.py` — `META_THREADS_API_SPECS` under
+      the `'meta_threads'` key is the sole surviving Threads spec
+- [ ] Remove the `threads` import and cookie domain entry from `src/gui/settings_dialog.py`
+- [ ] Delete `tests/test_threads.py` (tests the removed WebView class)
+- [ ] Delete `tests/functional/test_webview_threads.py` (functional WebView test)
+- [ ] Update `AGENTS.md` and `docs/ARCHITECTURE_OVERVIEW.md` to remove references to
+      WebView Threads
+
+These removals should be done as a single coordinated change once the API adapter is
+confirmed working end-to-end.
+
+### Phase 8 — Destination selection
 
 When composing a post, allow selecting one or more destination accounts
-from the connected surfaces.
+from the connected surfaces (`meta_threads`, `meta_instagram`, `meta_facebook_page`).
 
-### Phase 8 — Validation rules
+### Phase 9 — Wire into all integration points
+
+The following integration points must be updated before this plan is considered complete:
+
+**Main window (`src/gui/main_window.py`):**
+- [ ] Add `meta_threads` platform factory entry (maps to `MetaThreadsPlatform`)
+- [ ] Add `meta_facebook_page` platform factory entry (maps to `MetaFacebookPagePlatform`)
+- [ ] Ensure both route through the API (Tier 1) posting path, not WebView
+
+**Setup wizard (`src/gui/setup_wizard.py`):**
+- [ ] Add a Meta credentials import page (links to advanced settings JSON import or
+      provides inline credential entry) covering all three Meta providers
+- [ ] Add account connect steps for `meta_threads` (up to 2 accounts) and
+      `meta_facebook_page` (1 account) — mirrors the existing `InstagramSetupPage` pattern
+- [ ] Remove the legacy WebView Threads setup pages (`threads_1`, `threads_2`)
+
+**Settings dialog (`src/gui/settings_dialog.py`):**
+- [ ] Verify the Meta tab correctly reflects connected/disconnected state for
+      `meta_threads` and `meta_facebook_page` after Phase 6 adapters are in place
+- [ ] Add connection test buttons for `meta_threads` and `meta_facebook_page` accounts
+
+**Connection testing:**
+- [ ] `MetaThreadsPlatform.test_connection()` calls `GET /{user-id}?fields=username`
+      and returns an appropriate success/failure error code
+- [ ] `MetaFacebookPagePlatform.test_connection()` calls `GET /{page-id}` with the
+      long-lived Page token and returns an appropriate success/failure error code
+
+**Composer (`src/gui/post_composer.py` or equivalent):**
+- [ ] `meta_threads` accounts appear in the platform/account destination selector
+- [ ] `meta_facebook_page` account appears in the platform/account destination selector
+- [ ] Destination-specific validation (text length, image format) runs for both
+
+### Phase 10 — Validation rules
 
 Before publishing:
-- Validate media format and dimensions against destination platform specs
-- Validate caption/text length per destination
-- Validate token freshness and connection status
-- Check rate limit headroom where trackable
+- [ ] Validate media format and dimensions against `META_THREADS_API_SPECS` /
+      `META_FACEBOOK_PAGE_SPECS` for the respective destination
+- [ ] Validate caption/text length per destination
+- [ ] Validate token freshness and connection status before posting
+- [ ] Check rate limit headroom where trackable (Threads: 250/day; Instagram: 100/day)
+
+### Phase 11 — Test coverage
+
+The following test modules must be added or updated before this plan is considered
+complete.
+
+**Unit tests — new:**
+- [ ] `tests/test_meta_threads_platform.py` — covers `MetaThreadsPlatform`:
+  - `authenticate()` / `test_connection()` with mocked HTTP responses (success, 401, timeout)
+  - `post()` text-only path (no S3 upload)
+  - `post()` image path (mocked `MediaStager.upload`, mocked container/publish calls)
+  - `post()` video path (mocked polling loop)
+  - carousel path
+  - error code mapping (`TH-AUTH-EXPIRED`, `TH-RATE-LIMIT`, `TH-POST-FAILED`)
+  - `get_specs()` returns `META_THREADS_API_SPECS`
+- [ ] `tests/test_meta_facebook_page_platform.py` — covers `MetaFacebookPagePlatform`:
+  - `authenticate()` / `test_connection()` with mocked HTTP responses
+  - `post()` text/link path
+  - `post()` photo path (mocked HTTP)
+  - `post()` video path
+  - error code mapping (`FB-AUTH-EXPIRED`, `FB-RATE-LIMIT`, `FB-POST-FAILED`)
+  - `get_specs()` returns `META_FACEBOOK_PAGE_SPECS`
+
+**Unit tests — updated:**
+- [ ] `tests/test_threads.py` — **delete** (tests the removed WebView class; see Phase 7)
+- [ ] `tests/test_auth_manager.py` — add coverage for any new per-account token storage
+      added by Phase 6 adapters, if not already covered
+- [ ] `tests/test_settings_dialog.py` — add assertions that `meta_threads` and
+      `meta_facebook_page` sections render correctly in the Meta tab
+
+**Functional tests — new:**
+- [ ] `tests/functional/test_meta_threads_post.py` — live post to Threads API using
+      real credentials from `tests/functional/.env`
+- [ ] `tests/functional/test_meta_facebook_page_post.py` — live post to a Facebook
+      Page using real credentials from `tests/functional/.env`
+
+**Functional tests — retired:**
+- [ ] `tests/functional/test_webview_threads.py` — delete alongside Phase 7 WebView removal
 
 ---
 
@@ -733,6 +829,27 @@ AWS_MEDIA_STAGING_BUCKET=
 
 ---
 
+## Completion criteria
+
+This plan is **not complete** until all of the following are true:
+
+1. The WebView Threads implementation (`src/platforms/threads.py`, legacy `THREADS_SPECS`,
+   associated setup wizard pages, settings wiring, and WebView test files) has been
+   fully removed.
+2. `MetaThreadsPlatform` and `MetaFacebookPagePlatform` API adapters are implemented and
+   confirmed posting end-to-end against real accounts.
+3. Both platforms are wired into the main window platform factory, setup wizard, settings
+   dialog (including connection test buttons), and the composer destination selector.
+4. All unit tests listed in Phase 11 have been written and pass (`make test-cov` green).
+5. Functional tests for Threads API and Facebook Page have been added and pass against
+   real credentials.
+6. `PLATFORM_SPECS_MAP` contains `meta_threads` and `meta_facebook_page` as the only
+   Threads and Facebook entries; the legacy `threads` (WebView) key has been removed.
+7. `docs/platforms/THREADS.md`, `docs/platforms/FACEBOOK.md`, and
+   `docs/platforms/PLATFORM_SPECS.md` all reflect the API-based state.
+
+---
+
 ## Things not to assume
 
 - Do not assume a Threads token can post to Instagram.
@@ -753,6 +870,8 @@ AWS_MEDIA_STAGING_BUCKET=
   use the dedicated IAM user with scoped permissions only.
 - Do not implement explicit S3 DeleteObject calls; the lifecycle policy is the sole
   cleanup mechanism.
+- Do not leave `src/platforms/threads.py` in place after the API adapter is confirmed
+  working; the WebView and API code paths must not coexist long-term.
 
 ---
 

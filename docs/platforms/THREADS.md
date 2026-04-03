@@ -1,59 +1,79 @@
 # Threads Setup Guide
 
-GaleFling posts to Threads via an embedded WebView at `threads.net`. Threads shares its authentication with Instagram — the same Meta session cookies are used.
+GaleFling posts to Threads using the **Threads API** (`https://graph.threads.net/v1.0/`).
+Authentication is handled via Threads OAuth, which produces a long-lived Threads user
+access token stored securely in the system credential store.
 
-> **Status: Setup incomplete.** The text composer selector and auth cookie names require empirical verification before this platform can be considered production-ready. See [Verification Steps](#verification-steps) below.
+GaleFling supports **up to 2 Threads accounts**.
 
-## Account Type
+## Prerequisites
 
-Any Threads account works. GaleFling supports **up to 2 Threads accounts**.
+Before connecting a Threads account, you must have:
 
-## Credential Setup
+1. A Threads account (any account type — public or private both work, with different
+   token renewal behavior; see **Token Renewal** below).
+2. Meta app credentials imported into GaleFling via **Settings > Advanced > Import
+   Credentials**. Your operator (Jas) provides a JSON credential file for this step.
+   Without app credentials imported, the Connect button will be disabled.
+3. You must have been added as a **Threads Tester** on the GaleFling Threads app in the
+   Meta developer portal. Your operator handles this — you only need to accept the
+   invitation via **Threads app → Settings → Account → Website permissions**.
 
-Threads uses session cookies stored in a persistent WebView profile. There are no API keys to enter.
+## Connecting an Account
 
-### Step 1: Log In via GaleFling
+1. Open GaleFling and go to **Settings > Meta**.
+2. Under the **Threads** section, click **Connect** next to the account slot you want
+   to fill (Account 1 or Account 2).
+3. GaleFling opens a browser window pointing to the Threads authorization page.
+4. Log in to Threads (if not already logged in) and tap **Allow** to grant GaleFling
+   permission to post on your behalf.
+5. The browser tab shows "You can close this tab" — GaleFling has received the
+   authorization code and the setup is complete.
+6. The account now shows as **Connected** in the Meta settings tab, with your
+   Threads username displayed.
 
-1. Open GaleFling and go to **Settings > Accounts > Threads**.
-2. Click **Log In**. An embedded browser opens `threads.net`.
-3. Complete the Threads (Instagram/Meta) login flow.
-4. Once the Threads home page loads, GaleFling detects the session and closes the login window.
+## Required Permissions
 
-Your session cookies are stored in an isolated profile directory under `%APPDATA%\GaleFling\webprofiles\threads_1\`.
+GaleFling requests the following Threads API scopes during the connect flow:
 
-### Session Cookies
-
-GaleFling currently validates session by checking for the following cookie:
-
-| Cookie | Notes |
+| Scope | Purpose |
 |---|---|
-| `sessionid` | Instagram/Meta shared session cookie |
+| `threads_basic` | Required for all Threads API calls; grants read access to profile |
+| `threads_content_publish` | Required to create and publish posts |
 
-> **Unverified:** The `sessionid` cookie is used by Instagram and is expected to be present on `threads.net`, but this has not been empirically confirmed. See [Verification Steps](#verification-steps).
+## Post Types Supported
 
-### Session Expiry
+| Post Type | Supported |
+|---|---|
+| Text-only | Yes |
+| Single image | Yes |
+| Single video | Yes |
+| Carousel (2–20 items) | Yes |
 
-Threads sessions expire periodically. When your session expires, GaleFling will show a "session expired" warning. Repeat Step 1 to re-establish the session.
-
-## Media Restrictions
+## Media Specifications
 
 ### Images
 
 | Constraint | Limit |
 |---|---|
-| Formats | JPEG, PNG, GIF |
-| Max dimensions | 1440 × 1440 px |
-| Max file size | 10 MB |
-| Max attachments | 10 images per post |
+| Formats | JPEG, PNG |
+| Max width | 1440 px |
+| Max height | 1440 px |
+| Min width | 320 px |
+| Color space | sRGB |
+| Max file size | 8 MB |
+| Max attachments | 10 images per carousel |
 
 ### Videos
 
 | Constraint | Limit |
 |---|---|
-| Format | MP4 |
+| Formats | MP4, MOV |
+| Codec | H.264 or HEVC |
+| Frame rate | 23–60 FPS |
 | Max dimensions | 1920 × 1080 px |
-| Max file size | 1024 MB (1 GB) |
-| Max duration | 300 seconds (5 minutes) |
+| Max file size | 1 GB |
+| Max duration | 5 minutes (300 seconds) |
 
 ### Text
 
@@ -62,50 +82,54 @@ Threads sessions expire periodically. When your session expires, GaleFling will 
 | Max length | 500 characters |
 | Text with media | Supported |
 
-## Platform Behavior
+## How Posting Works
 
-- **API type**: `webview` — you confirm the post in the embedded browser panel.
-- **Auth method**: `sessionid` Meta session cookie in isolated WebView profile.
-- **Text selector**: `[data-lexical-editor="true"]` (unverified — see below).
-- **Success URL pattern**: `https://www.threads.net/@<username>/post/<id>` (unverified).
-- **Pre-fill delay**: 500 ms SPA hydration delay.
+Threads requires media to be hosted at a publicly accessible URL — it cannot accept
+binary file uploads directly in the API payload. GaleFling handles this automatically:
 
-## Verification Steps
+1. For image and video posts, GaleFling uploads your media to a private S3 staging
+   bucket and obtains a temporary public URL.
+2. GaleFling calls the Threads API to create a media container, passing the S3 URL.
+3. For image and video posts, GaleFling polls the container status until processing
+   is complete (typically 10–30 seconds).
+4. GaleFling publishes the container, making the post live on Threads.
+5. The S3 staging object is automatically cleaned up within 7 days by a lifecycle
+   policy — no action required on your part.
 
-The following values require manual verification before Threads can be used reliably. After verifying, update `src/platforms/threads.py` and remove the `THREADS_PLACEHOLDER` comments.
+For text-only posts, steps 1–3 are skipped.
 
-### Verify the Text Composer Selector
+## Token Renewal
 
-1. Open `https://www.threads.net/` in a Chromium-based browser.
-2. Log in and click the composer area.
-3. Open DevTools Console and run:
-   ```js
-   document.activeElement.tagName + ' / ' + document.activeElement.getAttribute('data-lexical-editor')
-   ```
-4. Also check these likely candidates:
-   - `[data-lexical-editor="true"]`
-   - `[contenteditable="true"][role="textbox"]`
-   - `div[aria-label*="thread"]`
-5. Verify that setting `.textContent` + dispatching an `input` event actually updates the composer state.
+Threads access tokens are valid for **60 days** and must be renewed periodically.
 
-### Verify Auth Cookie Names
+**Public profile accounts:** GaleFling can refresh your token automatically before it
+expires. Each refresh extends your authorization for another 90 days. You will not need
+to re-authorize unless you revoke access or change your Meta password.
 
-1. Open DevTools → **Application → Cookies** for `threads.net`.
-2. Log in and observe which cookies are set.
-3. Log out and confirm which cookies disappear or become invalid.
-4. Update `AUTH_COOKIE_NAMES` in `src/platforms/threads.py` with the confirmed set.
+**Private profile accounts:** Threads does not allow automatic token extension for
+private profiles. When your token expires (after 60 days), GaleFling will show a
+**Re-authorize** prompt in the Meta settings tab. Click it and repeat the connect flow
+to restore posting access. This is a Threads platform limitation and cannot be
+worked around.
 
-### After Verification
+GaleFling displays a warning banner when a Threads token is within 10 days of expiry,
+giving you time to renew before posting fails.
 
-1. Update `TEXT_SELECTOR` and `AUTH_COOKIE_NAMES` in `src/platforms/threads.py`.
-2. Remove `THREADS_PLACEHOLDER` comments.
-3. Update `tests/test_threads.py` if selector/cookie assertions need updating.
-4. Run lint and tests, then follow the release checklist.
+## Rate Limits
+
+The Threads API allows **250 published posts per 24-hour period** per profile. GaleFling
+does not currently track this limit in the UI; if you hit it, the post will fail with
+a `TH-RATE-LIMIT` error.
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---|---|
-| Text not pre-filled | The composer selector may be outdated. Follow the verification steps above to find the current selector. |
-| "Session expired" on launch | Log in again via Settings > Accounts > Threads. |
-| `WV-SESSION-EXPIRED` in results | Session cookies expired or the auth cookie name is wrong. Log in again and verify cookie names if the problem persists. |
+| Connect button is disabled | Import Meta app credentials first via **Settings > Advanced > Import Credentials**. |
+| "Re-authorize" prompt on a private profile | Your 60-day token has expired. Click **Re-authorize** and complete the connect flow again. This is expected for private Threads profiles. |
+| `TH-AUTH-EXPIRED` error when posting | Your token has expired. Go to **Settings > Meta** and reconnect the affected Threads account. |
+| `TH-AUTH-INVALID` error when posting | Your token may have been revoked (e.g. after a password change). Disconnect and reconnect the account. |
+| `TH-RATE-LIMIT` error when posting | You have hit the 250-posts-per-24-hours limit for this profile. Wait before posting again. |
+| `TH-POST-FAILED` error | The Threads API returned an unexpected error. Check that your media meets the format and size requirements above. |
+| Post goes live but GaleFling shows an error | The API may have accepted the post but returned a non-standard response. Check your Threads profile to confirm whether the post appeared. |
+| Media upload fails before posting | Verify your AWS staging credentials are configured correctly in **Settings > Advanced**. Use the **Test** button to confirm S3 access. |

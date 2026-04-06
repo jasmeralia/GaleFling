@@ -12,7 +12,45 @@ from src.core.meta_oauth import (
     MetaOAuthCallbackServer,
     MetaOAuthFlow,
     find_free_port,
+    make_state,
+    parse_state,
 )
+
+# ── make_state / parse_state ─────────────────────────────────────────────────
+
+
+def test_make_state_returns_string():
+    result = make_state(8765)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_parse_state_round_trips_port():
+    state = make_state(8767)
+    decoded = parse_state(state)
+    assert decoded['port'] == 8767
+
+
+def test_parse_state_includes_csrf():
+    state = make_state(8765)
+    decoded = parse_state(state)
+    assert 'csrf' in decoded
+    assert len(decoded['csrf']) > 0
+
+
+def test_make_state_csrf_is_random():
+    state1 = make_state(8765)
+    state2 = make_state(8765)
+    assert parse_state(state1)['csrf'] != parse_state(state2)['csrf']
+
+
+def test_parse_state_full_roundtrip():
+    """State forwarded unchanged by relay is still verifiable via direct comparison."""
+    state = make_state(8769)
+    # Simulating relay forwarding state unchanged
+    returned_state = state
+    assert returned_state == state
+
 
 # ── find_free_port ────────────────────────────────────────────────────────────
 

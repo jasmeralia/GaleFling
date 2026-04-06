@@ -62,6 +62,12 @@ def import_credentials(path: Path, auth_manager: AuthManager) -> ImportResult:
     _import_meta_platform(meta, 'instagram', auth_manager, result)
     _import_meta_platform(meta, 'facebook', auth_manager, result)
 
+    oauth_redirect_uri = meta.get('oauth_redirect_uri', '').strip()
+    if oauth_redirect_uri:
+        auth_manager.save_meta_oauth_redirect_uri(oauth_redirect_uri)
+        result.imported.append('meta.oauth_redirect_uri')
+        get_logger().info('credential_importer: imported meta oauth_redirect_uri')
+
     # ── Twitter OAuth 2.0 ────────────────────────────────────────────
     twitter = data.get('twitter', {})
     if twitter:

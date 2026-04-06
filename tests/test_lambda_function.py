@@ -4,6 +4,7 @@ import base64
 import json
 import sys
 import types
+from urllib.parse import parse_qs, urlparse
 
 fake_boto3 = types.SimpleNamespace(client=lambda _name: object())
 sys.modules.setdefault('boto3', fake_boto3)
@@ -237,3 +238,65 @@ def test_accepts_payload_at_cutoff_version(monkeypatch):
     result = lf.lambda_handler(event, None)
     assert result['statusCode'] == 200
     assert fake_ses.sent
+
+
+# ── _handle_oauth_callback ────────────────────────────────────────────────────
+
+
+def _make_state(port: int) -> str:
+    payload = json.dumps({'csrf': 'testcsrf', 'port': port})
+    return base64.urlsafe_b64encode(payload.encode()).decode()
+
+
+def _make_oauth_event(params: dict) -> dict:
+    return {'rawPath': '/oauth/callback', 'queryStringParameters': params}
+
+
+def test_oauth_callback_redirects_to_localhost():
+    state = _make_state(8765)
+    event = _make_oauth_event({'code': 'AUTH_CODE', 'state': state})
+    result = lf.lambda_handler(event, None)
+    assert result['statusCode'] == 302
+    location = result['headers']['Location']
+    assert location.startswith('http://localhost:8765/oauth/callback')
+    parsed = urlparse(location)
+    qs = parse_qs(parsed.query)
+    assert qs['code'] == ['AUTH_CODE']
+    assert qs['state'] == [state]
+
+
+def test_oauth_callback_decodes_port_from_state():
+    state = _make_state(8769)
+    event = _make_oauth_event({'code': 'CODE', 'state': state})
+    result = lf.lambda_handler(event, None)
+    assert result['statusCode'] == 302
+    assert 'localhost:8769' in result['headers']['Location']
+
+
+def test_oauth_callback_fallback_port_on_bad_state():
+    event = _make_oauth_event({'code': 'CODE', 'state': 'not-valid-base64!!!'})
+    result = lf.lambda_handler(event, None)
+    assert result['statusCode'] == 302
+    assert 'localhost:8765' in result['headers']['Location']
+
+
+def test_oauth_callback_forwards_error():
+    state = _make_state(8765)
+    event = _make_oauth_event(
+        {'error': 'access_denied', 'error_description': 'User denied', 'state': state}
+    )
+    result = lf.lambda_handler(event, None)
+    assert result['statusCode'] == 302
+    location = result['headers']['Location']
+    assert 'error=access_denied' in location
+    assert 'localhost:8765' in location
+
+
+def test_oauth_callback_does_not_invoke_ses(monkeypatch):
+    fake_ses = FakeSES()
+    monkeypatch.setattr(lf, 'ses', fake_ses)
+    state = _make_state(8765)
+    event = _make_oauth_event({'code': 'CODE', 'state': state})
+    lf.lambda_handler(event, None)
+    assert not fake_ses.sent
+    assert not fake_ses.raw_sent

@@ -57,6 +57,44 @@ def _extract_ffmpeg_version(payload: dict) -> str:
     return 'unknown'
 
 
+def _handle_oauth_callback(event: dict) -> dict:
+    """Relay Meta OAuth callback to GaleFling's local HTTP server.
+
+    Meta redirects the browser here after the user authorises the app.
+    We decode the port from the state param and issue a 302 to localhost
+    so GaleFling's temporary callback server receives the auth code.
+    """
+    import base64 as _base64
+
+    params = event.get('queryStringParameters') or {}
+
+    code = params.get('code', '')
+    state_raw = params.get('state', '')
+    error = params.get('error', '')
+    error_description = params.get('error_description', '')
+
+    port = 8765  # fallback if state cannot be decoded
+    try:
+        decoded = json.loads(_base64.urlsafe_b64decode(state_raw.encode()).decode())
+        port = int(decoded.get('port', 8765))
+    except Exception:
+        pass
+
+    if error:
+        local_url = (
+            f'http://localhost:{port}/oauth/callback'
+            f'?error={error}&error_description={error_description}&state={state_raw}'
+        )
+    else:
+        local_url = f'http://localhost:{port}/oauth/callback?code={code}&state={state_raw}'
+
+    return {
+        'statusCode': 302,
+        'headers': {'Location': local_url},
+        'body': '',
+    }
+
+
 def lambda_handler(event, context):
     """Handle log upload from the desktop application.
 
@@ -76,6 +114,10 @@ def lambda_handler(event, context):
         "wer_reports": [{"filename": "...", "content": "base64..."}]
     }
     """
+    raw_path = event.get('rawPath', '')
+    if raw_path == '/oauth/callback':
+        return _handle_oauth_callback(event)
+
     # Handle CORS preflight
     if event.get('httpMethod') == 'OPTIONS':
         return _cors_response(200, {'message': 'OK'})

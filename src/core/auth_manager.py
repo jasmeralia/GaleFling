@@ -261,6 +261,22 @@ class AuthManager:
     def has_meta_facebook_app_credentials(self) -> bool:
         return self.get_meta_facebook_app_credentials() is not None
 
+    _DEFAULT_META_OAUTH_REDIRECT_URI = 'https://galefling.jasmer.tools/oauth/callback'
+
+    def get_meta_oauth_redirect_uri(self) -> str:
+        """Return the Meta OAuth relay redirect URI.
+
+        Defaults to the fixed relay URL if not explicitly configured.
+        """
+        data = self._load_json('meta_oauth_settings.json')
+        if data and data.get('oauth_redirect_uri'):
+            return data['oauth_redirect_uri']
+        return self._DEFAULT_META_OAUTH_REDIRECT_URI
+
+    def save_meta_oauth_redirect_uri(self, uri: str) -> None:
+        """Persist the Meta OAuth relay redirect URI."""
+        self._save_json('meta_oauth_settings.json', {'oauth_redirect_uri': uri})
+
     # ── AWS media staging credentials ───────────────────────────────
 
     def get_aws_media_staging_credentials(self) -> dict[str, str] | None:

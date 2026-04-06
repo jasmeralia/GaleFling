@@ -355,6 +355,25 @@ class SettingsDialog(QDialog):
             layout.addWidget(group)
             self._meta_provider_groups[provider] = group
 
+        # OAuth relay URI setting
+        relay_group = QGroupBox('OAuth Relay')
+        relay_layout = QFormLayout(relay_group)
+        relay_layout.addRow(
+            QLabel(
+                '<i>HTTPS redirect URI registered in each Meta app dashboard. '
+                'All three platforms share the same relay URL.</i>'
+            ),
+            QLabel(),
+        )
+        self._meta_oauth_redirect_uri_edit = QLineEdit(
+            self._auth_manager.get_meta_oauth_redirect_uri()
+        )
+        self._meta_oauth_redirect_uri_edit.setPlaceholderText(
+            'https://galefling.jasmer.tools/oauth/callback'
+        )
+        relay_layout.addRow('OAuth Redirect URI:', self._meta_oauth_redirect_uri_edit)
+        layout.addWidget(relay_group)
+
         layout.addStretch()
         scroll.setWidget(widget)
         tabs.addTab(scroll, 'Meta')
@@ -838,6 +857,11 @@ class SettingsDialog(QDialog):
                     )
                 )
 
+        # Meta — OAuth relay redirect URI
+        meta_relay_uri = self._meta_oauth_redirect_uri_edit.text().strip()
+        if meta_relay_uri:
+            self._auth_manager.save_meta_oauth_redirect_uri(meta_relay_uri)
+
         # AWS — update bucket name if the user edited it directly
         aws_bucket_text = self._aws_bucket_edit.text().strip()
         if aws_bucket_text:
@@ -1200,6 +1224,11 @@ class SettingsDialog(QDialog):
                 lines.append(f'{prefix}_APP_ID={meta_creds.get("app_id", "")}')
                 lines.append(f'{prefix}_APP_SECRET={meta_creds.get("app_secret", "")}')
                 lines.append('')
+
+        # Meta OAuth relay URI
+        lines.append('# Meta OAuth relay redirect URI')
+        lines.append(f'META_OAUTH_REDIRECT_URI={self._auth_manager.get_meta_oauth_redirect_uri()}')
+        lines.append('')
 
         # Twitter OAuth 2.0
         tw_oauth2 = self._auth_manager.get_twitter_oauth2_app_credentials()

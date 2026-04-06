@@ -87,6 +87,7 @@ Resources:
         AllowOrigins:
           - '*'
         AllowMethods:
+          - GET
           - POST
           - OPTIONS
         AllowHeaders:
@@ -107,6 +108,14 @@ Resources:
     Properties:
       ApiId: !Ref HttpApi
       RouteKey: POST /logs/upload
+      Target: !Sub integrations/${HttpApiIntegration}
+
+  # GET /oauth/callback route — HTTPS relay for Meta OAuth callbacks
+  OAuthCallbackRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /oauth/callback
       Target: !Sub integrations/${HttpApiIntegration}
 
   # Default stage with auto-deploy
@@ -164,3 +173,7 @@ Outputs:
   LambdaFunctionArn:
     Description: ARN of the log upload Lambda function
     Value: !GetAtt LogUploadFunction.Arn
+
+  OAuthRelayCallbackUrl:
+    Description: OAuth relay callback URL to register in Meta app dashboards
+    Value: !Sub https://${DomainName}/oauth/callback

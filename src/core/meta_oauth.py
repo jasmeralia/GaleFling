@@ -7,7 +7,10 @@ Implements:
 - Facebook Page listing and long-lived page token exchange
 """
 
+import base64
+import json
 import queue
+import secrets
 import socket
 import socketserver
 import threading
@@ -24,6 +27,24 @@ MetaProvider = Literal['meta_threads', 'meta_instagram', 'meta_facebook_page']
 
 _CALLBACK_PATH = '/oauth/callback'
 _FB_GRAPH_VERSION = 'v25.0'
+
+
+# ── State helpers ─────────────────────────────────────────────────────────────
+
+
+def make_state(port: int) -> str:
+    """Return a base64url-encoded JSON state value embedding the CSRF token and port.
+
+    The relay Lambda decodes the port to issue the localhost redirect.
+    The full state value is forwarded unchanged so GaleFling can verify it on receipt.
+    """
+    payload = {'csrf': secrets.token_hex(16), 'port': port}
+    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+
+
+def parse_state(state: str) -> dict:
+    """Decode a state value produced by ``make_state``."""
+    return json.loads(base64.urlsafe_b64decode(state.encode()).decode())
 
 
 # ── Port helpers ─────────────────────────────────────────────────────────────

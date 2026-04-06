@@ -157,3 +157,31 @@ def test_aws_default_region(auth, tmp_path):
     assert 'aws' in result.imported
     aws = auth.get_aws_media_staging_credentials()
     assert aws is not None and aws['region'] == 'us-west-2'
+
+
+def test_meta_oauth_redirect_uri_imported(auth, tmp_path):
+    data = {
+        'version': SUPPORTED_VERSION,
+        'meta': {
+            'oauth_redirect_uri': 'https://galefling.jasmer.tools/oauth/callback',
+            'threads': {'app_id': 'th_id', 'app_secret': 'th_sec'},
+        },
+    }
+    result = import_credentials(_write_json(tmp_path, data), auth)
+
+    assert 'meta.oauth_redirect_uri' in result.imported
+    assert auth.get_meta_oauth_redirect_uri() == 'https://galefling.jasmer.tools/oauth/callback'
+
+
+def test_meta_oauth_redirect_uri_absent_does_not_override_default(auth, tmp_path):
+    data = {
+        'version': SUPPORTED_VERSION,
+        'meta': {
+            'threads': {'app_id': 'th_id', 'app_secret': 'th_sec'},
+        },
+    }
+    result = import_credentials(_write_json(tmp_path, data), auth)
+
+    assert 'meta.oauth_redirect_uri' not in result.imported
+    # Default value still returned
+    assert auth.get_meta_oauth_redirect_uri() == 'https://galefling.jasmer.tools/oauth/callback'

@@ -306,10 +306,13 @@ Credentials to extract for the JSON import file:
 
 ### Strategy
 
-GaleFling uses **localhost HTTP redirect** for OAuth callbacks. This avoids the custom
-URI scheme approach (`galefling://`) which triggers browser permission prompts that can
-confuse non-technical users. With localhost redirects the browser silently navigates to
-a local URL with no prompts.
+GaleFling uses an **HTTPS relay** for OAuth callbacks. Meta's app dashboard validator
+requires HTTPS on all redirect URIs — `http://localhost` and `http://127.0.0.1` are not
+accepted. The relay is an additional `GET /oauth/callback` route on the existing
+`galefling-log-upload` Lambda / API Gateway stack at `galefling.jasmer.tools`. It
+accepts the Meta redirect, decodes the active port from the OAuth `state` parameter,
+and issues a 302 to `http://localhost:{port}/oauth/callback`. Meta's validator sees
+HTTPS; GaleFling's temporary local server still receives the code unchanged.
 
 ### Port handling
 
@@ -321,7 +324,7 @@ conflicts, GaleFling tries a small range of ports sequentially:
 import socket
 
 def find_free_port(start=8765, end=8770):
-    for port in range(start, end):
+    for port in range(start, end + 1):
         with socket.socket() as s:
             try:
                 s.bind(('localhost', port))
@@ -331,33 +334,36 @@ def find_free_port(start=8765, end=8770):
     raise RuntimeError("No free ports available in range")
 ```
 
-The redirect URI is constructed dynamically from whichever port is free before the
-OAuth flow begins.
+The active port is encoded into the OAuth `state` parameter via `make_state(port)` so
+the relay can decode it and issue the correct localhost redirect:
+
+```python
+def make_state(port: int) -> str:
+    payload = {'csrf': secrets.token_hex(16), 'port': port}
+    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+
+def parse_state(state: str) -> dict:
+    return json.loads(base64.urlsafe_b64decode(state.encode()).decode())
+```
+
+The relay forwards `state` unchanged so GaleFling can verify it on receipt.
 
 ### Registering redirect URIs in Meta app dashboards
 
-Because the port is dynamic, register all ports in the range as valid redirect URIs in
-each app dashboard. Add the following to each of the three apps:
+Register exactly **one** redirect URI in each of the three apps (same URL for all):
 
 ```
-http://localhost:8765/oauth/callback
-http://localhost:8766/oauth/callback
-http://localhost:8767/oauth/callback
-http://localhost:8768/oauth/callback
-http://localhost:8769/oauth/callback
-http://localhost:8770/oauth/callback
+https://galefling.jasmer.tools/oauth/callback
 ```
 
-Meta allows multiple redirect URIs per app. This is a one-time setup step. The same URI
-list can be used across all three apps — there is no conflict risk since the temporary
-server only lives for the duration of a single OAuth flow.
+Do **not** register localhost URIs — Meta's validator will reject them. The relay
+handles the port disambiguation transparently.
 
 ### User experience
 
-After authorizing in the browser, the user sees a simple "You can close this tab"
-page served by GaleFling's temporary local server. GaleFling has already received the
-auth code at that point and the server shuts down. No unexpected prompts, no custom
-protocol dialogs.
+After authorizing in the browser, the relay issues a 302 to GaleFling's localhost
+server. The redirect is transparent — the user sees a "You can close this tab" page as
+before. No unexpected prompts, no custom protocol dialogs.
 
 ---
 
@@ -373,6 +379,7 @@ trusted users like Rin without embedding them in the codebase.
 {
   "version": 1,
   "meta": {
+    "oauth_redirect_uri": "https://galefling.jasmer.tools/oauth/callback",
     "threads": {
       "app_id": "...",
       "app_secret": "..."
@@ -420,6 +427,7 @@ For the JSON file you provide to Rin:
 
 | Platform | Field | Where to find it |
 |---|---|---|
+| Meta (shared) | `oauth_redirect_uri` | Fixed value: `https://galefling.jasmer.tools/oauth/callback` |
 | Threads | `app_id` | App dashboard → Threads use case → Settings → Threads App ID |
 | Threads | `app_secret` | App dashboard → Threads use case → Settings → Threads App Secret |
 | Instagram | `app_id` | App dashboard → Instagram use case → Settings → Instagram App ID |
@@ -652,7 +660,15 @@ POST https://graph.facebook.com/v25.0/{page-id}/photos
 
 ### Phase 3 — OAuth connect flows
 
-Build three connect flows using the localhost callback pattern:
+**Relay deployment prerequisites (complete before testing any flow end-to-end):**
+- Add `GET /oauth/callback` route and `GET` to `CorsConfiguration.AllowMethods` in `infrastructure/galefling-log-upload.yaml`
+- Add `_handle_oauth_callback` branch and `rawPath` dispatch to `infrastructure/lambda_function.py`
+- Redeploy the existing log-upload stack and Lambda function code
+- Register `https://galefling.jasmer.tools/oauth/callback` in all three Meta app dashboards (replacing any localhost entries)
+- Add `oauth_redirect_uri` to credential JSON import file and re-import into GaleFling
+- Expose `oauth_redirect_uri` as an editable field in the Meta tab of the settings UI
+
+Build three connect flows using the HTTPS relay callback pattern:
 - Connect Threads account
 - Connect Instagram account
 - Connect Facebook Page
@@ -660,14 +676,15 @@ Build three connect flows using the localhost callback pattern:
 Each flow:
 1. Find a free port in range
 2. Start temporary local HTTP server
-3. Construct redirect URI from port
+3. Encode port into `state` via `make_state(port)`; use fixed relay URL as `redirect_uri`
 4. Open Meta auth URL in system browser
-5. Catch callback, extract auth code
-6. Exchange code for short-lived token
-7. Exchange for long-lived token
-8. Store encrypted token + metadata
-9. Shut down local server
-10. Show "You can close this tab" page
+5. Meta redirects browser to `https://galefling.jasmer.tools/oauth/callback`; relay decodes port from `state` and issues 302 to `http://localhost:{port}/oauth/callback`; browser follows redirect to GaleFling's local server
+6. Catch callback, extract auth code; verify state
+7. Exchange code for short-lived token (pass relay URL as `redirect_uri`, not localhost)
+8. Exchange for long-lived token
+9. Store encrypted token + metadata
+10. Shut down local server
+11. Show "You can close this tab" page
 
 ### Phase 4 — Token lifecycle management
 
@@ -815,10 +832,9 @@ META_INSTAGRAM_APP_SECRET=
 META_FACEBOOK_APP_ID=
 META_FACEBOOK_APP_SECRET=
 
-# Shared redirect URI base (port appended dynamically)
-META_OAUTH_REDIRECT_BASE=http://localhost
-META_OAUTH_PORT_RANGE_START=8765
-META_OAUTH_PORT_RANGE_END=8770
+# OAuth relay redirect URI (fixed; same for all three apps)
+# Also importable via the meta.oauth_redirect_uri field in the credential JSON
+META_OAUTH_REDIRECT_URI=https://galefling.jasmer.tools/oauth/callback
 
 # AWS media staging
 AWS_MEDIA_STAGING_ACCESS_KEY_ID=
@@ -872,6 +888,13 @@ This plan is **not complete** until all of the following are true:
   cleanup mechanism.
 - Do not leave `src/platforms/threads.py` in place after the API adapter is confirmed
   working; the WebView and API code paths must not coexist long-term.
+- Do not assume `http://localhost` redirect URIs are accepted by Meta's app dashboard
+  validator — they are not; use `https://galefling.jasmer.tools/oauth/callback`.
+- Do not construct `redirect_uri` dynamically from the active port; the relay URL is
+  fixed and must match the registered URI exactly in both the authorization request and
+  the token exchange call.
+- Do not create a new Lambda function or CloudFormation stack for the OAuth relay; it is
+  an additional route on the existing `galefling-log-upload` stack.
 
 ---
 

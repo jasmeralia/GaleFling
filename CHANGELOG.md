@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.2] - 2026-04-05
+
+### Added
+- **OAuth relay for Meta connect flows:** Meta's app dashboard validator rejects `http://localhost` redirect URIs. Added a `GET /oauth/callback` route to the existing `galefling-log-upload` Lambda / API Gateway stack at `galefling.jasmer.tools`. The relay accepts the Meta callback, decodes the active port from the OAuth `state` parameter, and issues a 302 to `http://localhost:{port}/oauth/callback`. Meta sees HTTPS; GaleFling's local server receives the code unchanged.
+- **`make_state` / `parse_state` helpers** in `src/core/meta_oauth.py`: encode the active port and a CSRF token into the OAuth `state` parameter as base64url JSON so the relay can decode the port without touching the redirect URI.
+- **`oauth_redirect_uri` setting:** `AuthManager` now stores and retrieves the Meta OAuth relay URL (`https://galefling.jasmer.tools/oauth/callback` by default). Importable via the `meta.oauth_redirect_uri` field in the credential JSON file. Editable in Settings → Meta → OAuth Relay. Exported to the functional test `.env` as `META_OAUTH_REDIRECT_URI`.
+- **Infrastructure:** `infrastructure/galefling-log-upload.yaml` gains the `OAuthCallbackRoute` resource, `GET` added to `CorsConfiguration.AllowMethods`, and an `OAuthRelayCallbackUrl` output. `infrastructure/lambda_function.py` gains the `_handle_oauth_callback` function and a `rawPath` dispatch check at the top of `lambda_handler`.
+
+### Changed
+- **`MetaOAuthWorker`** now uses `make_state(port)` instead of a plain random token for the OAuth state, and passes the configured relay URL as `redirect_uri` (to both the authorization request and the token exchange call) instead of a dynamic `http://localhost:{port}` URI.
+
 ## [1.8.1] - 2026-04-02
 
 ### Added

@@ -6,7 +6,6 @@ then saves the resulting credentials via AuthManager.
 
 from __future__ import annotations
 
-import secrets
 import webbrowser
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -30,6 +29,7 @@ from src.core.meta_oauth import (
     MetaOAuthFlow,
     OAuthFlowResult,
     find_free_port,
+    make_state,
 )
 from src.utils.constants import AccountConfig
 
@@ -50,11 +50,19 @@ class MetaOAuthWorker(QThread):
     success = pyqtSignal(object)  # OAuthFlowResult
     failed = pyqtSignal(str)
 
-    def __init__(self, flow: MetaOAuthFlow, provider: str, account_id: str, parent=None) -> None:
+    def __init__(
+        self,
+        flow: MetaOAuthFlow,
+        provider: str,
+        account_id: str,
+        oauth_redirect_uri: str,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self._flow = flow
         self._provider = provider
         self._account_id = account_id
+        self._oauth_redirect_uri = oauth_redirect_uri
 
     def run(self) -> None:
         server: MetaOAuthCallbackServer | None = None
@@ -63,8 +71,8 @@ class MetaOAuthWorker(QThread):
             server = MetaOAuthCallbackServer(port)
             server.start()
 
-            redirect_uri = f'http://localhost:{port}/oauth/callback'
-            state = secrets.token_urlsafe(16)
+            redirect_uri = self._oauth_redirect_uri
+            state = make_state(port)
             auth_url = self._flow.build_auth_url(redirect_uri, state)
 
             self.status_changed.emit('Opening browser — please authorize in the browser window...')
@@ -220,7 +228,8 @@ class MetaConnectDialog(QDialog):
         self._layout.addLayout(self._btn_row)
 
         # Start worker immediately
-        self._worker = MetaOAuthWorker(flow, provider, account_id, parent=self)
+        oauth_redirect_uri = auth_manager.get_meta_oauth_redirect_uri()
+        self._worker = MetaOAuthWorker(flow, provider, account_id, oauth_redirect_uri, parent=self)
         self._worker.status_changed.connect(self._status_label.setText)
         self._worker.success.connect(self._on_success)
         self._worker.failed.connect(self._on_failed)

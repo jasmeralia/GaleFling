@@ -105,3 +105,21 @@ def test_aws_media_staging_credentials_round_trip(tmp_path, monkeypatch):
     assert creds['media_staging_bucket'] == 'my-bucket'
     assert creds['region'] == 'us-west-2'
     assert manager.has_aws_media_staging_credentials() is True
+
+
+def test_meta_oauth_redirect_uri_defaults_to_relay_url(tmp_path, monkeypatch):
+    manager = _make_auth(tmp_path, monkeypatch)
+    uri = manager.get_meta_oauth_redirect_uri()
+    assert uri == 'https://galefling.jasmer.tools/oauth/callback'
+
+
+def test_meta_oauth_redirect_uri_round_trip(tmp_path, monkeypatch):
+    manager = _make_auth(tmp_path, monkeypatch)
+    manager.save_meta_oauth_redirect_uri('https://example.com/oauth/callback')
+    assert manager.get_meta_oauth_redirect_uri() == 'https://example.com/oauth/callback'
+
+
+def test_meta_oauth_redirect_uri_stored_in_separate_file(tmp_path, monkeypatch):
+    manager = _make_auth(tmp_path, monkeypatch)
+    manager.save_meta_oauth_redirect_uri('https://example.com/oauth/callback')
+    assert (tmp_path / 'meta_oauth_settings.json').exists()

@@ -2,12 +2,14 @@
 
 import contextlib
 import json
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QPalette
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -21,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.auth_manager import AuthManager
+from src.core.credential_importer import import_credentials
 from src.core.logger import get_logger
 from src.platforms.base_webview import BaseWebViewPlatform
 from src.platforms.bluesky import BlueskyPlatform
@@ -53,6 +56,88 @@ class WelcomePage(QWizardPage):
         intro.setStyleSheet('font-size: 13px; line-height: 1.5;')
         layout.addWidget(intro)
         layout.addStretch()
+
+
+class CredentialImportPage(QWizardPage):
+    """Import app-level credentials (Meta, Twitter, AWS) from a JSON file.
+
+    This page is optional — clicking Next without importing is fine.
+    Importing here seeds the subsequent platform pages with the app credentials
+    they need before the user tries to connect accounts.
+    """
+
+    def __init__(self, auth_manager: AuthManager, parent=None):
+        super().__init__(parent)
+        self._auth_manager = auth_manager
+        self.setAutoFillBackground(True)
+
+        self.setTitle('Setup - App Credentials')
+        self.setSubTitle('Import platform app credentials before connecting accounts')
+
+        layout = QVBoxLayout(self)
+
+        info = QLabel(
+            'GaleFling requires app-level credentials for Meta (Threads, Instagram, Facebook), '
+            'Twitter, and AWS media staging. These are provided as a JSON file by your '
+            'administrator.<br><br>'
+            '<i>If you have a credentials JSON file, import it now so the platform '
+            'pages that follow can use it. You can also import later via '
+            'Settings → Advanced → Import Credentials from JSON.</i>'
+        )
+        info.setWordWrap(True)
+        info.setOpenExternalLinks(True)
+        layout.addWidget(info)
+        layout.addSpacing(12)
+
+        import_btn = QPushButton('Import Credentials from JSON…')
+        import_btn.clicked.connect(self._import_credentials)
+        layout.addWidget(import_btn)
+
+        self._status_label = QLabel('')
+        self._status_label.setWordWrap(True)
+        layout.addWidget(self._status_label)
+
+        layout.addStretch()
+
+    def _import_credentials(self) -> None:
+        get_logger().info('User selected Setup Wizard > Import Credentials from JSON')
+        path_str, _ = QFileDialog.getOpenFileName(
+            self,
+            'Import Credentials',
+            '',
+            'JSON Files (*.json);;All Files (*)',
+        )
+        if not path_str:
+            return
+
+        result = import_credentials(Path(path_str), self._auth_manager)
+
+        if result.errors:
+            self._status_label.setText(
+                '<span style="color:red;">Import failed: ' + '; '.join(result.errors) + '</span>'
+            )
+            return
+
+        lines: list[str] = []
+        if result.imported:
+            lines.append('Imported: ' + ', '.join(result.imported))
+        if result.skipped:
+            lines.append('Skipped (incomplete): ' + ', '.join(result.skipped))
+
+        if not result.imported:
+            self._status_label.setText(
+                '<span style="color:orange;">No complete credential sections found.</span>'
+                + ('<br>' + '<br>'.join(lines) if lines else '')
+            )
+            return
+
+        self._status_label.setText(
+            '<span style="color:green;">Credentials imported.</span><br>'
+            + '<br>'.join(lines)
+        )
+
+    def validatePage(self) -> bool:  # noqa: N802
+        return True
 
 
 class TwitterSetupPage(QWizardPage):
@@ -965,6 +1050,7 @@ class SetupWizard(QWizard):
 
         logger.info('Setup wizard adding pages')
         self.addPage(WelcomePage())
+        self.addPage(CredentialImportPage(auth_manager))
         self.addPage(TwitterSetupPage(auth_manager))
         self.addPage(BlueskySetupPage(auth_manager))
         self.addPage(InstagramSetupPage(auth_manager))

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.5] - 2026-04-09
+
+### Added
+- **Setup wizard credential import page:** A new "App Credentials" page is now the second page of the setup wizard (after Welcome), allowing users to import the credentials JSON file before reaching the platform-specific pages. This ensures Meta app credentials, Twitter OAuth, and AWS staging credentials are available when the user gets to those pages.
+
+### Changed
+- **Meta API error logging:** All three Meta platform adapters (`MetaThreadsPlatform`, `MetaInstagramPlatform`, `MetaFacebookPagePlatform`) now log the full Meta API error body (error code, subcode, type, message) on any failed HTTP response. This makes misconfigured app settings (wrong app ID, missing scopes, app not in dev mode, wrong redirect URI) diagnosable from the app log rather than appearing as a generic post failure.
+- **`meta_facebook_page.py`:** Added `_PostError` exception class (was missing) so that unexpected API errors in `_raise_for_status` are caught cleanly by `post()`.
+
 ## [1.8.4] - 2026-04-09
 
 ### Changed

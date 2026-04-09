@@ -67,3 +67,7 @@ build/build/
 *.code-workspace
 .serena/
 .claude/settings.local.json
+
+# Local credentials and tool config (never commit)
+tests/functional/creds_import.json
+.mcp.json

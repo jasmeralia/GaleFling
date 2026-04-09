@@ -92,7 +92,9 @@ class MetaFacebookPagePlatform(BasePlatform):
                 )
                 return True, None
             if resp.status_code in (401, 403):
+                _log_api_error('Facebook Page', resp)
                 return False, 'FB-AUTH-EXPIRED'
+            _log_api_error('Facebook Page', resp)
             return False, 'FB-AUTH-INVALID'
         except requests.Timeout:
             return False, 'NET-TIMEOUT'
@@ -305,12 +307,44 @@ class MetaFacebookPagePlatform(BasePlatform):
 
     @staticmethod
     def _raise_for_status(resp: requests.Response) -> None:
-        """Map HTTP error codes to typed exceptions."""
+        """Map HTTP error codes to typed exceptions.
+
+        Non-2xx responses outside the handled ranges are logged with the full
+        Meta API error body before raising, so that misconfigured app settings
+        (wrong app ID, missing scopes, wrong page ID, app not in dev mode)
+        produce actionable log entries.
+        """
         if resp.status_code == 429:
             raise _RateLimitError()
         if resp.status_code in (401, 403):
+            _log_api_error('Facebook Page', resp)
             raise _AuthError('FB-AUTH-EXPIRED')
-        resp.raise_for_status()
+        if not resp.ok:
+            detail = _log_api_error('Facebook Page', resp)
+            raise _PostError(f'API error {resp.status_code}: {detail}')
+
+
+# ── Module-level helpers ──────────────────────────────────────────────
+
+
+def _log_api_error(platform: str, resp: requests.Response) -> str:
+    """Parse and log a Meta API error response. Returns a short summary string."""
+    try:
+        body = resp.json()
+        err = body.get('error', {})
+        code = err.get('code', resp.status_code)
+        subcode = err.get('error_subcode')
+        etype = err.get('type', '')
+        msg = err.get('message', resp.text[:300])
+        detail = (
+            f'code={code}'
+            + (f' subcode={subcode}' if subcode else '')
+            + f' type={etype!r} message={msg!r}'
+        )
+    except Exception:
+        detail = resp.text[:300]
+    get_logger().error(f'{platform} API error {resp.status_code}: {detail}')
+    return detail
 
 
 # ── Internal exception types ──────────────────────────────────────────
@@ -323,4 +357,8 @@ class _AuthError(Exception):
 
 
 class _RateLimitError(Exception):
+    pass
+
+
+class _PostError(Exception):
     pass

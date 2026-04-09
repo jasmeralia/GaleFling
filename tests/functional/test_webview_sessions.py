@@ -8,7 +8,6 @@ Requires GALEFLING_DATA_DIR in .env pointing to the GaleFling AppData directory.
 Export via Settings > Advanced > Export Test Config.
 """
 
-import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,7 +17,6 @@ from src.platforms.fansly import FanslyPlatform
 from src.platforms.fetlife import FetLifePlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
-from src.platforms.threads import ThreadsPlatform
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -163,58 +161,3 @@ class TestFetLifeSession:
         assert specs.api_type == 'webview'
         assert not specs.supports_text_with_media
         assert specs.max_accounts == 1
-
-
-# ── Threads ──────────────────────────────────────────────────────────
-
-
-@pytest.mark.functional
-class TestThreadsSession:
-    """Threads WebView session validation."""
-
-    def test_session_cookies_exist(self, galefling_data_dir):
-        """Verify that the Threads account has a cookie database."""
-        if not _has_cookie_db(galefling_data_dir, 'threads_1'):
-            pytest.skip('No Threads cookie database found')
-        assert _cookie_db_path(galefling_data_dir, 'threads_1').stat().st_size > 0
-
-    def test_has_valid_session(self, galefling_data_dir):
-        """Verify has_valid_session() returns True for the Threads account.
-
-        NOTE: ThreadsPlatform uses THREADS_PLACEHOLDER session cookie names.
-        If this test fails, inspect the diagnostic output for the actual
-        cookie domain/name pairs and update ThreadsPlatform.AUTH_COOKIE_NAMES.
-        """
-        cookie_db = _cookie_db_path(galefling_data_dir, 'threads_1')
-        if not cookie_db.exists():
-            pytest.skip('No Threads cookie database found')
-        platform = ThreadsPlatform(account_id='threads_1')
-        with patch('src.platforms.base_webview.get_app_data_dir', return_value=galefling_data_dir):
-            valid = platform.has_valid_session()
-        if not valid:
-            # Gather diagnostic info: domain+name pairs (no values) from the DB.
-            # Threads is THREADS_PLACEHOLDER — AUTH_COOKIE_NAMES is unverified.
-            # Use this output to update ThreadsPlatform.AUTH_COOKIE_NAMES.
-            diag: list[str] = []
-            try:
-                with sqlite3.connect(f'file:{cookie_db}?mode=ro', uri=True) as conn:
-                    rows = conn.execute(
-                        'SELECT host_key, name FROM cookies ORDER BY host_key, name'
-                    ).fetchall()
-                    diag = [f'{r[0]}/{r[1]}' for r in rows[:40]]
-            except sqlite3.Error:
-                diag = ['(db read error)']
-            pytest.skip(
-                f'Threads session invalid (THREADS_PLACEHOLDER — '
-                f'AUTH_COOKIE_NAMES unverified). '
-                f'Cookies in DB (domain/name): {diag}'
-            )
-
-    def test_platform_specs(self, galefling_data_dir):
-        """Verify platform specs are consistent."""
-        platform = ThreadsPlatform(account_id='threads_1')
-        specs = platform.get_specs()
-        assert specs.platform_name == 'Threads'
-        assert specs.api_type == 'webview'
-        assert specs.auth_method == 'session_cookie'
-        assert specs.max_accounts == 2

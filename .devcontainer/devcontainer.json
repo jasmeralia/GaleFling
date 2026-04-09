@@ -1,0 +1,40 @@
+{
+  "name": "GaleFling Dev",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    }
+  },
+
+  // Install system libraries required by Qt6 / PyQt6-WebEngine.
+  // These are not present in the base Python devcontainer image.
+  "onCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgl1 libegl1 libgbm1 libxkbcommon0 libxcb-xkb1 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-util1 libasound2 libpulse0 libnspr4 libnss3",
+
+  // Create the project venv and install all Python dependencies.
+  // Also install the Claude Code CLI used for AI-assisted development.
+  "postCreateCommand": "python3 -m venv .venv && .venv/bin/pip install --upgrade pip && .venv/bin/pip install -r requirements-dev.txt && npm install -g @anthropic-ai/claude-code",
+
+  "remoteEnv": {
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
+    // Disable Chromium sandbox and GPU acceleration inside the container.
+    // Without these flags PyQtWebEngine aborts on launch in environments
+    // that have no GPU (devcontainers, CI).  Unit tests do not use WebEngine
+    // at all; functional tests need a real display or the offscreen platform.
+    "QTWEBENGINE_CHROMIUM_FLAGS": "--no-sandbox --disable-gpu --disable-software-rasterizer"
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff"
+      ],
+      "settings": {
+        // Point VS Code at the project venv so imports resolve correctly.
+        "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
+      }
+    }
+  }
+}

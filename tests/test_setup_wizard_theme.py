@@ -22,6 +22,12 @@ class DummyAuthManager:
     def get_account(self, account_id):
         return None
 
+    def get_meta_threads_app_credentials(self):
+        return None
+
+    def get_meta_facebook_app_credentials(self):
+        return None
+
 
 def test_setup_wizard_applies_style(qtbot):
     wizard = SetupWizard(DummyAuthManager(), theme_mode='dark')

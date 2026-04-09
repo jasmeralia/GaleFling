@@ -27,10 +27,10 @@ lint-fix: ## [Linux/WSL] Auto-fix lint issues and format code
 format: lint-fix ## [Linux/WSL] Alias for lint-fix
 
 test: ## [Linux/WSL] Run test suite
-	$(PYTHON) -m pytest tests/ -v
+	QT_QPA_PLATFORM=offscreen $(PYTHON) -m pytest tests/ -v
 
 test-cov: ## [Linux/WSL] Run tests with coverage (excludes functional)
-	$(PYTHON) -m pytest tests/ -v -m "not functional" --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml:coverage.xml --junitxml=junit.xml -o junit_family=legacy
+	QT_QPA_PLATFORM=offscreen $(PYTHON) -m pytest tests/ -v -m "not functional" --cov=src --cov-report=term-missing --cov-report=html --cov-report=xml:coverage.xml --junitxml=junit.xml -o junit_family=legacy
 
 test-functional: ## [Linux/WSL] Run functional tests directly (WebView tests skipped without display)
 	$(PYTHON) -m pytest tests/functional/ -m functional -v --no-header

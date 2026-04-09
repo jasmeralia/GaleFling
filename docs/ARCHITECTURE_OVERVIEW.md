@@ -18,8 +18,8 @@ Core goals:
 - `src/gui/webview_panel.py`
   - hosts WebView post-confirm tabs and statuses
 - `src/platforms/*`
-  - API adapters (`twitter.py`, `bluesky.py`, `instagram.py`)
-  - WebView adapters (`snapchat.py`, `onlyfans.py`, `fansly.py`, `fetlife.py`, `threads.py`)
+  - API adapters (`twitter.py`, `bluesky.py`, `instagram.py`, `meta_threads.py`, `meta_facebook_page.py`)
+  - WebView adapters (`snapchat.py`, `onlyfans.py`, `fansly.py`, `fetlife.py`)
 - `src/platforms/base_webview.py`
   - shared WebView profile/session mechanics
   - composer navigation and prefill hooks

@@ -33,13 +33,8 @@ from src.core.aws_utils import check_s3_connection
 from src.core.config_manager import ConfigManager
 from src.core.credential_importer import ImportResult, import_credentials
 from src.core.logger import get_logger
-from src.gui.setup_wizard import WebViewLoginDialog
-from src.platforms.base_webview import BaseWebViewPlatform
-from src.platforms.fansly import FanslyPlatform
-from src.platforms.fetlife import FetLifePlatform
-from src.platforms.onlyfans import OnlyFansPlatform
-from src.platforms.snapchat import SnapchatPlatform
-from src.platforms.threads import ThreadsPlatform
+from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
+from src.platforms.meta_threads import MetaThreadsPlatform
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
 from src.utils.helpers import get_app_data_dir
@@ -57,13 +52,21 @@ def _mask_credential(value: str, visible_chars: int = 4) -> str:
 class SettingsDialog(QDialog):
     """Application settings with tabs for general, per-platform accounts, and debug."""
 
-    _WEBVIEW_COOKIE_DOMAIN_MAP: dict[str, list[str]] = {
-        'snapchat': SnapchatPlatform.COOKIE_DOMAINS,
-        'onlyfans': OnlyFansPlatform.COOKIE_DOMAINS,
-        'fansly': FanslyPlatform.COOKIE_DOMAINS,
-        'fetlife': FetLifePlatform.COOKIE_DOMAINS,
-        'threads': ThreadsPlatform.COOKIE_DOMAINS,
-    }
+    @staticmethod
+    def _get_webview_cookie_domain_map() -> dict[str, list[str]]:
+        """Return the platform→cookie-domain map.  Imported lazily to avoid loading
+        QtWebEngineWidgets at module level (which crashes tests that don't need WebEngine)."""
+        from src.platforms.fansly import FanslyPlatform
+        from src.platforms.fetlife import FetLifePlatform
+        from src.platforms.onlyfans import OnlyFansPlatform
+        from src.platforms.snapchat import SnapchatPlatform
+
+        return {
+            'snapchat': SnapchatPlatform.COOKIE_DOMAINS,
+            'onlyfans': OnlyFansPlatform.COOKIE_DOMAINS,
+            'fansly': FanslyPlatform.COOKIE_DOMAINS,
+            'fetlife': FetLifePlatform.COOKIE_DOMAINS,
+        }
 
     def __init__(self, config: ConfigManager, auth_manager: AuthManager, parent=None):
         super().__init__(parent)
@@ -431,6 +434,13 @@ class SettingsDialog(QDialog):
                         expires_note = f' — expires {expires_at[:10]}'
                 row.addWidget(QLabel(f'{name}{expires_note}'))
                 row.addStretch()
+                test_btn = QPushButton('Test Connection')
+                test_btn.clicked.connect(
+                    lambda checked, aid=account.account_id, p=provider: (
+                        self._test_meta_account_connection(aid, p)
+                    )
+                )
+                row.addWidget(test_btn)
                 disconnect_btn = QPushButton('Disconnect')
                 disconnect_btn.setProperty('account_id', account.account_id)
                 disconnect_btn.clicked.connect(
@@ -470,6 +480,35 @@ class SettingsDialog(QDialog):
         self._auth_manager.remove_account(account_id)
         self._auth_manager.clear_account_credentials(account_id)
         self._refresh_meta_status()
+
+    def _test_meta_account_connection(self, account_id: str, provider_id: str) -> None:
+        get_logger().info(f'User selected Settings > Meta > Test Connection {account_id}')
+        account = self._auth_manager.get_account(account_id)
+        profile_name = account.profile_name if account else ''
+        platform: MetaThreadsPlatform | MetaFacebookPagePlatform
+        if provider_id == 'meta_threads':
+            platform = MetaThreadsPlatform(
+                self._auth_manager, account_id=account_id, profile_name=profile_name
+            )
+        elif provider_id == 'meta_facebook_page':
+            platform = MetaFacebookPagePlatform(
+                self._auth_manager, account_id=account_id, profile_name=profile_name
+            )
+        else:
+            return
+        success, error = platform.test_connection()
+        if success:
+            QMessageBox.information(
+                self,
+                'Connection OK',
+                f'{platform.get_platform_name()} connection test passed.',
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                'Connection Failed',
+                f'{platform.get_platform_name()} connection test failed: {error or "Unknown error"}',
+            )
 
     def _refresh_aws_display(self) -> None:
         """Reload AWS credential display widgets from stored credentials."""
@@ -1112,7 +1151,7 @@ class SettingsDialog(QDialog):
             return [], f'Failed to read cookie database: {exc}'
 
     def _build_webview_cookie_export_data(self, platform_id: str, specs) -> dict:
-        domains = self._WEBVIEW_COOKIE_DOMAIN_MAP.get(platform_id, [])
+        domains = self._get_webview_cookie_domain_map().get(platform_id, [])
         accounts = []
         for n in range(1, specs.max_accounts + 1):
             account_id = f'{platform_id}_{n}'
@@ -1307,9 +1346,17 @@ class SettingsDialog(QDialog):
         self._ig_page_id.clear()
         self._ig_profile_name.clear()
 
-    def _create_webview_platform(
-        self, platform_id: str, account_id: str
-    ) -> BaseWebViewPlatform | None:
+    def _create_webview_platform(self, platform_id: str, account_id: str):
+        """Instantiate and return the WebView platform for *platform_id*, or None.
+
+        Webview platform imports are deferred to this method so that importing
+        SettingsDialog does not pull in QtWebEngineWidgets at module level.
+        """
+        from src.platforms.fansly import FanslyPlatform
+        from src.platforms.fetlife import FetLifePlatform
+        from src.platforms.onlyfans import OnlyFansPlatform
+        from src.platforms.snapchat import SnapchatPlatform
+
         profile_edit = self._webview_profile_edits.get(account_id)
         profile_name = profile_edit.text().strip() if profile_edit else ''
         account = self._auth_manager.get_account(account_id)
@@ -1323,8 +1370,6 @@ class SettingsDialog(QDialog):
             return FanslyPlatform(account_id=account_id, profile_name=profile_name)
         if platform_id == 'fetlife':
             return FetLifePlatform(account_id=account_id, profile_name=profile_name)
-        if platform_id == 'threads':
-            return ThreadsPlatform(account_id=account_id, profile_name=profile_name)
         return None
 
     def _open_webview_login_window(self, platform_id: str, account_id: str):
@@ -1342,6 +1387,10 @@ class SettingsDialog(QDialog):
             extra={'platform_id': platform_id, 'account_id': account_id},
         )
         self._pending_login_platform = None  # release any previous platform first
+        from src.gui.setup_wizard import (
+            WebViewLoginDialog,  # lazy: avoids WebEngine import at module level
+        )
+
         dialog = WebViewLoginDialog(platform, specs.platform_name, self)
         dialog.exec()
         # Schedule the dialog (and its QWebEngineView/Page) for deletion via the
@@ -1387,6 +1436,10 @@ class SettingsDialog(QDialog):
             shutil.rmtree(profile_path)
             # Also evict the in-memory profile so the next login window
             # starts with a fresh Chromium context rather than a stale one.
+            from src.platforms.base_webview import (
+                BaseWebViewPlatform,  # lazy: avoids WebEngine at module level
+            )
+
             BaseWebViewPlatform._evict_profile(account_id)
             QMessageBox.information(
                 self,

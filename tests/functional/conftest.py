@@ -32,9 +32,29 @@ def _running_from_network_path() -> bool:
     return sys.platform == 'win32' and sys.executable.startswith('\\\\')
 
 
+def _is_collecting_functional_tests(config) -> bool:
+    """Return True if functional test paths are in collection scope.
+
+    Unit test runs (e.g. ``pytest tests/test_foo.py``) must not trigger
+    WebEngine/Chromium initialisation — that requires GPU support that is
+    not available in a plain devcontainer.  Functional tests require it and
+    are always run explicitly against a display or in a GPU-capable environment.
+    """
+    args = list(getattr(config, 'args', None) or [])
+    if not args:
+        # No explicit paths → collect everything, which includes functional.
+        return True
+    return any('functional' in str(a) for a in args)
+
+
 def pytest_configure(config):
     global _qapp
     load_dotenv(ENV_PATH)
+
+    # Only initialise WebEngine / Chromium when functional tests are actually
+    # being collected.  Unit tests must not depend on GPU availability.
+    if not _is_collecting_functional_tests(config):
+        return
 
     # Only fall back to offscreen when no display is available (CI, headless).
     # A real display (WSLg, Xvfb, native X) gives WebGL and full rendering.

@@ -52,9 +52,10 @@ from src.platforms.bluesky import BlueskyPlatform
 from src.platforms.fansly import FanslyPlatform
 from src.platforms.fetlife import FetLifePlatform
 from src.platforms.instagram import InstagramPlatform
+from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
+from src.platforms.meta_threads import MetaThreadsPlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
-from src.platforms.threads import ThreadsPlatform
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import (
     APP_NAME,
@@ -360,7 +361,12 @@ class MainWindow(QMainWindow):
         'onlyfans': lambda am, aid, pn: OnlyFansPlatform(account_id=aid, profile_name=pn),
         'fansly': lambda am, aid, pn: FanslyPlatform(account_id=aid, profile_name=pn),
         'fetlife': lambda am, aid, pn: FetLifePlatform(account_id=aid, profile_name=pn),
-        'threads': lambda am, aid, pn: ThreadsPlatform(account_id=aid, profile_name=pn),
+        'meta_threads': lambda am, aid, pn: MetaThreadsPlatform(
+            am, account_id=aid, profile_name=pn
+        ),
+        'meta_facebook_page': lambda am, aid, pn: MetaFacebookPagePlatform(
+            am, account_id=aid, profile_name=pn
+        ),
     }
 
     def _build_platforms(self):

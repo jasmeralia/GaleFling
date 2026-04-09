@@ -474,9 +474,9 @@ def test_settings_dialog_webview_tabs_show_login_and_reset_buttons(qtbot, tmp_pa
     reset_buttons = [
         btn for btn in dialog.findChildren(QPushButton) if btn.text() == 'Reset Session Cookies'
     ]
-    # snapchat has 2 accounts; onlyfans/fansly/fetlife each have 1; threads has 2
-    assert len(open_buttons) == 7
-    assert len(reset_buttons) == 7
+    # snapchat has 2 accounts; onlyfans/fansly/fetlife each have 1
+    assert len(open_buttons) == 5
+    assert len(reset_buttons) == 5
 
 
 def test_settings_dialog_open_webview_login_window(qtbot, tmp_path, monkeypatch):
@@ -500,7 +500,7 @@ def test_settings_dialog_open_webview_login_window(qtbot, tmp_path, monkeypatch)
         def deleteLater(self):  # noqa: N802
             pass
 
-    monkeypatch.setattr('src.gui.settings_dialog.WebViewLoginDialog', DummyLoginDialog)
+    monkeypatch.setattr('src.gui.setup_wizard.WebViewLoginDialog', DummyLoginDialog)
 
     dialog._open_webview_login_window('snapchat', 'snapchat_1')
 

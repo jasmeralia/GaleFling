@@ -359,3 +359,61 @@ def test_fetch_facebook_pages_single(mock_get):
     pages = flow.fetch_facebook_pages('USER_TOKEN')
     assert len(pages) == 1
     assert pages[0].long_lived_page_access_token == 'LONG_ONLY'
+
+
+# ── MetaOAuthFlow.fetch_user_info ─────────────────────────────────────────────
+
+
+def _mock_user_info_get(url, params=None, timeout=None, **kwargs):
+    resp = MagicMock()
+    resp.json.return_value = {'id': '12345', 'name': 'Test User'}
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+@patch('src.core.meta_oauth.requests.get', side_effect=_mock_user_info_get)
+def test_fetch_user_info_threads(mock_get):
+    flow = MetaOAuthFlow('meta_threads', 'APP_ID', 'APP_SECRET')
+    result = flow.fetch_user_info('ACCESS_TOKEN')
+    assert result['id'] == '12345'
+    assert result['name'] == 'Test User'
+    call_url = mock_get.call_args[0][0]
+    assert 'graph.threads.net' in call_url
+    assert call_url.endswith('/me')
+    params = mock_get.call_args[1]['params']
+    assert params['access_token'] == 'ACCESS_TOKEN'
+    assert 'id' in params['fields']
+    assert 'name' in params['fields']
+
+
+@patch('src.core.meta_oauth.requests.get', side_effect=_mock_user_info_get)
+def test_fetch_user_info_instagram(mock_get):
+    flow = MetaOAuthFlow('meta_instagram', 'IG_ID', 'IG_SEC')
+    result = flow.fetch_user_info('IG_TOKEN')
+    assert result['id'] == '12345'
+    call_url = mock_get.call_args[0][0]
+    assert 'graph.instagram.com' in call_url
+    assert call_url.endswith('/me')
+
+
+@patch('src.core.meta_oauth.requests.get', side_effect=_mock_user_info_get)
+def test_fetch_user_info_facebook(mock_get):
+    flow = MetaOAuthFlow('meta_facebook_page', 'FB_ID', 'FB_SEC')
+    result = flow.fetch_user_info('FB_TOKEN')
+    assert result['id'] == '12345'
+    call_url = mock_get.call_args[0][0]
+    assert 'graph.facebook.com' in call_url
+    assert call_url.endswith('/me')
+
+
+@patch('src.core.meta_oauth.requests.get')
+def test_fetch_user_info_propagates_http_error(mock_get):
+    import requests as req_lib
+
+    resp = MagicMock()
+    resp.raise_for_status.side_effect = req_lib.HTTPError('401 Unauthorized')
+    mock_get.return_value = resp
+
+    flow = MetaOAuthFlow('meta_threads', 'APP_ID', 'APP_SECRET')
+    with pytest.raises(req_lib.HTTPError):
+        flow.fetch_user_info('BAD_TOKEN')

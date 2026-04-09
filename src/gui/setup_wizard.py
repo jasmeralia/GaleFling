@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QVBoxLayout,
+    QWidget,
     QWizard,
     QWizardPage,
 )
@@ -27,7 +28,6 @@ from src.platforms.fansly import FanslyPlatform
 from src.platforms.fetlife import FetLifePlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
-from src.platforms.threads import ThreadsPlatform
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import AccountConfig
 
@@ -527,6 +527,130 @@ class InstagramSetupPage(QWizardPage):
         return True
 
 
+class MetaApiSetupPage(QWizardPage):
+    """Meta API accounts setup page (Threads and Facebook Page).
+
+    Allows connecting up to two Threads accounts and one Facebook Page account
+    via the MetaConnectDialog OAuth flow.  Requires app credentials to have been
+    imported first via Settings → Advanced → Import Credentials from JSON.
+    """
+
+    # (provider_id, display_name, account_id)
+    _ACCOUNT_DEFS = [
+        ('meta_threads', 'Threads Account 1', 'meta_threads_1'),
+        ('meta_threads', 'Threads Account 2', 'meta_threads_2'),
+        ('meta_facebook_page', 'Facebook Page', 'meta_facebook_page_1'),
+    ]
+
+    def __init__(self, auth_manager: AuthManager, parent=None):
+        super().__init__(parent)
+        self._auth_manager = auth_manager
+        self.setAutoFillBackground(True)
+
+        self.setTitle('Setup - Meta (Threads & Facebook Page)')
+        self.setSubTitle('Connect Threads and Facebook Page accounts via Meta OAuth')
+
+        layout = QVBoxLayout(self)
+
+        info = QLabel(
+            '<b>Threads</b> and <b>Facebook Page</b> posting require Meta app credentials.<br>'
+            'Import them via <i>Settings → Advanced → Import Credentials from JSON</i>.<br>'
+            'Once imported, use the buttons below to connect accounts.<br><br>'
+            '<i>You can skip this step and connect accounts later from Settings → Meta.</i>'
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+        layout.addSpacing(8)
+
+        self._account_widgets: dict[str, dict] = {}
+
+        for provider_id, display_name, account_id in self._ACCOUNT_DEFS:
+            row_widget = QWidget()
+            row = QHBoxLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
+
+            label = QLabel(f'<b>{display_name}:</b>')
+            label.setMinimumWidth(180)
+            row.addWidget(label)
+
+            status_label = QLabel('Not connected')
+            row.addWidget(status_label)
+            row.addStretch()
+
+            connect_btn = QPushButton('Connect')
+            connect_btn.clicked.connect(
+                lambda _checked, p=provider_id, aid=account_id: self._connect_account(p, aid)
+            )
+            row.addWidget(connect_btn)
+
+            layout.addWidget(row_widget)
+            self._account_widgets[account_id] = {
+                'provider_id': provider_id,
+                'status_label': status_label,
+                'connect_btn': connect_btn,
+            }
+
+        layout.addStretch()
+        self._refresh_status()
+
+    def _get_app_creds(self, provider_id: str) -> dict | None:
+        if provider_id == 'meta_threads':
+            return self._auth_manager.get_meta_threads_app_credentials()
+        if provider_id == 'meta_facebook_page':
+            return self._auth_manager.get_meta_facebook_app_credentials()
+        return None
+
+    def _refresh_status(self) -> None:
+        for account_id, widgets in self._account_widgets.items():
+            provider_id = widgets['provider_id']
+            app_creds = self._get_app_creds(provider_id)
+            account = self._auth_manager.get_account(account_id)
+
+            if account:
+                name = account.profile_name or account_id
+                widgets['status_label'].setText(
+                    f'<span style="color: #4CAF50; font-weight: bold;">\u2713 {name}</span>'
+                )
+                widgets['connect_btn'].setText('Reconnect')
+            else:
+                widgets['status_label'].setText('Not connected')
+                widgets['connect_btn'].setText('Connect')
+
+            widgets['connect_btn'].setEnabled(bool(app_creds))
+            if not app_creds:
+                widgets['connect_btn'].setToolTip(
+                    'Import app credentials first via Settings \u2192 Advanced \u2192 '
+                    'Import Credentials from JSON'
+                )
+            else:
+                widgets['connect_btn'].setToolTip('')
+
+    def _connect_account(self, provider_id: str, account_id: str) -> None:
+        from src.core.meta_oauth import MetaOAuthFlow
+        from src.gui.meta_connect_dialog import MetaConnectDialog
+
+        app_creds = self._get_app_creds(provider_id)
+        if not app_creds:
+            QMessageBox.warning(
+                self,
+                'App Credentials Missing',
+                'Import Meta app credentials first via\n'
+                'Settings \u2192 Advanced \u2192 Import Credentials from JSON.',
+            )
+            return
+
+        get_logger().info(
+            f'User selected Setup Wizard > Meta > Connect {provider_id} ({account_id})'
+        )
+        flow = MetaOAuthFlow(provider_id, app_creds['app_id'], app_creds['app_secret'])
+        dlg = MetaConnectDialog(provider_id, flow, account_id, self._auth_manager, parent=self)
+        dlg.exec()
+        self._refresh_status()
+
+    def validatePage(self) -> bool:  # noqa: N802
+        return True
+
+
 class WebViewPlatformSetupPage(QWizardPage):
     """Generic setup page for WebView-based platforms.
 
@@ -595,7 +719,6 @@ class WebViewPlatformSetupPage(QWizardPage):
             'onlyfans': OnlyFansPlatform,
             'fansly': FanslyPlatform,
             'fetlife': FetLifePlatform,
-            'threads': ThreadsPlatform,
         }
         platform_cls = platform_map.get(self._platform_id)
         if not platform_cls:
@@ -854,6 +977,7 @@ class SetupWizard(QWizard):
         self.addPage(TwitterSetupPage(auth_manager))
         self.addPage(BlueskySetupPage(auth_manager))
         self.addPage(InstagramSetupPage(auth_manager))
+        self.addPage(MetaApiSetupPage(auth_manager))
 
         # WebView platforms
         for platform_id, platform_name, account_id in [
@@ -861,8 +985,6 @@ class SetupWizard(QWizard):
             ('onlyfans', 'OnlyFans', 'onlyfans_1'),
             ('fansly', 'Fansly', 'fansly_1'),
             ('fetlife', 'FetLife', 'fetlife_1'),
-            ('threads', 'Threads', 'threads_1'),
-            ('threads', 'Threads (2nd account)', 'threads_2'),
         ]:
             self.addPage(
                 WebViewPlatformSetupPage(

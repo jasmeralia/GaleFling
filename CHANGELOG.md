@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.3] - 2026-04-09
+
+### Added
+- **Meta setup wizard page:** `MetaApiSetupPage` added to the setup wizard for connecting Threads and Facebook Page accounts during initial setup, with per-account Connect buttons and live status indicators.
+- **Meta settings test connection:** Settings → Meta tab now shows a "Test Connection" button for each connected Meta account, with a success/failure dialog.
+- **Devcontainer auto-setup:** `.devcontainer/devcontainer.json` now installs all required Qt system libraries and creates the Python virtualenv with all dependencies on container creation.
+
+### Changed
+- **Unit tests no longer require GPU:** All WebView platform imports in `settings_dialog.py` are now lazy, breaking the WebEngine import chain that caused test crashes in headless environments. `QTWEBENGINE_CHROMIUM_FLAGS` is set automatically in `conftest.py` for CI and container runs. Functional test WebEngine init is skipped when only unit tests are collected.
+- **Makefile:** `make test` and `make test-cov` now set `QT_QPA_PLATFORM=offscreen` before launching pytest.
+
 ## [1.8.2] - 2026-04-05
 
 ### Added

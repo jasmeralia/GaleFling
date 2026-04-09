@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.10] - 2026-04-09
+
+### Changed
+- **Functional tests — Facebook Page:** Added `test_multi_photo_post` (2-photo feed post via the unpublished-photos + `/feed` workflow) and `test_video_post` (direct binary video upload) to `test_meta_facebook_page_post.py`. All four post types supported by the platform now have functional test coverage.
+
 ## [1.8.9] - 2026-04-09
 
 ### Changed

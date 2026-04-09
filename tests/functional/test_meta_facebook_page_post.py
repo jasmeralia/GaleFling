@@ -99,3 +99,36 @@ class TestMetaFacebookPagePhotoPost:
 
         assert result.success, f'Photo post failed: {result.error_code} — {result.error_message}'
         assert result.platform == 'Facebook Page'
+
+    def test_multi_photo_post(self, meta_facebook_credentials, sample_jpeg, sample_png):
+        """Upload two photos as a multi-photo feed post and verify success."""
+        from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
+
+        tag = uuid.uuid4().hex[:8]
+        caption = f'GaleFling multi-photo test {tag} — safe to delete'
+
+        platform = MetaFacebookPagePlatform(_make_auth(meta_facebook_credentials))
+        result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
+
+        assert result.success, (
+            f'Multi-photo post failed: {result.error_code} — {result.error_message}'
+        )
+        assert result.platform == 'Facebook Page'
+        assert result.raw_response.get('id')
+
+
+@pytest.mark.functional
+class TestMetaFacebookPageVideoPost:
+    def test_video_post(self, meta_facebook_credentials, sample_video):
+        """Upload a video to the Facebook Page and verify success."""
+        from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
+
+        tag = uuid.uuid4().hex[:8]
+        description = f'GaleFling video test {tag} — safe to delete'
+
+        platform = MetaFacebookPagePlatform(_make_auth(meta_facebook_credentials))
+        result = platform.post(description, media_paths=[sample_video])
+
+        assert result.success, f'Video post failed: {result.error_code} — {result.error_message}'
+        assert result.platform == 'Facebook Page'
+        assert result.raw_response.get('id')

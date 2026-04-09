@@ -275,6 +275,28 @@ def threads_credentials():
 
 
 @pytest.fixture
+def meta_threads_credentials():
+    creds = {
+        'access_token': os.environ.get('META_THREADS_ACCESS_TOKEN'),
+        'user_id': os.environ.get('META_THREADS_USER_ID'),
+    }
+    if not all(creds.values()):
+        pytest.skip('Meta Threads credentials not configured')
+    return creds
+
+
+@pytest.fixture
+def meta_facebook_credentials():
+    creds = {
+        'page_access_token': os.environ.get('META_FACEBOOK_PAGE_ACCESS_TOKEN'),
+        'page_id': os.environ.get('META_FACEBOOK_PAGE_ID'),
+    }
+    if not all(creds.values()):
+        pytest.skip('Meta Facebook Page credentials not configured')
+    return creds
+
+
+@pytest.fixture
 def snapchat_credentials():
     username = os.environ.get('SNAPCHAT_USERNAME')
     password = os.environ.get('SNAPCHAT_PASSWORD')

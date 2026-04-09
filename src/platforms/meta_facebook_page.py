@@ -14,6 +14,7 @@ Video uploads use the /videos endpoint with a direct binary upload.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
@@ -25,6 +26,9 @@ from src.platforms.base import BasePlatform
 from src.utils.constants import META_FACEBOOK_PAGE_SPECS, PlatformSpecs, PostResult
 
 FB_GRAPH_BASE = 'https://graph.facebook.com/v25.0'
+
+# File extensions treated as video files for format routing.
+_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.m4v', '.3gp'}
 
 
 class MetaFacebookPagePlatform(BasePlatform):
@@ -102,12 +106,16 @@ class MetaFacebookPagePlatform(BasePlatform):
         if (not self._page_access_token or not self._page_id) and not self._load_credentials():
             return create_error_result('AUTH-MISSING', 'Facebook Page')
 
+        error_code = self._validate_pre_post(text, media_paths)
+        if error_code:
+            return create_error_result(error_code, 'Facebook Page')
+
         try:
             if not media_paths:
                 return self._post_text(text)
             if len(media_paths) == 1:
                 path = media_paths[0]
-                if path.suffix.lower() in ('.mp4', '.mov'):
+                if path.suffix.lower() in _VIDEO_EXTENSIONS:
                     return self._post_video(text, path)
                 return self._post_photo(text, path)
             # Multiple photos: post each as a separate photo attached to a feed post
@@ -118,6 +126,57 @@ class MetaFacebookPagePlatform(BasePlatform):
             return create_error_result('FB-RATE-LIMIT', 'Facebook Page')
         except Exception as exc:
             return create_error_result('FB-POST-FAILED', 'Facebook Page', exception=exc)
+
+    # ── Pre-post validation ───────────────────────────────────────────
+
+    def _validate_pre_post(self, text: str, media_paths: list[Path] | None) -> str | None:
+        """Validate text, media, and token freshness before posting.
+
+        Returns an error code string on failure, or ``None`` if all checks pass.
+        """
+        specs = META_FACEBOOK_PAGE_SPECS
+
+        # 1. Caption/text length
+        if specs.max_text_length is not None and len(text) > specs.max_text_length:
+            return 'POST-TEXT-TOO-LONG'
+
+        # 2. Media format and file size
+        if media_paths:
+            for path in media_paths:
+                suffix = path.suffix.lower()
+                if suffix in _VIDEO_EXTENSIONS:
+                    fmt = suffix.lstrip('.').upper()
+                    if fmt not in specs.supported_video_formats:
+                        return 'VID-INVALID-FORMAT'
+                    if specs.max_video_file_size_mb is not None:
+                        size_mb = path.stat().st_size / (1024 * 1024)
+                        if size_mb > specs.max_video_file_size_mb:
+                            return 'VID-TOO-LARGE'
+                else:
+                    fmt = suffix.lstrip('.').upper()
+                    if fmt == 'JPG':
+                        fmt = 'JPEG'
+                    if fmt not in specs.supported_formats:
+                        return 'IMG-INVALID-FORMAT'
+                    size_mb = path.stat().st_size / (1024 * 1024)
+                    if size_mb > specs.max_file_size_mb:
+                        return 'IMG-TOO-LARGE'
+
+        # 3. Token freshness — check stored expires_at if present
+        creds = self._auth_manager.get_account_credentials(self._account_id)
+        if creds:
+            expires_at = creds.get('expires_at')
+            if expires_at:
+                try:
+                    expiry = datetime.fromisoformat(expires_at)
+                    if expiry.tzinfo is None:
+                        expiry = expiry.replace(tzinfo=UTC)
+                    if expiry <= datetime.now(UTC):
+                        return 'FB-AUTH-EXPIRED'
+                except ValueError:
+                    pass  # Unparseable expiry — skip check
+
+        return None
 
     # ── Post type implementations ─────────────────────────────────────
 

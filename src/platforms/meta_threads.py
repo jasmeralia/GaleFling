@@ -13,6 +13,7 @@ Text-only posts do not require S3 access.
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
@@ -30,6 +31,9 @@ THREADS_API_BASE = 'https://graph.threads.net/v1.0'
 _POLL_INTERVAL = 5
 # Maximum seconds to wait for a container to finish processing.
 _POLL_TIMEOUT = 120
+
+# File extensions treated as video files for format routing.
+_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.m4v', '.3gp'}
 
 
 class MetaThreadsPlatform(BasePlatform):
@@ -116,12 +120,16 @@ class MetaThreadsPlatform(BasePlatform):
         if (not self._access_token or not self._user_id) and not self._load_credentials():
             return create_error_result('AUTH-MISSING', 'Threads')
 
+        error_code = self._validate_pre_post(text, media_paths)
+        if error_code:
+            return create_error_result(error_code, 'Threads')
+
         try:
             if not media_paths:
                 return self._post_text(text)
             if len(media_paths) == 1:
                 path = media_paths[0]
-                if path.suffix.lower() in ('.mp4', '.mov'):
+                if path.suffix.lower() in _VIDEO_EXTENSIONS:
                     return self._post_video(text, path)
                 return self._post_image(text, path)
             return self._post_carousel(text, media_paths)
@@ -131,6 +139,88 @@ class MetaThreadsPlatform(BasePlatform):
             return create_error_result('TH-RATE-LIMIT', 'Threads')
         except Exception as exc:
             return create_error_result('TH-POST-FAILED', 'Threads', exception=exc)
+
+    # ── Pre-post validation ───────────────────────────────────────────
+
+    def _validate_pre_post(self, text: str, media_paths: list[Path] | None) -> str | None:
+        """Validate text, media, token freshness, and quota before posting.
+
+        Returns an error code string on failure, or ``None`` if all checks pass.
+        """
+        specs = META_THREADS_API_SPECS
+
+        # 1. Caption/text length
+        if specs.max_text_length is not None and len(text) > specs.max_text_length:
+            return 'POST-TEXT-TOO-LONG'
+
+        # 2. Media format and file size
+        if media_paths:
+            for path in media_paths:
+                suffix = path.suffix.lower()
+                if suffix in _VIDEO_EXTENSIONS:
+                    fmt = suffix.lstrip('.').upper()
+                    if fmt not in specs.supported_video_formats:
+                        return 'VID-INVALID-FORMAT'
+                    if specs.max_video_file_size_mb is not None:
+                        size_mb = path.stat().st_size / (1024 * 1024)
+                        if size_mb > specs.max_video_file_size_mb:
+                            return 'VID-TOO-LARGE'
+                else:
+                    fmt = suffix.lstrip('.').upper()
+                    if fmt == 'JPG':
+                        fmt = 'JPEG'
+                    if fmt not in specs.supported_formats:
+                        return 'IMG-INVALID-FORMAT'
+                    size_mb = path.stat().st_size / (1024 * 1024)
+                    if size_mb > specs.max_file_size_mb:
+                        return 'IMG-TOO-LARGE'
+
+        # 3. Token freshness — check stored expires_at if present
+        creds = self._auth_manager.get_account_credentials(self._account_id)
+        if creds:
+            expires_at = creds.get('expires_at')
+            if expires_at:
+                try:
+                    expiry = datetime.fromisoformat(expires_at)
+                    if expiry.tzinfo is None:
+                        expiry = expiry.replace(tzinfo=UTC)
+                    if expiry <= datetime.now(UTC):
+                        return 'TH-AUTH-EXPIRED'
+                except ValueError:
+                    pass  # Unparseable expiry — skip check
+
+        # 4. Rate limit headroom via Threads quota endpoint
+        if self._is_quota_exhausted():
+            return 'TH-RATE-LIMIT'
+
+        return None
+
+    def _is_quota_exhausted(self) -> bool:
+        """Return True if the daily Threads publishing quota is exhausted.
+
+        Calls ``GET /{user_id}/threads_publishing_limit`` and compares
+        ``quota_usage`` against ``config.quota_total``.  Any error (network,
+        missing field) is silently ignored — the post attempt proceeds and
+        will surface a 429 response if the quota is actually exhausted.
+        """
+        try:
+            resp = requests.get(
+                f'{THREADS_API_BASE}/{self._user_id}/threads_publishing_limit',
+                params={
+                    'fields': 'config,quota_usage',
+                    'access_token': self._access_token,
+                },
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                return False
+            data = resp.json().get('data', [{}])[0] if resp.json().get('data') else {}
+            quota_usage = data.get('quota_usage', 0)
+            config = data.get('config', {})
+            quota_total = config.get('quota_total', 250)
+            return int(quota_usage) >= int(quota_total)
+        except Exception:
+            return False
 
     # ── Post type implementations ─────────────────────────────────────
 
@@ -187,7 +277,7 @@ class MetaThreadsPlatform(BasePlatform):
         item_ids: list[str] = []
         for path in media_paths:
             media_url = self._stage_media(path)
-            if path.suffix.lower() in ('.mp4', '.mov'):
+            if path.suffix.lower() in _VIDEO_EXTENSIONS:
                 item_id = self._create_container(
                     media_type='VIDEO', video_url=media_url, is_carousel_item=True
                 )

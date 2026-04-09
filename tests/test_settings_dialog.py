@@ -509,6 +509,55 @@ def test_settings_dialog_open_webview_login_window(qtbot, tmp_path, monkeypatch)
     assert calls['account_id'] == 'snapchat_1'
 
 
+def test_settings_dialog_meta_tab_exists(qtbot, tmp_path, monkeypatch):
+    """Settings dialog must include a Meta tab."""
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    from PyQt6.QtWidgets import QTabWidget
+
+    tabs = dialog.findChild(QTabWidget)
+    tab_names = [tabs.tabText(i) for i in range(tabs.count())]
+    assert 'Meta' in tab_names
+
+
+def test_settings_dialog_meta_tab_renders_threads_section(qtbot, tmp_path, monkeypatch):
+    """Meta tab must render a Threads provider section."""
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    from PyQt6.QtWidgets import QLabel
+
+    labels = dialog.findChildren(QLabel)
+    label_texts = [lbl.text() for lbl in labels]
+    assert any('Threads' in t for t in label_texts), (
+        'Meta tab should contain a Threads label'
+    )
+
+
+def test_settings_dialog_meta_tab_renders_facebook_page_section(qtbot, tmp_path, monkeypatch):
+    """Meta tab must render a Facebook Page provider section."""
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    from PyQt6.QtWidgets import QLabel
+
+    labels = dialog.findChildren(QLabel)
+    label_texts = [lbl.text() for lbl in labels]
+    assert any('Facebook' in t for t in label_texts), (
+        'Meta tab should contain a Facebook Page label'
+    )
+
+
 def test_settings_dialog_reset_webview_session_cookies(qtbot, tmp_path, monkeypatch):
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)

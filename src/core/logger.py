@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,38 @@ from src.utils.helpers import get_logs_dir
 _logger: logging.Logger | None = None
 _log_file_path: Path | None = None
 _debug_mode: bool = False
+
+# Patterns that may appear in raw API response bodies or exception messages.
+# Each tuple is (compiled_regex, replacement).
+_REDACT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # URL query param: access_token=EAA... or access_token_secret=...
+    (re.compile(r'(?i)(access_token(?:_secret)?=)[^\s&"\']{6,}'), r'\1***'),
+    # JSON field: "access_token": "EAA...", "app_password": "xxx"
+    (
+        re.compile(
+            r'(?i)("(?:access_token|access_token_secret|app_password|api_key|api_secret|'
+            r'page_access_token)":\s*")[^"]{6,}(")'
+        ),
+        r'\1***\2',
+    ),
+    # HTTP Bearer token
+    (re.compile(r'(?i)(Bearer\s+)[A-Za-z0-9._\-]{6,}'), r'\1***'),
+]
+
+
+def redact_credentials(text: object) -> str:
+    """Redact common credential patterns from *text* before logging.
+
+    Accepts any object; non-strings are converted via ``str()`` first.
+    Applies regex substitutions covering access tokens, API keys, app
+    passwords, and Bearer tokens embedded in API response bodies or
+    exception messages.
+    """
+    if not isinstance(text, str):
+        text = str(text)
+    for pattern, replacement in _REDACT_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 def setup_logging(debug_mode: bool = False) -> logging.Logger:
@@ -82,8 +115,8 @@ def log_error(
     if exception:
         error_entry['exception'] = {
             'type': type(exception).__name__,
-            'message': str(exception),
-            'traceback': traceback.format_exc(),
+            'message': redact_credentials(str(exception)),
+            'traceback': redact_credentials(traceback.format_exc()),
         }
 
     logger.error(f'Error {error_code} on {platform}\n{json.dumps(error_entry, indent=2)}')

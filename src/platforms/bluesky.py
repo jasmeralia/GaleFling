@@ -131,8 +131,10 @@ class BlueskyPlatform(BasePlatform):
                 try:
                     images: list[dict[str, object]] = []
                     for media_path in media_paths:
+                        get_logger().debug(f'Bluesky uploading blob: {media_path.name}')
                         img_data = media_path.read_bytes()
                         upload = client.upload_blob(img_data)
+                        get_logger().debug(f'Bluesky blob uploaded: {media_path.name}')
                         images.append(
                             {
                                 'alt': '',

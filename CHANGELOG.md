@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.7] - 2026-04-09
+
+### Changed
+- **Platform logging improvements:** All API platforms (Instagram, Threads, Facebook Page, Twitter, Bluesky) now log debug-level entries for media uploads, S3 staging start/complete, media container creation, and container status poll cycles. Pre-post validation failures are now logged at WARNING level with the specific reason. Threads quota usage is now logged at DEBUG level.
+- **Credential redaction:** `redact_credentials()` helper added to the logger module; applied to all Meta API error response bodies (including the raw-text fallback in `_log_api_error`) and to exception messages and tracebacks logged via `log_error()`. Patterns covered: `access_token`, `access_token_secret`, `page_access_token`, `app_password`, `api_key`, `api_secret`, and Bearer tokens.
+
 ## [1.8.6] - 2026-04-09
 
 ### Added

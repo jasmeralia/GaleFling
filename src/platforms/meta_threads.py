@@ -21,7 +21,7 @@ import requests
 from src.core.auth_manager import AuthManager
 from src.core.aws_utils import MediaStager, MediaStagingError
 from src.core.error_handler import create_error_result
-from src.core.logger import get_logger
+from src.core.logger import get_logger, redact_credentials
 from src.platforms.base import BasePlatform
 from src.utils.constants import META_THREADS_API_SPECS, PlatformSpecs, PostResult
 
@@ -153,6 +153,10 @@ class MetaThreadsPlatform(BasePlatform):
 
         # 1. Caption/text length
         if specs.max_text_length is not None and len(text) > specs.max_text_length:
+            get_logger().warning(
+                f'Threads pre-post validation failed: text too long '
+                f'({len(text)} > {specs.max_text_length})'
+            )
             return 'POST-TEXT-TOO-LONG'
 
         # 2. Media format and file size
@@ -162,19 +166,37 @@ class MetaThreadsPlatform(BasePlatform):
                 if suffix in _VIDEO_EXTENSIONS:
                     fmt = suffix.lstrip('.').upper()
                     if fmt not in specs.supported_video_formats:
+                        get_logger().warning(
+                            f'Threads pre-post validation failed: '
+                            f'unsupported video format {fmt!r} ({path.name})'
+                        )
                         return 'VID-INVALID-FORMAT'
                     if specs.max_video_file_size_mb is not None:
                         size_mb = path.stat().st_size / (1024 * 1024)
                         if size_mb > specs.max_video_file_size_mb:
+                            get_logger().warning(
+                                f'Threads pre-post validation failed: '
+                                f'video too large ({size_mb:.1f} MB > {specs.max_video_file_size_mb} MB, '
+                                f'{path.name})'
+                            )
                             return 'VID-TOO-LARGE'
                 else:
                     fmt = suffix.lstrip('.').upper()
                     if fmt == 'JPG':
                         fmt = 'JPEG'
                     if fmt not in specs.supported_formats:
+                        get_logger().warning(
+                            f'Threads pre-post validation failed: '
+                            f'unsupported image format {fmt!r} ({path.name})'
+                        )
                         return 'IMG-INVALID-FORMAT'
                     size_mb = path.stat().st_size / (1024 * 1024)
                     if size_mb > specs.max_file_size_mb:
+                        get_logger().warning(
+                            f'Threads pre-post validation failed: '
+                            f'image too large ({size_mb:.1f} MB > {specs.max_file_size_mb} MB, '
+                            f'{path.name})'
+                        )
                         return 'IMG-TOO-LARGE'
 
         # 3. Token freshness — check stored expires_at if present
@@ -187,6 +209,9 @@ class MetaThreadsPlatform(BasePlatform):
                     if expiry.tzinfo is None:
                         expiry = expiry.replace(tzinfo=UTC)
                     if expiry <= datetime.now(UTC):
+                        get_logger().warning(
+                            f'Threads pre-post validation failed: token expired at {expires_at}'
+                        )
                         return 'TH-AUTH-EXPIRED'
                 except ValueError:
                     pass  # Unparseable expiry — skip check
@@ -215,13 +240,18 @@ class MetaThreadsPlatform(BasePlatform):
                 timeout=10,
             )
             if resp.status_code != 200:
+                get_logger().debug(
+                    f'Threads quota check returned HTTP {resp.status_code}; skipping quota gate'
+                )
                 return False
             data = resp.json().get('data', [{}])[0] if resp.json().get('data') else {}
             quota_usage = data.get('quota_usage', 0)
             config = data.get('config', {})
             quota_total = config.get('quota_total', 250)
+            get_logger().debug(f'Threads quota: {quota_usage}/{quota_total} posts used today')
             return int(quota_usage) >= int(quota_total)
-        except Exception:
+        except Exception as exc:
+            get_logger().debug(f'Threads quota check failed (skipping quota gate): {exc}')
             return False
 
     # ── Post type implementations ─────────────────────────────────────
@@ -312,8 +342,12 @@ class MetaThreadsPlatform(BasePlatform):
         stager = self._get_media_stager()
         if stager is None:
             raise _PostError('S3 media staging credentials not configured.')
+        size_mb = file_path.stat().st_size / (1024 * 1024)
+        get_logger().debug(f'Threads S3 staging: uploading {file_path.name} ({size_mb:.2f} MB)')
         try:
-            return stager.upload_media(file_path)
+            url = stager.upload_media(file_path)
+            get_logger().debug(f'Threads S3 staging complete: {file_path.name}')
+            return url
         except MediaStagingError as exc:
             raise _PostError(f'S3 upload failed: {exc}') from exc
 
@@ -346,7 +380,9 @@ class MetaThreadsPlatform(BasePlatform):
             timeout=30,
         )
         self._raise_for_status(resp)
-        return resp.json()['id']
+        container_id = resp.json()['id']
+        get_logger().debug(f'Threads media container created: {container_id}')
+        return container_id
 
     def _create_carousel_container(self, text: str, item_ids: list[str]) -> str:
         """Create a carousel container referencing *item_ids*. Returns container ID."""
@@ -361,15 +397,20 @@ class MetaThreadsPlatform(BasePlatform):
             timeout=30,
         )
         self._raise_for_status(resp)
-        return resp.json()['id']
+        container_id = resp.json()['id']
+        get_logger().debug(f'Threads carousel container created: {container_id}')
+        return container_id
 
     def _wait_for_container(self, container_id: str) -> None:
         """Poll container status until FINISHED or timeout.
 
         Raises ``_PostError`` on ERROR status or if the timeout is exceeded.
         """
+        get_logger().debug(f'Threads polling container {container_id} (timeout={_POLL_TIMEOUT}s)')
+        attempt = 0
         deadline = time.monotonic() + _POLL_TIMEOUT
         while time.monotonic() < deadline:
+            attempt += 1
             resp = requests.get(
                 f'{THREADS_API_BASE}/{container_id}',
                 params={'fields': 'status', 'access_token': self._access_token},
@@ -377,13 +418,20 @@ class MetaThreadsPlatform(BasePlatform):
             )
             self._raise_for_status(resp)
             status = resp.json().get('status', '')
+            get_logger().debug(
+                f'Threads container {container_id} poll #{attempt}: status={status!r}'
+            )
             if status == 'FINISHED':
+                get_logger().debug(
+                    f'Threads container {container_id} finished after {attempt} poll(s)'
+                )
                 return
             if status == 'ERROR':
                 raise _PostError(f'Threads container {container_id} failed processing.')
             time.sleep(_POLL_INTERVAL)
         raise _PostError(
-            f'Threads container {container_id} did not finish within {_POLL_TIMEOUT}s.'
+            f'Threads container {container_id} did not finish within {_POLL_TIMEOUT}s '
+            f'({attempt} polls).'
         )
 
     def _publish_container(self, container_id: str) -> str:
@@ -443,14 +491,14 @@ def _log_api_error(platform: str, resp: requests.Response) -> str:
         code = err.get('code', resp.status_code)
         subcode = err.get('error_subcode')
         etype = err.get('type', '')
-        msg = err.get('message', resp.text[:300])
+        msg = redact_credentials(err.get('message', resp.text[:300]))
         detail = (
             f'code={code}'
             + (f' subcode={subcode}' if subcode else '')
             + f' type={etype!r} message={msg!r}'
         )
     except Exception:
-        detail = resp.text[:300]
+        detail = redact_credentials(resp.text[:300])
     get_logger().error(f'{platform} API error {resp.status_code}: {detail}')
     return detail
 

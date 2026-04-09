@@ -21,7 +21,7 @@ import requests
 
 from src.core.auth_manager import AuthManager
 from src.core.error_handler import create_error_result
-from src.core.logger import get_logger
+from src.core.logger import get_logger, redact_credentials
 from src.platforms.base import BasePlatform
 from src.utils.constants import META_FACEBOOK_PAGE_SPECS, PlatformSpecs, PostResult
 
@@ -140,6 +140,10 @@ class MetaFacebookPagePlatform(BasePlatform):
 
         # 1. Caption/text length
         if specs.max_text_length is not None and len(text) > specs.max_text_length:
+            get_logger().warning(
+                f'Facebook Page pre-post validation failed: text too long '
+                f'({len(text)} > {specs.max_text_length})'
+            )
             return 'POST-TEXT-TOO-LONG'
 
         # 2. Media format and file size
@@ -149,19 +153,37 @@ class MetaFacebookPagePlatform(BasePlatform):
                 if suffix in _VIDEO_EXTENSIONS:
                     fmt = suffix.lstrip('.').upper()
                     if fmt not in specs.supported_video_formats:
+                        get_logger().warning(
+                            f'Facebook Page pre-post validation failed: '
+                            f'unsupported video format {fmt!r} ({path.name})'
+                        )
                         return 'VID-INVALID-FORMAT'
                     if specs.max_video_file_size_mb is not None:
                         size_mb = path.stat().st_size / (1024 * 1024)
                         if size_mb > specs.max_video_file_size_mb:
+                            get_logger().warning(
+                                f'Facebook Page pre-post validation failed: '
+                                f'video too large ({size_mb:.1f} MB > {specs.max_video_file_size_mb} MB, '
+                                f'{path.name})'
+                            )
                             return 'VID-TOO-LARGE'
                 else:
                     fmt = suffix.lstrip('.').upper()
                     if fmt == 'JPG':
                         fmt = 'JPEG'
                     if fmt not in specs.supported_formats:
+                        get_logger().warning(
+                            f'Facebook Page pre-post validation failed: '
+                            f'unsupported image format {fmt!r} ({path.name})'
+                        )
                         return 'IMG-INVALID-FORMAT'
                     size_mb = path.stat().st_size / (1024 * 1024)
                     if size_mb > specs.max_file_size_mb:
+                        get_logger().warning(
+                            f'Facebook Page pre-post validation failed: '
+                            f'image too large ({size_mb:.1f} MB > {specs.max_file_size_mb} MB, '
+                            f'{path.name})'
+                        )
                         return 'IMG-TOO-LARGE'
 
         # 3. Token freshness — check stored expires_at if present
@@ -174,6 +196,10 @@ class MetaFacebookPagePlatform(BasePlatform):
                     if expiry.tzinfo is None:
                         expiry = expiry.replace(tzinfo=UTC)
                     if expiry <= datetime.now(UTC):
+                        get_logger().warning(
+                            f'Facebook Page pre-post validation failed: '
+                            f'token expired at {expires_at}'
+                        )
                         return 'FB-AUTH-EXPIRED'
                 except ValueError:
                     pass  # Unparseable expiry — skip check
@@ -234,7 +260,8 @@ class MetaFacebookPagePlatform(BasePlatform):
     def _post_multi_photo(self, caption: str, photo_paths: list[Path]) -> PostResult:
         """Upload each photo as unpublished, then create a feed post linking them."""
         photo_ids: list[str] = []
-        for path in photo_paths:
+        for i, path in enumerate(photo_paths, 1):
+            get_logger().debug(f'Facebook Page uploading photo {i}/{len(photo_paths)}: {path.name}')
             with open(path, 'rb') as fh:
                 resp = requests.post(
                     f'{FB_GRAPH_BASE}/{self._page_id}/photos',
@@ -246,7 +273,9 @@ class MetaFacebookPagePlatform(BasePlatform):
                     timeout=60,
                 )
             self._raise_for_status(resp)
-            photo_ids.append(resp.json()['id'])
+            photo_id = resp.json()['id']
+            get_logger().debug(f'Facebook Page photo {i}/{len(photo_paths)} uploaded: {photo_id}')
+            photo_ids.append(photo_id)
 
         attached = [{'media_fbid': pid} for pid in photo_ids]
         resp = requests.post(
@@ -335,14 +364,14 @@ def _log_api_error(platform: str, resp: requests.Response) -> str:
         code = err.get('code', resp.status_code)
         subcode = err.get('error_subcode')
         etype = err.get('type', '')
-        msg = err.get('message', resp.text[:300])
+        msg = redact_credentials(err.get('message', resp.text[:300]))
         detail = (
             f'code={code}'
             + (f' subcode={subcode}' if subcode else '')
             + f' type={etype!r} message={msg!r}'
         )
     except Exception:
-        detail = resp.text[:300]
+        detail = redact_credentials(resp.text[:300])
     get_logger().error(f'{platform} API error {resp.status_code}: {detail}')
     return detail
 

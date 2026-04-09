@@ -113,7 +113,9 @@ class TwitterPlatform(BasePlatform):
             media_ids = []
             for image_path in media_paths:
                 try:
+                    get_logger().debug(f'Twitter uploading media: {image_path.name}')
                     media = api_v1.media_upload(filename=str(image_path))
+                    get_logger().debug(f'Twitter media uploaded: media_id={media.media_id}')
                     media_ids.append(media.media_id)
                 except tweepy.TooManyRequests:
                     return create_error_result('TW-RATE-LIMIT', 'Twitter')

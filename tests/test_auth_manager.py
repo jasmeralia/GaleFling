@@ -123,3 +123,42 @@ def test_meta_oauth_redirect_uri_stored_in_separate_file(tmp_path, monkeypatch):
     manager = _make_auth(tmp_path, monkeypatch)
     manager.save_meta_oauth_redirect_uri('https://example.com/oauth/callback')
     assert (tmp_path / 'meta_oauth_settings.json').exists()
+
+
+def test_clear_all_credentials_removes_files_and_accounts(tmp_path, monkeypatch):
+    from src.utils.constants import AccountConfig
+
+    app_data = tmp_path / 'appdata'
+    app_data.mkdir()
+    auth_dir = app_data / 'auth'
+    auth_dir.mkdir()
+
+    monkeypatch.setattr('src.core.auth_manager.get_auth_dir', lambda: auth_dir)
+    monkeypatch.setattr('src.core.auth_manager.get_app_data_dir', lambda: app_data)
+    monkeypatch.setattr(AuthManager, '_find_dev_auth_dir', lambda self: None)
+    manager = AuthManager()
+
+    # Populate credentials and account configs
+    manager.save_twitter_auth('k', 's', 't', 'ts', username='user')
+    manager.save_bluesky_auth('user.bsky.social', 'pw')
+    manager.save_meta_threads_app_credentials('th_id', 'th_secret')
+    manager.add_account(
+        AccountConfig(platform_id='twitter', account_id='twitter_1', profile_name='user')
+    )
+    manager.add_account(
+        AccountConfig(
+            platform_id='bluesky', account_id='bluesky_1', profile_name='user.bsky.social'
+        )
+    )
+
+    assert len(list(auth_dir.glob('*.json'))) > 0
+    assert (app_data / 'accounts_config.json').exists()
+    assert len(manager.get_accounts()) == 2
+
+    manager.clear_all_credentials()
+
+    assert list(auth_dir.glob('*.json')) == []
+    assert not (app_data / 'accounts_config.json').exists()
+    assert manager.get_accounts() == []
+    assert manager.get_twitter_auth() is None
+    assert manager.get_bluesky_auth() is None

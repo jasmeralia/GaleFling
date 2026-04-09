@@ -4,6 +4,7 @@ import contextlib
 import html
 import json
 import os
+import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -65,7 +66,7 @@ from src.utils.constants import (
     VIDEO_EXTENSIONS,
     PostResult,
 )
-from src.utils.helpers import get_drafts_dir, get_logs_dir, get_resource_path
+from src.utils.helpers import get_app_data_dir, get_drafts_dir, get_logs_dir, get_resource_path
 from src.utils.theme import apply_theme, resolve_theme_mode
 
 
@@ -508,6 +509,13 @@ class MainWindow(QMainWindow):
             log_and_call('Settings > Run Setup Wizard...', self._show_setup_wizard)
         )
         settings_menu.addAction(run_setup)
+
+        settings_menu.addSeparator()
+        reset_config = QAction('Reset Configuration...', self)
+        reset_config.triggered.connect(
+            log_and_call('Settings > Reset Configuration...', self._reset_configuration)
+        )
+        settings_menu.addAction(reset_config)
 
         # View menu
         view_menu = menu_bar.addMenu('View')
@@ -1553,6 +1561,44 @@ class MainWindow(QMainWindow):
             QMessageBox.Icon.Information,
         )
         get_logger().info('Logs cleared')
+
+    def _reset_configuration(self):
+        reply = self._show_message_box(
+            'Reset Configuration',
+            (
+                'This will permanently delete all stored credentials and reset all '
+                'settings to their defaults.\n\n'
+                'WebView sessions (Snapchat, OnlyFans, Fansly, FetLife) will also be '
+                'destroyed and you will need to log in again on every platform.\n\n'
+                'This action cannot be undone. Continue?'
+            ),
+            QMessageBox.Icon.Warning,
+            buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            default=QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Evict and destroy all webview profiles
+        webprofiles_dir = get_app_data_dir() / 'webprofiles'
+        if webprofiles_dir.exists():
+            for profile_dir in webprofiles_dir.iterdir():
+                if profile_dir.is_dir():
+                    BaseWebViewPlatform._evict_profile(profile_dir.name)
+                    with contextlib.suppress(OSError):
+                        shutil.rmtree(profile_dir)
+
+        # Clear all credentials and reset config
+        self._auth_manager.clear_all_credentials()
+        self._config.reset_to_defaults()
+
+        get_logger().info('Configuration reset to defaults')
+        self._show_message_box(
+            'Configuration Reset',
+            'All credentials have been removed and settings reset to defaults.\n\n'
+            'Please restart the app or run the Setup Wizard to reconfigure.',
+            QMessageBox.Icon.Information,
+        )
 
     def _open_log_directory(self):
         logs_dir = get_logs_dir()

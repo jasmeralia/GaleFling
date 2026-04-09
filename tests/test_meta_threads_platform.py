@@ -183,8 +183,8 @@ def test_test_connection_missing_creds():
 def test_post_text_only_success(mock_post, mock_get):
     # _create_container → id = 'container1'
     mock_post.side_effect = [
-        _ok_resp(id='container1'),    # create container
-        _ok_resp(id='post1'),         # publish
+        _ok_resp(id='container1'),  # create container
+        _ok_resp(id='post1'),  # publish
     ]
     mock_get.return_value = _ok_resp(
         data=[{'quota_usage': 5, 'config': {'quota_total': 250}}],
@@ -224,11 +224,11 @@ def test_post_image_success(mock_post, mock_get, tmp_path):
 
     mock_post.side_effect = [
         _ok_resp(id='img_container'),  # create container
-        _ok_resp(id='img_post'),       # publish
+        _ok_resp(id='img_post'),  # publish
     ]
     mock_get.side_effect = [
         _ok_resp(data=[{'quota_usage': 0, 'config': {'quota_total': 250}}]),  # quota
-        _ok_resp(status='FINISHED'),   # wait_for_container
+        _ok_resp(status='FINISHED'),  # wait_for_container
         _ok_resp(permalink='https://www.threads.net/@rin/post/img_post'),  # permalink
     ]
 
@@ -286,9 +286,9 @@ def test_post_carousel_success(mock_post, mock_get, tmp_path):
     ]
     mock_get.side_effect = [
         _ok_resp(data=[{'quota_usage': 0, 'config': {'quota_total': 250}}]),  # quota
-        _ok_resp(status='FINISHED'),   # item1 wait
-        _ok_resp(status='FINISHED'),   # item2 wait
-        _ok_resp(status='FINISHED'),   # carousel wait
+        _ok_resp(status='FINISHED'),  # item1 wait
+        _ok_resp(status='FINISHED'),  # item2 wait
+        _ok_resp(status='FINISHED'),  # carousel wait
         _ok_resp(permalink='https://www.threads.net/@rin/post/carousel_post'),
     ]
 
@@ -306,9 +306,7 @@ def test_post_carousel_success(mock_post, mock_get, tmp_path):
 @patch('src.platforms.meta_threads.requests.get')
 @patch('src.platforms.meta_threads.requests.post')
 def test_post_401_maps_to_auth_expired(mock_post, mock_get):
-    mock_get.return_value = _ok_resp(
-        data=[{'quota_usage': 0, 'config': {'quota_total': 250}}]
-    )
+    mock_get.return_value = _ok_resp(data=[{'quota_usage': 0, 'config': {'quota_total': 250}}])
     mock_post.return_value = _error_resp(401)
     p = _make_platform()
     result = p.post('text')
@@ -319,9 +317,7 @@ def test_post_401_maps_to_auth_expired(mock_post, mock_get):
 @patch('src.platforms.meta_threads.requests.get')
 @patch('src.platforms.meta_threads.requests.post')
 def test_post_429_maps_to_rate_limit(mock_post, mock_get):
-    mock_get.return_value = _ok_resp(
-        data=[{'quota_usage': 0, 'config': {'quota_total': 250}}]
-    )
+    mock_get.return_value = _ok_resp(data=[{'quota_usage': 0, 'config': {'quota_total': 250}}])
     mock_post.return_value = _error_resp(429)
     p = _make_platform()
     result = p.post('text')
@@ -332,9 +328,7 @@ def test_post_429_maps_to_rate_limit(mock_post, mock_get):
 @patch('src.platforms.meta_threads.requests.get')
 @patch('src.platforms.meta_threads.requests.post')
 def test_post_unexpected_exception_maps_to_post_failed(mock_post, mock_get):
-    mock_get.return_value = _ok_resp(
-        data=[{'quota_usage': 0, 'config': {'quota_total': 250}}]
-    )
+    mock_get.return_value = _ok_resp(data=[{'quota_usage': 0, 'config': {'quota_total': 250}}])
     mock_post.side_effect = RuntimeError('unexpected')
     p = _make_platform()
     result = p.post('text')
@@ -440,9 +434,7 @@ def test_validate_quota_exhausted_returns_rate_limit():
 
 @patch('src.platforms.meta_threads.requests.get')
 def test_is_quota_exhausted_true_when_at_limit(mock_get):
-    mock_get.return_value = _ok_resp(
-        data=[{'quota_usage': 250, 'config': {'quota_total': 250}}]
-    )
+    mock_get.return_value = _ok_resp(data=[{'quota_usage': 250, 'config': {'quota_total': 250}}])
     p = _make_platform()
     p._access_token = 'tok'
     p._user_id = 'uid'
@@ -451,9 +443,7 @@ def test_is_quota_exhausted_true_when_at_limit(mock_get):
 
 @patch('src.platforms.meta_threads.requests.get')
 def test_is_quota_exhausted_false_when_headroom_available(mock_get):
-    mock_get.return_value = _ok_resp(
-        data=[{'quota_usage': 5, 'config': {'quota_total': 250}}]
-    )
+    mock_get.return_value = _ok_resp(data=[{'quota_usage': 5, 'config': {'quota_total': 250}}])
     p = _make_platform()
     p._access_token = 'tok'
     p._user_id = 'uid'

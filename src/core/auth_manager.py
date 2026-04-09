@@ -441,3 +441,20 @@ class AuthManager:
         if not data:
             return False
         return bool(data.get('identifier'))
+
+    def clear_all_credentials(self) -> None:
+        """Delete all stored credentials and account configuration.
+
+        Removes every auth JSON file in the auth directory, clears the
+        accounts_config.json file, and resets the in-memory account list.
+        """
+        import contextlib
+
+        for path in self._auth_dir.glob('*.json'):
+            with contextlib.suppress(OSError):
+                path.unlink()
+
+        with contextlib.suppress(OSError):
+            self._accounts_path.unlink()
+
+        self._accounts = []

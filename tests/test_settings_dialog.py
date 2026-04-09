@@ -170,7 +170,6 @@ def test_settings_dialog_logout_clears_auth(qtbot, tmp_path, monkeypatch):
     assert not (tmp_path / 'auth' / 'bluesky_auth_alt.json').exists()
 
 
-
 def test_settings_dialog_logout_bluesky_primary(qtbot, tmp_path, monkeypatch):
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)
@@ -189,7 +188,6 @@ def test_settings_dialog_logout_bluesky_primary(qtbot, tmp_path, monkeypatch):
     assert not (tmp_path / 'auth' / 'bluesky_auth.json').exists()
     assert auth.get_account('bluesky_1') is None
     assert dialog._bs_identifier.text() == ''
-
 
 
 def test_settings_dialog_logout_twitter(qtbot, tmp_path, monkeypatch):
@@ -501,9 +499,7 @@ def test_settings_dialog_meta_tab_renders_threads_section(qtbot, tmp_path, monke
 
     labels = dialog.findChildren(QLabel)
     label_texts = [lbl.text() for lbl in labels]
-    assert any('Threads' in t for t in label_texts), (
-        'Meta tab should contain a Threads label'
-    )
+    assert any('Threads' in t for t in label_texts), 'Meta tab should contain a Threads label'
 
 
 def test_settings_dialog_meta_tab_renders_facebook_page_section(qtbot, tmp_path, monkeypatch):

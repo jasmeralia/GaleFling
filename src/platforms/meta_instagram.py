@@ -237,13 +237,9 @@ class MetaInstagramPlatform(BasePlatform):
         for path in media_paths:
             media_url = self._stage_media(path)
             if path.suffix.lower() in _VIDEO_EXTENSIONS:
-                item_id = self._create_media_container(
-                    video_url=media_url, is_carousel_item=True
-                )
+                item_id = self._create_media_container(video_url=media_url, is_carousel_item=True)
             else:
-                item_id = self._create_media_container(
-                    image_url=media_url, is_carousel_item=True
-                )
+                item_id = self._create_media_container(image_url=media_url, is_carousel_item=True)
             self._wait_for_container(item_id)
             item_ids.append(item_id)
 

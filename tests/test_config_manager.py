@@ -1,3 +1,5 @@
+import json
+
 from src.core.config_manager import DEFAULT_CONFIG, ConfigManager
 
 
@@ -27,3 +29,22 @@ def test_config_manager_persists_changes(tmp_path, monkeypatch):
     assert manager2.snapchat_landscape_mode == 'rotate'
     assert manager2.snapchat_multi_image_mode == 'slideshow'
     assert manager2.preview_worker_count == 3
+
+
+def test_config_manager_reset_to_defaults(tmp_path, monkeypatch):
+    monkeypatch.setattr('src.core.config_manager.get_app_data_dir', lambda: tmp_path)
+    manager = ConfigManager()
+    manager.set('theme_mode', 'dark')
+    manager.snapchat_landscape_mode = 'rotate'
+    manager.preview_worker_count = 4
+
+    manager.reset_to_defaults()
+
+    assert manager.theme_mode == DEFAULT_CONFIG['theme_mode']
+    assert manager.snapchat_landscape_mode == DEFAULT_CONFIG['snapchat_landscape_mode']
+    assert manager.preview_worker_count == DEFAULT_CONFIG['preview_worker_count']
+
+    # Verify persisted to disk
+    saved = json.loads((tmp_path / 'app_config.json').read_text())
+    assert saved['theme_mode'] == DEFAULT_CONFIG['theme_mode']
+    assert saved['preview_worker_count'] == DEFAULT_CONFIG['preview_worker_count']

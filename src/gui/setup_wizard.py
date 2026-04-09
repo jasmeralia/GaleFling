@@ -132,8 +132,7 @@ class CredentialImportPage(QWizardPage):
             return
 
         self._status_label.setText(
-            '<span style="color:green;">Credentials imported.</span><br>'
-            + '<br>'.join(lines)
+            '<span style="color:green;">Credentials imported.</span><br>' + '<br>'.join(lines)
         )
 
     def validatePage(self) -> bool:  # noqa: N802

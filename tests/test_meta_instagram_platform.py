@@ -247,8 +247,8 @@ def test_meta_instagram_post_image_success(mock_post, mock_get, tmp_path):
     img.write_bytes(b'\xff\xd8\xff\xe0' * 10)
 
     mock_post.side_effect = [
-        _ok_resp(id='container456'),   # create media container
-        _ok_resp(id='media789'),        # publish container
+        _ok_resp(id='container456'),  # create media container
+        _ok_resp(id='media789'),  # publish container
     ]
     mock_get.side_effect = [
         _ok_resp(status_code='FINISHED'),  # wait_for_container poll
@@ -298,10 +298,10 @@ def test_meta_instagram_post_carousel_success(mock_post, mock_get, tmp_path):
     img2.write_bytes(b'\xff\xd8' * 10)
 
     mock_post.side_effect = [
-        _ok_resp(id='item1'),      # create item 1 container
-        _ok_resp(id='item2'),      # create item 2 container
-        _ok_resp(id='carousel'),   # create carousel container
-        _ok_resp(id='post_car'),   # publish
+        _ok_resp(id='item1'),  # create item 1 container
+        _ok_resp(id='item2'),  # create item 2 container
+        _ok_resp(id='carousel'),  # create carousel container
+        _ok_resp(id='post_car'),  # publish
     ]
     mock_get.side_effect = [
         _ok_resp(status_code='FINISHED'),  # wait item 1

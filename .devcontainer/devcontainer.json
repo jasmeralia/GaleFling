@@ -9,7 +9,7 @@
 
   // Install system libraries required by Qt6 / PyQt6-WebEngine.
   // These are not present in the base Python devcontainer image.
-  "onCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgl1 libegl1 libgbm1 libxkbcommon0 libxcb-xkb1 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-util1 libasound2 libpulse0 libnspr4 libnss3",
+  "onCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libgl1 libegl1 libgbm1 libxkbcommon0 libxcb-xkb1 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-util1 libasound2 libpulse0 libnspr4 libnss3 shellcheck",
 
   // Create the project venv and install all Python dependencies.
   // Also install the Claude Code CLI used for AI-assisted development.

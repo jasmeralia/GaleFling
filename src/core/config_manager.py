@@ -61,6 +61,11 @@ class ConfigManager:
         with open(self._config_path, 'w') as f:
             json.dump(self._config, f, indent=4)
 
+    def reset_to_defaults(self) -> None:
+        """Reset configuration to factory defaults and persist to disk."""
+        self._config = dict(DEFAULT_CONFIG)
+        self.save()
+
     def get(self, key: str, default: Any = None) -> Any:
         return self._config.get(key, default)
 

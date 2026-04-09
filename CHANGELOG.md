@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.6] - 2026-04-09
+
+### Added
+- **Settings > Reset Configuration:** New menu item that wipes all stored credentials, resets all settings to defaults, and destroys all WebView session storage (Snapchat, OnlyFans, Fansly, FetLife). Requires confirmation before proceeding.
+
+### Fixed
+- **Dev container:** Added `shellcheck` to the `onCreateCommand` apt install list so `make lint` passes in fresh dev container environments.
+
 ## [1.8.5] - 2026-04-09
 
 ### Added

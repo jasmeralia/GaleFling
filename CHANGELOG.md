@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.8] - 2026-04-09
+
+### Changed
+- **Functional tests — Instagram:** Rewrote `test_instagram_post.py` to test against `graph.instagram.com` (the Instagram Graph API path used by `MetaInstagramPlatform`) instead of the legacy `graph.facebook.com` / Facebook Page photo-upload workflow. Added tests for connection, bad-token handling, text-only rejection, caption length validation, single image post, PNG image post, video post, and 2-image carousel post. Media posting tests skip automatically when AWS staging credentials are not configured.
+- **Functional tests — conftest:** Added `instagram_aws_credentials` fixture for S3 media staging tests. Removed unused `INSTAGRAM_PAGE_ID` from the `instagram_credentials` fixture. Updated `.env.example` to document the new AWS staging variables.
+
 ## [1.8.7] - 2026-04-09
 
 ### Changed

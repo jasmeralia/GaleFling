@@ -5,10 +5,10 @@ Credentials are read from tests/functional/.env:
     INSTAGRAM_BUSINESS_ACCOUNT_ID — numeric Instagram Business/Creator account ID
 
 Media posts (image, video, carousel) additionally require AWS staging credentials:
-    INSTAGRAM_AWS_ACCESS_KEY_ID
-    INSTAGRAM_AWS_SECRET_ACCESS_KEY
-    INSTAGRAM_AWS_REGION          (default: us-west-2)
-    INSTAGRAM_AWS_BUCKET
+    META_AWS_ACCESS_KEY_ID
+    META_AWS_SECRET_ACCESS_KEY
+    META_AWS_REGION          (default: us-west-2)
+    META_AWS_BUCKET
 
 Instagram requires at least one image or video per post (no text-only posts).
 All media is staged to S3 first so the Graph API can fetch it by public URL.
@@ -129,16 +129,14 @@ class TestInstagramValidation:
 class TestInstagramImagePost:
     """Single-image feed posts via the Instagram Graph API + S3 staging."""
 
-    def test_single_image_post(self, instagram_credentials, instagram_aws_credentials, sample_jpeg):
+    def test_single_image_post(self, instagram_credentials, meta_aws_credentials, sample_jpeg):
         """Stage a JPEG to S3, post it to Instagram, verify permalink, then delete."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
         tag = uuid.uuid4().hex[:8]
         caption = f'GaleFling functional test {tag} — safe to delete'
 
-        platform = MetaInstagramPlatform(
-            _make_auth(instagram_credentials, instagram_aws_credentials)
-        )
+        platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg])
 
         assert result.success, f'Image post failed: {result.error_code} — {result.error_message}'
@@ -152,16 +150,14 @@ class TestInstagramImagePost:
         # Cleanup
         _delete_media(instagram_credentials['access_token'], media_id)
 
-    def test_png_image_post(self, instagram_credentials, instagram_aws_credentials, sample_png):
+    def test_png_image_post(self, instagram_credentials, meta_aws_credentials, sample_png):
         """PNG images must also be accepted by the API."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
         tag = uuid.uuid4().hex[:8]
         caption = f'GaleFling PNG test {tag} — safe to delete'
 
-        platform = MetaInstagramPlatform(
-            _make_auth(instagram_credentials, instagram_aws_credentials)
-        )
+        platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_png])
 
         assert result.success, f'PNG post failed: {result.error_code} — {result.error_message}'
@@ -179,16 +175,14 @@ class TestInstagramImagePost:
 class TestInstagramVideoPost:
     """Video feed posts via the Instagram Graph API + S3 staging."""
 
-    def test_video_post(self, instagram_credentials, instagram_aws_credentials, sample_video):
+    def test_video_post(self, instagram_credentials, meta_aws_credentials, sample_video):
         """Stage an MP4 to S3, post it as a Reel, verify success, then delete."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
         tag = uuid.uuid4().hex[:8]
         caption = f'GaleFling video test {tag} — safe to delete'
 
-        platform = MetaInstagramPlatform(
-            _make_auth(instagram_credentials, instagram_aws_credentials)
-        )
+        platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_video])
 
         assert result.success, f'Video post failed: {result.error_code} — {result.error_message}'
@@ -208,7 +202,7 @@ class TestInstagramCarouselPost:
     """Multi-image carousel posts via the Instagram Graph API + S3 staging."""
 
     def test_carousel_two_images(
-        self, instagram_credentials, instagram_aws_credentials, sample_jpeg, sample_png
+        self, instagram_credentials, meta_aws_credentials, sample_jpeg, sample_png
     ):
         """Post a 2-image carousel, verify the carousel container is published."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
@@ -216,9 +210,7 @@ class TestInstagramCarouselPost:
         tag = uuid.uuid4().hex[:8]
         caption = f'GaleFling carousel test {tag} — safe to delete'
 
-        platform = MetaInstagramPlatform(
-            _make_auth(instagram_credentials, instagram_aws_credentials)
-        )
+        platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
 
         assert result.success, f'Carousel post failed: {result.error_code} — {result.error_message}'

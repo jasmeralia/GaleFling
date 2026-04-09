@@ -221,17 +221,18 @@ def instagram_credentials():
 
 
 @pytest.fixture
-def instagram_aws_credentials():
-    """AWS S3 staging credentials required for Instagram image/video/carousel posts."""
+def meta_aws_credentials():
+    """AWS S3 staging credentials shared by Instagram and Threads for media posts."""
+    bucket = os.environ.get('META_AWS_BUCKET')
     creds = {
-        'access_key_id': os.environ.get('INSTAGRAM_AWS_ACCESS_KEY_ID'),
-        'secret_access_key': os.environ.get('INSTAGRAM_AWS_SECRET_ACCESS_KEY'),
-        'region': os.environ.get('INSTAGRAM_AWS_REGION', 'us-west-2'),
-        'bucket': os.environ.get('INSTAGRAM_AWS_BUCKET'),
-        'media_staging_bucket': os.environ.get('INSTAGRAM_AWS_BUCKET'),
+        'access_key_id': os.environ.get('META_AWS_ACCESS_KEY_ID'),
+        'secret_access_key': os.environ.get('META_AWS_SECRET_ACCESS_KEY'),
+        'region': os.environ.get('META_AWS_REGION', 'us-west-2'),
+        'bucket': bucket,
+        'media_staging_bucket': bucket,
     }
     if not all([creds['access_key_id'], creds['secret_access_key'], creds['bucket']]):
-        pytest.skip('Instagram AWS media staging credentials not configured')
+        pytest.skip('Meta AWS media staging credentials not configured')
     return creds
 
 

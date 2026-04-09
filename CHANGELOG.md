@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.9] - 2026-04-09
+
+### Changed
+- **Functional tests — `.env.example`:** Replaced platform-specific `INSTAGRAM_AWS_*` vars with a single shared `META_AWS_*` block used by both Instagram and Threads. Added the missing `META_THREADS_ACCESS_TOKEN` / `META_THREADS_USER_ID` API credential block. Added `META_FACEBOOK_PAGE_ACCESS_TOKEN` / `META_FACEBOOK_PAGE_ID`. All credential sections now match the full set of active API platforms.
+- **Functional tests — Threads:** Added image, video, and 2-image carousel post tests to `test_meta_threads_post.py` using the shared `meta_aws_credentials` fixture (skip automatically when AWS not configured). Added `_delete_post` cleanup helper.
+- **Functional tests — Instagram:** Updated `test_instagram_post.py` to use `meta_aws_credentials` fixture (renamed from `instagram_aws_credentials`).
+- **Functional tests — conftest:** Renamed `instagram_aws_credentials` fixture to `meta_aws_credentials`; reads `META_AWS_*` env vars.
+
 ## [1.8.8] - 2026-04-09
 
 ### Changed

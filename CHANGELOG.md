@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.4] - 2026-04-09
+
+### Changed
+- **Instagram platform refactored to `MetaInstagramPlatform`:** Renamed `instagram.py` → `meta_instagram.py`, class `InstagramPlatform` → `MetaInstagramPlatform`, platform ID `instagram` → `meta_instagram`, account IDs `instagram_1/2` → `meta_instagram_1/2`. Now uses the Instagram Login API path (`graph.instagram.com`) with S3 media staging and container status polling, consistent with the META_REFACTORING specification and the naming conventions of `MetaThreadsPlatform` and `MetaFacebookPagePlatform`.
+- **Settings dialog:** Removed legacy manual Instagram credentials tab; Instagram accounts are now connected via the Meta tab OAuth flow.
+- **`meta_connect_dialog`:** OAuth credential saves now include `user_id` alongside `external_account_id` for consistent credential loading across Threads and Instagram platform adapters.
+
 ## [1.8.3] - 2026-04-09
 
 ### Added

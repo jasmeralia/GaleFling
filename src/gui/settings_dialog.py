@@ -1179,42 +1179,46 @@ class SettingsDialog(QDialog):
             lines.append(f'BLUESKY_APP_PASSWORD={bs_creds.get("app_password", "")}')
             lines.append('')
 
-        # Meta app credentials
-        for meta_display, get_fn, prefix in [
-            ('Threads', self._auth_manager.get_meta_threads_app_credentials, 'META_THREADS'),
-            ('Instagram', self._auth_manager.get_meta_instagram_app_credentials, 'META_INSTAGRAM'),
-            ('Facebook', self._auth_manager.get_meta_facebook_app_credentials, 'META_FACEBOOK'),
-        ]:
-            meta_creds = get_fn()
-            if meta_creds:
-                lines.append(f'# Meta {meta_display} app credentials')
-                lines.append(f'{prefix}_APP_ID={meta_creds.get("app_id", "")}')
-                lines.append(f'{prefix}_APP_SECRET={meta_creds.get("app_secret", "")}')
-                lines.append('')
-
-        # Meta OAuth relay URI
-        lines.append('# Meta OAuth relay redirect URI')
-        lines.append(f'META_OAUTH_REDIRECT_URI={self._auth_manager.get_meta_oauth_redirect_uri()}')
-        lines.append('')
-
-        # Twitter OAuth 2.0
-        tw_oauth2 = self._auth_manager.get_twitter_oauth2_app_credentials()
-        if tw_oauth2:
-            lines.append('# Twitter OAuth 2.0 app credentials')
-            lines.append(f'TWITTER_CLIENT_ID={tw_oauth2.get("client_id", "")}')
-            lines.append(f'TWITTER_CLIENT_SECRET={tw_oauth2.get("client_secret", "")}')
+        # Instagram (Graph API)
+        ig_creds = self._auth_manager.get_account_credentials('meta_instagram_1') or {}
+        ig_access_token = ig_creds.get('access_token', '')
+        ig_account_id = ig_creds.get('user_id') or ig_creds.get('external_account_id', '')
+        if ig_access_token:
+            lines.append('# Instagram (Graph API — graph.instagram.com)')
+            lines.append(f'INSTAGRAM_ACCESS_TOKEN={ig_access_token}')
+            lines.append(f'INSTAGRAM_BUSINESS_ACCOUNT_ID={ig_account_id}')
             lines.append('')
 
-        # AWS media staging
+        # Meta Threads (Graph API)
+        th_creds = self._auth_manager.get_account_credentials('meta_threads_1') or {}
+        th_access_token = th_creds.get('access_token', '')
+        th_user_id = th_creds.get('user_id', '')
+        if th_access_token:
+            lines.append('# Meta Threads (Graph API — graph.threads.net)')
+            lines.append(f'META_THREADS_ACCESS_TOKEN={th_access_token}')
+            lines.append(f'META_THREADS_USER_ID={th_user_id}')
+            lines.append('')
+
+        # Meta Facebook Page (Graph API)
+        fb_creds = self._auth_manager.get_account_credentials('meta_facebook_page_1') or {}
+        fb_page_token = fb_creds.get('page_access_token', '')
+        fb_page_id = fb_creds.get('page_id', '')
+        if fb_page_token:
+            lines.append('# Meta Facebook Page (Graph API — graph.facebook.com)')
+            lines.append(f'META_FACEBOOK_PAGE_ACCESS_TOKEN={fb_page_token}')
+            lines.append(f'META_FACEBOOK_PAGE_ID={fb_page_id}')
+            lines.append('')
+
+        # Meta AWS S3 media staging (shared by Instagram and Threads)
         aws_creds = self._auth_manager.get_aws_media_staging_credentials()
         if aws_creds:
-            lines.append('# AWS media staging')
-            lines.append(f'AWS_MEDIA_STAGING_ACCESS_KEY_ID={aws_creds.get("access_key_id", "")}')
             lines.append(
-                f'AWS_MEDIA_STAGING_SECRET_ACCESS_KEY={aws_creds.get("secret_access_key", "")}'
+                '# Meta AWS S3 media staging (shared by Instagram and Threads for image/video/carousel posts)'
             )
-            lines.append(f'AWS_MEDIA_STAGING_REGION={aws_creds.get("region", "us-west-2")}')
-            lines.append(f'AWS_MEDIA_STAGING_BUCKET={aws_creds.get("media_staging_bucket", "")}')
+            lines.append(f'META_AWS_ACCESS_KEY_ID={aws_creds.get("access_key_id", "")}')
+            lines.append(f'META_AWS_SECRET_ACCESS_KEY={aws_creds.get("secret_access_key", "")}')
+            lines.append(f'META_AWS_REGION={aws_creds.get("region", "us-west-2")}')
+            lines.append(f'META_AWS_BUCKET={aws_creds.get("media_staging_bucket", "")}')
             lines.append('')
 
         # WebView platforms — data directory

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.11] - 2026-04-09
+
+### Fixed
+- **Settings — Export Test Config:** Corrected exported variable names for Meta AWS credentials (`META_AWS_*` instead of `AWS_MEDIA_STAGING_*`) to match what functional tests read. Added missing Instagram, Meta Threads, and Facebook Page OAuth token exports (`INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_BUSINESS_ACCOUNT_ID`, `META_THREADS_ACCESS_TOKEN`, `META_THREADS_USER_ID`, `META_FACEBOOK_PAGE_ACCESS_TOKEN`, `META_FACEBOOK_PAGE_ID`). Removed app credentials, OAuth relay URI, and Twitter OAuth 2.0 fields that functional tests do not consume.
+- **Dev container:** Restored accidentally overwritten `python.defaultInterpreterPath` setting in `devcontainer.json`.
+
 ## [1.8.10] - 2026-04-09
 
 ### Changed

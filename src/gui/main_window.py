@@ -51,8 +51,8 @@ from src.platforms.base_webview import BaseWebViewPlatform
 from src.platforms.bluesky import BlueskyPlatform
 from src.platforms.fansly import FanslyPlatform
 from src.platforms.fetlife import FetLifePlatform
-from src.platforms.instagram import InstagramPlatform
 from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
+from src.platforms.meta_instagram import MetaInstagramPlatform
 from src.platforms.meta_threads import MetaThreadsPlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
@@ -356,7 +356,9 @@ class MainWindow(QMainWindow):
     _PLATFORM_FACTORIES = {
         'twitter': lambda am, aid, pn: TwitterPlatform(am, account_id=aid, profile_name=pn),
         'bluesky': lambda am, aid, pn: BlueskyPlatform(am, account_id=aid, profile_name=pn),
-        'instagram': lambda am, aid, pn: InstagramPlatform(am, account_id=aid, profile_name=pn),
+        'meta_instagram': lambda am, aid, pn: MetaInstagramPlatform(
+            am, account_id=aid, profile_name=pn
+        ),
         'snapchat': lambda am, aid, pn: SnapchatPlatform(account_id=aid, profile_name=pn),
         'onlyfans': lambda am, aid, pn: OnlyFansPlatform(account_id=aid, profile_name=pn),
         'fansly': lambda am, aid, pn: FanslyPlatform(account_id=aid, profile_name=pn),

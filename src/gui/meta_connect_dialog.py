@@ -296,6 +296,7 @@ class MetaConnectDialog(QDialog):
             'access_token': result.access_token,
             'expires_at': result.expires_at,
             'granted_scopes': result.granted_scopes,
+            'user_id': result.external_account_id,
             'external_account_id': result.external_account_id,
             'external_account_name': result.external_account_name,
         }

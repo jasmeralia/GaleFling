@@ -231,7 +231,6 @@ META_FACEBOOK_PAGE_SPECS = PlatformSpecs(
 PLATFORM_SPECS_MAP: dict[str, PlatformSpecs] = {
     'twitter': TWITTER_SPECS,
     'bluesky': BLUESKY_SPECS,
-    'instagram': INSTAGRAM_SPECS,
     'snapchat': SNAPCHAT_SPECS,
     'onlyfans': ONLYFANS_SPECS,
     'fansly': FANSLY_SPECS,

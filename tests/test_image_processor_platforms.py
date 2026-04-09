@@ -7,7 +7,7 @@ from src.core.image_processor import process_image, validate_image
 from src.utils.constants import (
     FANSLY_SPECS,
     FETLIFE_SPECS,
-    INSTAGRAM_SPECS,
+    META_INSTAGRAM_API_SPECS,
     ONLYFANS_SPECS,
     SNAPCHAT_SPECS,
 )
@@ -33,10 +33,10 @@ def vertical_image(tmp_path):
 
 def test_instagram_specs(large_image):
     """Test image processing for Instagram specs."""
-    result = process_image(large_image, INSTAGRAM_SPECS)
+    result = process_image(large_image, META_INSTAGRAM_API_SPECS)
     assert result.meets_requirements
-    assert result.processed_size[0] <= INSTAGRAM_SPECS.max_image_dimensions[0]
-    assert result.processed_size[1] <= INSTAGRAM_SPECS.max_image_dimensions[1]
+    assert result.processed_size[0] <= META_INSTAGRAM_API_SPECS.max_image_dimensions[0]
+    assert result.processed_size[1] <= META_INSTAGRAM_API_SPECS.max_image_dimensions[1]
 
 
 def test_snapchat_specs_vertical(vertical_image):
@@ -78,7 +78,7 @@ def test_instagram_validation_webp_accepted(tmp_path):
     path = tmp_path / 'test.webp'
     img.save(path, 'WEBP')
 
-    error = validate_image(path, INSTAGRAM_SPECS)
+    error = validate_image(path, META_INSTAGRAM_API_SPECS)
     assert error is None
 
 

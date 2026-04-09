@@ -148,15 +148,13 @@ def test_instagram_validate_page_saves_credentials_and_account(qtbot):
 
     page._profile_name.setText('jasmeralia')
     page._access_token.setText('ig-token')
-    page._ig_user_id.setText('17841400000')
-    page._page_id.setText('100000000000')
+    page._user_id.setText('17841400000')
 
     assert page.validatePage() is True
 
-    assert auth.get_account_credentials('instagram_1') == {
+    assert auth.get_account_credentials('meta_instagram_1') == {
         'access_token': 'ig-token',
-        'ig_user_id': '17841400000',
-        'page_id': '100000000000',
+        'user_id': '17841400000',
         'profile_name': 'jasmeralia',
     }
-    assert auth.accounts[-1].account_id == 'instagram_1'
+    assert auth.accounts[-1].account_id == 'meta_instagram_1'

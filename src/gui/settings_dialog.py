@@ -95,7 +95,6 @@ class SettingsDialog(QDialog):
         # Per-platform account tabs
         self._create_twitter_tab(tabs)
         self._create_bluesky_tab(tabs)
-        self._create_instagram_tab(tabs)
         self._create_meta_tab(tabs)
 
         self._webview_profile_edits: dict[str, QLineEdit] = {}
@@ -296,45 +295,6 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         scroll.setWidget(widget)
         tabs.addTab(scroll, 'Bluesky')
-
-    def _create_instagram_tab(self, tabs: QTabWidget):
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-
-        ig_group = QGroupBox('Account 1')
-        ig_layout = QFormLayout(ig_group)
-        ig_layout.addRow(
-            QLabel('<i>Requires a Business/Creator account linked to a Facebook Page.</i>'),
-            QLabel(),
-        )
-
-        ig_creds = self._auth_manager.get_account_credentials('instagram_1')
-        self._ig_access_token = QLineEdit(ig_creds.get('access_token', '') if ig_creds else '')
-        self._ig_access_token.setEchoMode(QLineEdit.EchoMode.Password)
-        ig_layout.addRow('Access Token:', self._ig_access_token)
-
-        self._ig_user_id = QLineEdit(ig_creds.get('ig_user_id', '') if ig_creds else '')
-        ig_layout.addRow('IG User ID:', self._ig_user_id)
-
-        self._ig_page_id = QLineEdit(ig_creds.get('page_id', '') if ig_creds else '')
-        ig_layout.addRow('Facebook Page ID:', self._ig_page_id)
-
-        self._ig_profile_name = QLineEdit(ig_creds.get('profile_name', '') if ig_creds else '')
-        self._ig_profile_name.setPlaceholderText('Display name (e.g. rinthemodel)')
-        ig_layout.addRow('Profile Name:', self._ig_profile_name)
-
-        ig_logout = QPushButton('Logout')
-        ig_logout.clicked.connect(self._logout_instagram)
-        ig_layout.addRow('', ig_logout)
-
-        layout.addWidget(ig_group)
-
-        layout.addStretch()
-        scroll.setWidget(widget)
-        tabs.addTab(scroll, 'Instagram')
 
     # Meta provider config: (provider_id, display_name, max_accounts, account_ids)
     _META_PROVIDERS: list[tuple[str, str, int, list[str]]] = [
@@ -859,29 +819,6 @@ class SettingsDialog(QDialog):
                 )
             )
 
-        # Accounts - Instagram
-        ig_token = self._ig_access_token.text().strip()
-        ig_uid = self._ig_user_id.text().strip()
-        ig_pid = self._ig_page_id.text().strip()
-        ig_name = self._ig_profile_name.text().strip()
-        if ig_token and ig_uid:
-            self._auth_manager.save_account_credentials(
-                'instagram_1',
-                {
-                    'access_token': ig_token,
-                    'ig_user_id': ig_uid,
-                    'page_id': ig_pid,
-                    'profile_name': ig_name,
-                },
-            )
-            self._auth_manager.add_account(
-                AccountConfig(
-                    platform_id='instagram',
-                    account_id='instagram_1',
-                    profile_name=ig_name,
-                )
-            )
-
         # Accounts - WebView platforms (save profile names)
         for account_id, name_edit in self._webview_profile_edits.items():
             profile_name = name_edit.text().strip()
@@ -1242,15 +1179,6 @@ class SettingsDialog(QDialog):
             lines.append(f'BLUESKY_APP_PASSWORD={bs_creds.get("app_password", "")}')
             lines.append('')
 
-        # Instagram
-        ig_creds = self._auth_manager.get_account_credentials('instagram_1') or {}
-        if ig_creds.get('access_token'):
-            lines.append('# Instagram (Graph API)')
-            lines.append(f'INSTAGRAM_ACCESS_TOKEN={ig_creds.get("access_token", "")}')
-            lines.append(f'INSTAGRAM_BUSINESS_ACCOUNT_ID={ig_creds.get("account_id", "")}')
-            lines.append(f'INSTAGRAM_PAGE_ID={ig_creds.get("page_id", "")}')
-            lines.append('')
-
         # Meta app credentials
         for meta_display, get_fn, prefix in [
             ('Threads', self._auth_manager.get_meta_threads_app_credentials, 'META_THREADS'),
@@ -1337,14 +1265,6 @@ class SettingsDialog(QDialog):
         self._auth_manager.remove_account('bluesky_alt')
         self._bs_alt_identifier.clear()
         self._bs_alt_app_password.clear()
-
-    def _logout_instagram(self):
-        self._auth_manager.clear_account_credentials('instagram_1')
-        self._auth_manager.remove_account('instagram_1')
-        self._ig_access_token.clear()
-        self._ig_user_id.clear()
-        self._ig_page_id.clear()
-        self._ig_profile_name.clear()
 
     def _create_webview_platform(self, platform_id: str, account_id: str):
         """Instantiate and return the WebView platform for *platform_id*, or None.

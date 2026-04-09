@@ -14,7 +14,7 @@ def selector(qtbot):
     accounts = [
         AccountConfig('twitter', 'twitter_1', 'user1'),
         AccountConfig('bluesky', 'bluesky_1', 'user2'),
-        AccountConfig('instagram', 'instagram_1', 'user3'),
+        AccountConfig('meta_instagram', 'meta_instagram_1', 'user3'),
         AccountConfig('onlyfans', 'onlyfans_1', 'user4'),
     ]
     sel.set_accounts(accounts)
@@ -30,13 +30,13 @@ WEBP_NOTICE = '\u26a0 WEBP image attached \u2014 some platforms do not support t
 class TestFormatRestriction:
     def test_restriction_unchecks_unsupported_platforms(self, selector):
         """Platforms that don't support the format should be unchecked."""
-        selector.set_selected(['twitter_1', 'bluesky_1', 'instagram_1'])
+        selector.set_selected(['twitter_1', 'bluesky_1', 'meta_instagram_1'])
         # GIF: only Twitter supports it
-        selector.set_format_restriction({'bluesky_1', 'instagram_1', 'onlyfans_1'}, GIF_NOTICE)
+        selector.set_format_restriction({'bluesky_1', 'meta_instagram_1', 'onlyfans_1'}, GIF_NOTICE)
         selected = selector.get_selected()
         assert 'twitter_1' in selected
         assert 'bluesky_1' not in selected
-        assert 'instagram_1' not in selected
+        assert 'meta_instagram_1' not in selected
 
     def test_restriction_prevents_checking(self, selector):
         """Restricted platforms cannot be checked by clicking."""
@@ -82,14 +82,14 @@ class TestFormatRestriction:
 
     def test_webp_restricts_bluesky_and_instagram(self, selector):
         """WEBP should restrict Bluesky/Instagram/FetLife but not Twitter/OnlyFans/Fansly."""
-        selector.set_selected(['twitter_1', 'bluesky_1', 'instagram_1', 'onlyfans_1'])
+        selector.set_selected(['twitter_1', 'bluesky_1', 'meta_instagram_1', 'onlyfans_1'])
         # Bluesky and Instagram don't support WEBP
-        selector.set_format_restriction({'bluesky_1', 'instagram_1'}, WEBP_NOTICE)
+        selector.set_format_restriction({'bluesky_1', 'meta_instagram_1'}, WEBP_NOTICE)
         selected = selector.get_selected()
         assert 'twitter_1' in selected
         assert 'onlyfans_1' in selected
         assert 'bluesky_1' not in selected
-        assert 'instagram_1' not in selected
+        assert 'meta_instagram_1' not in selected
 
 
 VIDEO_NOTICE = '\u26a0 Video attached \u2014 some platforms do not support this video format.'

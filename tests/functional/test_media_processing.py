@@ -20,7 +20,7 @@ from src.core.video_processor import (
 )
 from src.utils.constants import (
     BLUESKY_SPECS,
-    INSTAGRAM_SPECS,
+    META_INSTAGRAM_API_SPECS,
     SNAPCHAT_SPECS,
     TWITTER_SPECS,
 )
@@ -34,7 +34,7 @@ class TestImageResizeToPlatformLimits:
 
     @pytest.mark.parametrize(
         'specs',
-        [TWITTER_SPECS, BLUESKY_SPECS, INSTAGRAM_SPECS],
+        [TWITTER_SPECS, BLUESKY_SPECS, META_INSTAGRAM_API_SPECS],
         ids=['twitter', 'bluesky', 'instagram'],
     )
     def test_oversized_image_is_resized(self, oversized_jpeg, specs):
@@ -50,7 +50,7 @@ class TestImageResizeToPlatformLimits:
 
     @pytest.mark.parametrize(
         'specs',
-        [TWITTER_SPECS, BLUESKY_SPECS, INSTAGRAM_SPECS],
+        [TWITTER_SPECS, BLUESKY_SPECS, META_INSTAGRAM_API_SPECS],
         ids=['twitter', 'bluesky', 'instagram'],
     )
     def test_small_image_not_upscaled(self, sample_jpeg, specs):
@@ -213,7 +213,7 @@ class TestVideoProcessing:
 
     @pytest.mark.parametrize(
         'specs',
-        [TWITTER_SPECS, BLUESKY_SPECS, INSTAGRAM_SPECS],
+        [TWITTER_SPECS, BLUESKY_SPECS, META_INSTAGRAM_API_SPECS],
         ids=['twitter', 'bluesky', 'instagram'],
     )
     def test_process_small_video(self, sample_video, specs):

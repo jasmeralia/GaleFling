@@ -170,25 +170,6 @@ def test_settings_dialog_logout_clears_auth(qtbot, tmp_path, monkeypatch):
     assert not (tmp_path / 'auth' / 'bluesky_auth_alt.json').exists()
 
 
-def test_settings_dialog_saves_instagram(qtbot, tmp_path, monkeypatch):
-    config = _make_config(tmp_path, monkeypatch)
-    auth = _make_auth(tmp_path, monkeypatch)
-
-    dialog = SettingsDialog(config, auth)
-    qtbot.addWidget(dialog)
-
-    dialog._ig_access_token.setText('ig_token')
-    dialog._ig_user_id.setText('12345')
-    dialog._ig_page_id.setText('67890')
-    dialog._ig_profile_name.setText('rinthemodel')
-
-    dialog._save_and_close()
-
-    ig_creds = json.loads((tmp_path / 'auth' / 'instagram_1_auth.json').read_text())
-    assert ig_creds['access_token'] == 'ig_token'
-    assert ig_creds['ig_user_id'] == '12345'
-    assert auth.get_account('instagram_1').profile_name == 'rinthemodel'
-
 
 def test_settings_dialog_logout_bluesky_primary(qtbot, tmp_path, monkeypatch):
     config = _make_config(tmp_path, monkeypatch)
@@ -209,23 +190,6 @@ def test_settings_dialog_logout_bluesky_primary(qtbot, tmp_path, monkeypatch):
     assert auth.get_account('bluesky_1') is None
     assert dialog._bs_identifier.text() == ''
 
-
-def test_settings_dialog_logout_instagram(qtbot, tmp_path, monkeypatch):
-    config = _make_config(tmp_path, monkeypatch)
-    auth = _make_auth(tmp_path, monkeypatch)
-    auth.save_account_credentials('instagram_1', {'access_token': 't', 'ig_user_id': 'u'})
-    auth.add_account(
-        AccountConfig(platform_id='instagram', account_id='instagram_1', profile_name='rin')
-    )
-
-    dialog = SettingsDialog(config, auth)
-    qtbot.addWidget(dialog)
-
-    dialog._logout_instagram()
-
-    assert not (tmp_path / 'auth' / 'instagram_1_auth.json').exists()
-    assert auth.get_account('instagram_1') is None
-    assert dialog._ig_access_token.text() == ''
 
 
 def test_settings_dialog_logout_twitter(qtbot, tmp_path, monkeypatch):
@@ -403,7 +367,8 @@ def test_settings_dialog_has_per_platform_tabs(qtbot, tmp_path, monkeypatch):
     assert 'General' in tab_names
     assert 'Twitter' in tab_names
     assert 'Bluesky' in tab_names
-    assert 'Instagram' in tab_names
+    assert 'Meta' in tab_names
+    assert 'Instagram' not in tab_names  # Instagram is now managed via the Meta tab
     assert 'Snapchat' in tab_names
     assert 'OnlyFans' in tab_names
     assert 'Fansly' in tab_names

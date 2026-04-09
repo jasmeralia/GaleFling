@@ -51,15 +51,15 @@ def test_get_account_by_id(fresh_auth_dir, monkeypatch):
     manager = AuthManager()
 
     account = AccountConfig(
-        platform_id='instagram',
-        account_id='instagram_1',
+        platform_id='meta_instagram',
+        account_id='meta_instagram_1',
         profile_name='testuser',
     )
     manager.add_account(account)
 
-    retrieved = manager.get_account('instagram_1')
+    retrieved = manager.get_account('meta_instagram_1')
     assert retrieved is not None
-    assert retrieved.account_id == 'instagram_1'
+    assert retrieved.account_id == 'meta_instagram_1'
     assert retrieved.profile_name == 'testuser'
 
     # Non-existent account
@@ -130,16 +130,15 @@ def test_save_and_get_account_credentials(fresh_auth_dir, monkeypatch):
     # Save credentials
     creds = {
         'access_token': 'token123',
-        'ig_user_id': 'user456',
-        'page_id': 'page789',
+        'user_id': 'user456',
     }
-    manager.save_account_credentials('instagram_1', creds)
+    manager.save_account_credentials('meta_instagram_1', creds)
 
     # Retrieve credentials
-    retrieved = manager.get_account_credentials('instagram_1')
+    retrieved = manager.get_account_credentials('meta_instagram_1')
     assert retrieved is not None
     assert retrieved['access_token'] == 'token123'
-    assert retrieved['ig_user_id'] == 'user456'
+    assert retrieved['user_id'] == 'user456'
 
 
 def test_clear_account_credentials(fresh_auth_dir, monkeypatch):

@@ -444,7 +444,7 @@ class BlueskySetupPage(QWizardPage):
 
 
 class InstagramSetupPage(QWizardPage):
-    """Instagram Graph API credentials setup."""
+    """Instagram API credentials setup (Instagram Login path)."""
 
     def __init__(self, auth_manager: AuthManager, parent=None):
         super().__init__(parent)
@@ -452,19 +452,17 @@ class InstagramSetupPage(QWizardPage):
         self.setAutoFillBackground(True)
 
         self.setTitle('Setup - Instagram')
-        self.setSubTitle('Instagram Graph API (requires Business/Creator account)')
+        self.setSubTitle('Instagram API (requires a Professional/Creator account)')
 
         layout = QVBoxLayout(self)
 
         info = QLabel(
-            'Instagram posting requires a <b>Business</b> or <b>Creator</b> account '
-            'linked to a Facebook Page. You will need:<br>'
+            'Instagram posting uses the Instagram Login path. You will need:<br>'
             '<ul>'
-            '<li>A long-lived access token from the Graph API</li>'
-            '<li>Your Instagram User ID</li>'
-            '<li>Your linked Facebook Page ID</li>'
+            '<li>A long-lived Instagram user access token</li>'
+            '<li>Your Instagram User ID (numeric)</li>'
             '</ul>'
-            "<i>Skip this step if you don't have an Instagram Business account.</i>"
+            "<i>Skip this step if you don't have an Instagram Professional account.</i>"
         )
         info.setOpenExternalLinks(True)
         info.setWordWrap(True)
@@ -482,45 +480,38 @@ class InstagramSetupPage(QWizardPage):
         self._access_token.setPlaceholderText('Long-lived access token')
         form.addRow('Access Token:', self._access_token)
 
-        self._ig_user_id = QLineEdit()
-        self._ig_user_id.setPlaceholderText('e.g. 17841400000')
-        form.addRow('IG User ID:', self._ig_user_id)
-
-        self._page_id = QLineEdit()
-        self._page_id.setPlaceholderText('e.g. 100000000000')
-        form.addRow('Facebook Page ID:', self._page_id)
+        self._user_id = QLineEdit()
+        self._user_id.setPlaceholderText('e.g. 17841400000')
+        form.addRow('IG User ID:', self._user_id)
 
         layout.addLayout(form)
         layout.addStretch()
 
         # Pre-fill
-        existing = self._auth_manager.get_account_credentials('instagram_1')
+        existing = self._auth_manager.get_account_credentials('meta_instagram_1')
         if existing:
             self._profile_name.setText(existing.get('profile_name', ''))
             self._access_token.setText(existing.get('access_token', ''))
-            self._ig_user_id.setText(existing.get('ig_user_id', ''))
-            self._page_id.setText(existing.get('page_id', ''))
+            self._user_id.setText(existing.get('user_id', ''))
 
     def validatePage(self) -> bool:  # noqa: N802
         token = self._access_token.text().strip()
-        uid = self._ig_user_id.text().strip()
-        page_id = self._page_id.text().strip()
+        uid = self._user_id.text().strip()
         name = self._profile_name.text().strip()
 
         if token and uid:
             self._auth_manager.save_account_credentials(
-                'instagram_1',
+                'meta_instagram_1',
                 {
                     'access_token': token,
-                    'ig_user_id': uid,
-                    'page_id': page_id,
+                    'user_id': uid,
                     'profile_name': name,
                 },
             )
             self._auth_manager.add_account(
                 AccountConfig(
-                    platform_id='instagram',
-                    account_id='instagram_1',
+                    platform_id='meta_instagram',
+                    account_id='meta_instagram_1',
                     profile_name=name,
                 )
             )

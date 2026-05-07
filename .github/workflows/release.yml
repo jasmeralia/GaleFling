@@ -28,7 +28,7 @@ jobs:
     outputs:
       tag_name: ${{ steps.resolve.outputs.tag_name || steps.bump.outputs.new_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -75,10 +75,10 @@ jobs:
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -109,7 +109,7 @@ jobs:
             -o junit_family=legacy
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         if: ${{ env.CODECOV_TOKEN != '' }}
         with:
           token: ${{ env.CODECOV_TOKEN }}
@@ -119,7 +119,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload test results
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         if: ${{ env.CODECOV_TOKEN != '' && !cancelled() }}
         with:
           token: ${{ env.CODECOV_TOKEN }}
@@ -134,12 +134,12 @@ jobs:
     needs: [lint-and-test, prepare-tag]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: refs/tags/${{ needs.prepare-tag.outputs.tag_name }}
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -182,7 +182,7 @@ jobs:
           Compress-Archive -Path dist/GaleFling.exe -DestinationPath "dist/GaleFling-${version}-portable.zip"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-build
           path: |
@@ -194,13 +194,13 @@ jobs:
     needs: [prepare-tag, lint-and-test, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: refs/tags/${{ needs.prepare-tag.outputs.tag_name }}
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: windows-build
           path: .
@@ -285,7 +285,7 @@ jobs:
           CURRENT_TAG: ${{ needs.prepare-tag.outputs.tag_name }}
 
       - name: Create beta release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: false
           prerelease: true

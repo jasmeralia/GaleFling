@@ -2,22 +2,73 @@ name: Build & Beta Release
 
 on:
   push:
+    branches:
+      - master
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to build (e.g., v0.2.81). Leave empty to use the triggering ref.'
-        required: false
-        default: ''
-
-env:
-  TAG_NAME: ${{ inputs.tag || github.ref_name }}
+  pull_request:
+    branches:
+      - master
 
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  prepare-tag:
+    name: Prepare Release Tag
+    needs: lint-and-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag_name: ${{ steps.resolve.outputs.tag_name || steps.bump.outputs.new_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve existing tag
+        id: resolve
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag_name="${GITHUB_REF_NAME}"
+          if [[ ! "${tag_name}" == v* ]]; then
+            echo "Expected a v-prefixed release tag, got '${tag_name}'"
+            exit 1
+          fi
+          echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Bump patch tag
+        id: bump
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git fetch --tags --force origin
+            latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
+            latest="${latest:-v0.0.0}"
+            version="${latest#v}"
+            IFS=. read -r major minor patch <<< "${version}"
+            new_tag="v${major}.${minor}.$((patch + 1))"
+            echo "Attempt ${attempt}: tagging ${new_tag} (previous: ${latest})"
+            if git tag -a "${new_tag}" -m "Release ${new_tag}" && git push origin "refs/tags/${new_tag}"; then
+              echo "new_tag=${new_tag}" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            echo "Push failed (tag may already exist); retrying after refetch"
+            git tag -d "${new_tag}" 2>/dev/null || true
+            if [[ "${attempt}" -eq 3 ]]; then
+              echo "Failed to push a unique tag after 3 attempts"
+              exit 1
+            fi
+          done
+
   lint-and-test:
     name: Lint & Test
     runs-on: ubuntu-latest
@@ -25,8 +76,6 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: refs/tags/${{ env.TAG_NAME }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -81,11 +130,13 @@ jobs:
 
   build:
     name: Build Windows Executable
+    if: github.event_name != 'pull_request'
+    needs: [lint-and-test, prepare-tag]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ env.TAG_NAME }}
+          ref: refs/tags/${{ needs.prepare-tag.outputs.tag_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -127,7 +178,7 @@ jobs:
       - name: Create portable zip
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
+          $version = "${{ needs.prepare-tag.outputs.tag_name }}".TrimStart("v")
           Compress-Archive -Path dist/GaleFling.exe -DestinationPath "dist/GaleFling-${version}-portable.zip"
 
       - name: Upload build artifacts
@@ -139,13 +190,14 @@ jobs:
 
   release:
     name: Create Beta Release
-    needs: [lint-and-test, build]
+    if: github.event_name != 'pull_request'
+    needs: [prepare-tag, lint-and-test, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: refs/tags/${{ env.TAG_NAME }}
+          ref: refs/tags/${{ needs.prepare-tag.outputs.tag_name }}
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -200,17 +252,14 @@ jobs:
           print(tag)
           PY
           )
-          CURRENT_TAG="${{ github.ref_name }}"
+          CURRENT_TAG="${{ needs.prepare-tag.outputs.tag_name }}"
 
           if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "$CURRENT_TAG" ]; then
             # First tag - use all commits
-            COMMITS=$(git log --pretty=format:"- %s (%h)" HEAD)
+            git log --pretty=format:"- %s (%h)" HEAD >/dev/null
           else
-            COMMITS=$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..${CURRENT_TAG}")
+            git log --pretty=format:"- %s (%h)" "${PREV_TAG}..${CURRENT_TAG}" >/dev/null
           fi
-
-          # Extract version from tag
-          VERSION="${CURRENT_TAG#v}"
 
           # Extract changelog sections between current tag and last published release
           CHANGELOG_SECTION=""
@@ -233,14 +282,14 @@ jobs:
             echo "RELEASE_EOF"
           } >> "$GITHUB_OUTPUT"
         env:
-          CURRENT_TAG: ${{ env.TAG_NAME }}
+          CURRENT_TAG: ${{ needs.prepare-tag.outputs.tag_name }}
 
       - name: Create beta release
         uses: softprops/action-gh-release@v2
         with:
           draft: false
           prerelease: true
-          name: "${{ github.ref_name }} - GaleFling"
+          name: "${{ needs.prepare-tag.outputs.tag_name }} - GaleFling"
           body: ${{ steps.release_notes.outputs.body }}
           files: |
             **/GaleFling-Setup-*.exe

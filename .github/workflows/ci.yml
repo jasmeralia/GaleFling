@@ -18,10 +18,10 @@ jobs:
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -48,7 +48,7 @@ jobs:
             -o junit_family=legacy
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         if: ${{ env.CODECOV_TOKEN != '' }}
         with:
           token: ${{ env.CODECOV_TOKEN }}
@@ -58,7 +58,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload test results
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         if: ${{ env.CODECOV_TOKEN != '' && !cancelled() }}
         with:
           token: ${{ env.CODECOV_TOKEN }}

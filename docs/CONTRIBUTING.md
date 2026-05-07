@@ -44,19 +44,17 @@ make installer
 
 ## Release Process
 
-1. Bump the version in:
-   - `src/utils/constants.py`
-   - `resources/default_config.json`
-   - `build/version_info.txt`
-   - `build/installer.nsi`
-2. Add an entry to `CHANGELOG.md`
-3. Update `README.md` if user-facing behavior changed
-4. Commit, tag, and push:
+1. Bump `APP_VERSION` in `src/utils/constants.py`
+2. Update the README current version and Release Build badge tag
+3. Add an entry to `CHANGELOG.md`
+4. Commit and push:
    ```bash
-   git tag vX.Y.Z
-   git push origin vX.Y.Z
+   git commit -m "Release vX.Y.Z"
+   git push origin master
    ```
-5. The GitHub Action builds a Windows executable and publishes a **pre-release** with the installer attached.
+5. The GitHub Action creates tag `vX.Y.Z` from `APP_VERSION`, builds a Windows executable, and publishes a **pre-release** with the installer attached.
+
+If a `master` push does not include a fresh version, GitHub Actions automatically commits the next patch version before tagging and building.
 
 ## Project Structure
 

@@ -13,22 +13,22 @@ def extract_sections(changelog: str, current_version: str, prev_version: str) ->
     in_section = False
 
     for line in changelog.splitlines(keepends=True):
-        if line.startswith("## ["):
+        if line.startswith('## ['):
             if in_section:
-                sections.append("".join(current_lines).rstrip())
+                sections.append(''.join(current_lines).rstrip())
                 current_lines = []
             in_section = True
         if in_section:
             current_lines.append(line)
 
     if current_lines:
-        sections.append("".join(current_lines).rstrip())
+        sections.append(''.join(current_lines).rstrip())
 
     def section_version(section: str) -> str:
         header = section.splitlines()[0]
-        if header.startswith("## [") and "]" in header:
-            return header.split("[", 1)[1].split("]", 1)[0]
-        return ""
+        if header.startswith('## [') and ']' in header:
+            return header.split('[', 1)[1].split(']', 1)[0]
+        return ''
 
     output_sections: list[str] = []
     found_prev = False
@@ -47,24 +47,24 @@ def extract_sections(changelog: str, current_version: str, prev_version: str) ->
                 output_sections = [section]
                 break
 
-    return "\n\n".join(output_sections).strip()
+    return '\n\n'.join(output_sections).strip()
 
 
 def main() -> int:
-    current_tag = os.environ.get("CURRENT_TAG", "")
-    prev_tag = os.environ.get("PREV_TAG", "")
-    current_version = current_tag[1:] if current_tag.startswith("v") else current_tag
-    prev_version = prev_tag[1:] if prev_tag.startswith("v") else prev_tag
+    current_tag = os.environ.get('CURRENT_TAG', '')
+    prev_tag = os.environ.get('PREV_TAG', '')
+    current_version = current_tag[1:] if current_tag.startswith('v') else current_tag
+    prev_version = prev_tag[1:] if prev_tag.startswith('v') else prev_tag
 
-    changelog_path = Path("CHANGELOG.md")
+    changelog_path = Path('CHANGELOG.md')
     if not changelog_path.exists():
         return 0
 
-    changelog = changelog_path.read_text(encoding="utf-8")
+    changelog = changelog_path.read_text(encoding='utf-8')
     output = extract_sections(changelog, current_version, prev_version)
     print(output)
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     raise SystemExit(main())

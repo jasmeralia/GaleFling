@@ -1,4 +1,4 @@
-name: Build & Beta Release
+name: CI / Build & Beta Release
 
 on:
   push:
@@ -196,7 +196,7 @@ jobs:
 
   build:
     name: Build Windows Executable
-    if: startsWith(github.ref, 'refs/tags/') && needs.sync-version.outputs.skip_release != 'true'
+    if: github.event_name != 'pull_request' && needs.sync-version.outputs.skip_release != 'true'
     needs: [sync-version, lint-and-test, create-tag]
     runs-on: windows-latest
     steps:
@@ -256,7 +256,7 @@ jobs:
 
   release:
     name: Create Beta Release
-    if: startsWith(github.ref, 'refs/tags/') && needs.sync-version.outputs.skip_release != 'true'
+    if: github.event_name != 'pull_request' && needs.sync-version.outputs.skip_release != 'true'
     needs: [sync-version, lint-and-test, create-tag, build]
     runs-on: ubuntu-latest
     steps:

@@ -8,6 +8,7 @@ updates:
       time: '09:00'
       timezone: 'America/Los_Angeles'
     open-pull-requests-limit: 5
+    auto-merge: enable
     groups:
       python-dependencies:
         patterns:
@@ -21,6 +22,7 @@ updates:
       time: '09:00'
       timezone: 'America/Los_Angeles'
     open-pull-requests-limit: 5
+    auto-merge: enable
     groups:
       github-actions:
         patterns:

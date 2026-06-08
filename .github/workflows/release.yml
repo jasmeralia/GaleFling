@@ -135,7 +135,7 @@ jobs:
             -o junit_family=legacy
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         if: ${{ env.CODECOV_TOKEN != '' }}
         with:
           token: ${{ env.CODECOV_TOKEN }}
@@ -145,7 +145,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload test results
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         if: ${{ env.CODECOV_TOKEN != '' && !cancelled() }}
         with:
           token: ${{ env.CODECOV_TOKEN }}

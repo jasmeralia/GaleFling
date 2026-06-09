@@ -3,19 +3,24 @@
 import sys
 from pathlib import Path
 
-# ── Version: single source of truth is src/utils/constants.py:APP_VERSION ────
-# This block reads APP_VERSION, then writes version_info.txt (for EXE() below)
-# and version.nsh (included by installer.nsi) so no other file needs a version.
+# ── Version: derived from scripts/write_version.py → src/utils/_version.py ───
+# Run `python scripts/write_version.py --tag vX.Y.Z` before invoking PyInstaller.
+# Locally, `make version-file` (or `make deps`) generates a dev version instead.
 _project_root = str(Path(SPECPATH).parent)
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
-from src.utils.constants import APP_VERSION as _APP_VERSION  # noqa: E402
+try:
+    from src.utils._version import __version__ as _APP_VERSION  # noqa: E402
+except ImportError:
+    _APP_VERSION = '0.0.0+dev'
 
-_ver_parts = [int(x) for x in _APP_VERSION.split('.')]
+# Strip PEP 440 local/dev suffix — Windows version tuple requires pure X.Y.Z.
+_ver_base = _APP_VERSION.split('+')[0]
+_ver_parts = [int(x) for x in _ver_base.split('.')]
 while len(_ver_parts) < 4:
     _ver_parts.append(0)
-_ver_tuple_str = ', '.join(str(x) for x in _ver_parts)   # e.g. "1, 7, 10, 0"
-_ver_str_full  = '.'.join(str(x) for x in _ver_parts)    # e.g. "1.7.10.0"
+_ver_tuple_str = ', '.join(str(x) for x in _ver_parts)   # e.g. "1, 8, 16, 0"
+_ver_str_full  = '.'.join(str(x) for x in _ver_parts)    # e.g. "1.8.16.0"
 
 (Path(SPECPATH) / 'version_info.txt').write_text(
     '# UTF-8\n'
@@ -57,7 +62,7 @@ _ver_str_full  = '.'.join(str(x) for x in _ver_parts)    # e.g. "1.7.10.0"
 )
 
 (Path(SPECPATH) / 'version.nsh').write_text(
-    f'!define VERSION "{_APP_VERSION}"\n'
+    f'!define VERSION "{_ver_base}"\n'
     f'!define VERSION_TUPLE "{_ver_str_full}"\n',
     encoding='utf-8',
 )

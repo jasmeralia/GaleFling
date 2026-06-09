@@ -18,16 +18,13 @@ Trigger phrase: **"follow the release checklist"**
 
 > **Sync notice:** This checklist is duplicated from `AGENTS.md`. Any changes must be made in **both** files.
 
-1. Run `make lint PYTHON=.venv/Scripts/python.exe` (Windows) or `make lint PYTHON=.venv/bin/python` (Linux/WSL) and confirm success.
-2. Run `make test-cov PYTHON=.venv/Scripts/python.exe` (Windows) or `make test-cov PYTHON=.venv/bin/python` (Linux/WSL) and confirm success.
+1. Run `make lint` and confirm success.
+2. Run `make test-cov` and confirm success.
 3. Before any **minor** version bump (`Y` in `X.Y.Z`), confirm with the user first.
-4. Bump version in exactly two places:
-   - `src/utils/constants.py` — `APP_VERSION = 'X.Y.Z'`
-   - `README.md` — Current Version line and Release Build badge tag (`branch=vX.Y.Z`)
-5. Add the new version entry at the top of `CHANGELOG.md`.
-6. Commit with message: `Release vX.Y.Z`.
-7. Push `master`; GitHub Actions creates tag `vX.Y.Z` from `APP_VERSION`.
-8. Summarize checklist results (lint, tests, version/tag state) in your final response.
+4. Add the new version entry at the top of `CHANGELOG.md` (optional for patch releases — `[Unreleased]` section is used if no versioned entry exists).
+5. Commit with message: `Release vX.Y.Z` (or any descriptive message for patch releases driven by Dependabot).
+6. Push `master`; GitHub Actions computes the next tag from git history, creates it via API, and builds.
+7. Summarize checklist results (lint, tests, version/tag state) in your final response.
 
 ---
 
@@ -53,19 +50,21 @@ See [AGENTS.md](AGENTS.md) for project structure, architecture, and conventions.
 
 ## Commands — Linux / WSL
 
-- **Run lint:** `make lint PYTHON=.venv/bin/python`
-- **Run tests:** `make test-cov PYTHON=.venv/bin/python`
-- **Run functional tests:** `make test-functional-cmd` — always use this in WSL; it dispatches via cmd.exe for native Windows GPU/display. Do NOT run functional tests directly with `python -m pytest` in WSL — WebView tests will be skipped.
+- **First-time setup:** `make deps` (creates `.venv`, installs all dependencies)
+- **Run lint:** `make lint`
+- **Run tests:** `make test-cov`
+- **Run functional tests:** `make test-functional-cmd` — always use this in WSL; it dispatches via PowerShell for native Windows GPU/display. Do NOT run functional tests directly with `python -m pytest` in WSL — WebView tests will be skipped.
 - **Build exe + installer:** `make installer-wsl` (dispatches to Windows Python in `.venv-win` via PowerShell — run `make venv-win` once first)
 
 ## Commands — Windows
 
-- **Run lint:** `make lint PYTHON=.venv/Scripts/python.exe`
-- **Run tests:** `make test-cov PYTHON=.venv/Scripts/python.exe`
+- **First-time setup:** `make deps` (creates `.venv`, installs all dependencies)
+- **Run lint:** `make lint`
+- **Run tests:** `make test-cov`
 - **Run functional tests:** `.venv/Scripts/python.exe -m pytest tests/functional/ -v`
 
-> **Release checklist note:** `make test-cov` excludes functional tests via the `not functional` marker. Do not run functional tests as part of the release checklist on Windows (they require a display and live credentials).
-- **Build exe:** `.venv/Scripts/python.exe -m PyInstaller build/build.spec --noconfirm`
+> **Release checklist note:** `make test-cov` excludes functional tests via the `not functional` marker. Do not run functional tests as part of the release checklist (they require a display and live credentials).
+- **Build exe:** `.venv-win\Scripts\python.exe -m PyInstaller build/build.spec --noconfirm`
 - **Build installer:** `"C:/Program Files (x86)/NSIS/makensis.exe" build/installer.nsi`
 
 ## Paths

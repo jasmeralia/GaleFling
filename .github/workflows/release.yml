@@ -9,8 +9,15 @@ on:
   pull_request:
     branches:
       - master
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create tag and publish a release (master or an existing tag only)'
+        type: boolean
+        default: false
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -18,85 +25,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  sync-version:
-    name: Sync Release Version
+  resolve:
+    name: Resolve Release Info
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
-      tag_name: ${{ steps.resolve.outputs.tag_name || steps.branch.outputs.tag_name }}
-      skip_release: ${{ steps.pr.outputs.skip_release || steps.resolve.outputs.skip_release || steps.branch.outputs.skip_release }}
+      is_release: ${{ steps.r.outputs.is_release }}
+      create_tag: ${{ steps.r.outputs.create_tag }}
+      tag_name: ${{ steps.r.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Resolve pull request
-        id: pr
-        if: github.event_name == 'pull_request'
-        run: |
-          echo "skip_release=false" >> "$GITHUB_OUTPUT"
-
-      - name: Validate pushed tag
-        id: resolve
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          tag_name="${GITHUB_REF_NAME}"
-          if [[ ! "${tag_name}" == v* ]]; then
-            echo "Expected a v-prefixed release tag, got '${tag_name}'"
-            exit 1
-          fi
-          app_version=$(python - <<'PY'
-          from src.utils.constants import APP_VERSION
-          print(APP_VERSION)
-          PY
-          )
-          expected_tag="v${app_version}"
-          if [[ "${tag_name}" != "${expected_tag}" ]]; then
-            echo "Tag ${tag_name} does not match APP_VERSION ${app_version}"
-            exit 1
-          fi
-          echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
-          echo "skip_release=false" >> "$GITHUB_OUTPUT"
-
-      - name: Sync branch version
-        id: branch
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch --tags --force origin
-          git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=v:refname > /tmp/release-tags.txt
-          result=$(python scripts/sync_release_version.py \
-            --root . \
-            --tags-file /tmp/release-tags.txt \
-            --date "$(date -u +%F)" \
-            --write)
-          echo "${result}"
-          tag_name=$(python -c "import json, sys; print(json.loads(sys.argv[1])['tag_name'])" "${result}")
-          bumped=$(python -c "import json, sys; print(str(json.loads(sys.argv[1])['bumped']).lower())" "${result}")
-
-          if [[ "${bumped}" == "true" ]]; then
-            git add src/utils/constants.py README.md CHANGELOG.md
-            git commit -m "Release ${tag_name}"
-            git push origin HEAD:master
-            echo "skip_release=true" >> "$GITHUB_OUTPUT"
-            echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if git rev-parse -q --verify "refs/tags/${tag_name}" >/dev/null; then
-            echo "Tag ${tag_name} already exists; APP_VERSION sync should have bumped it"
-            exit 1
-          fi
-
-          echo "skip_release=false" >> "$GITHUB_OUTPUT"
-          echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
+      - name: Resolve release info
+        id: r
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          DISPATCH_RELEASE: ${{ inputs.release }}
+        run: python3 scripts/release_info.py
 
   lint-and-test:
     name: Lint & Test
-    needs: sync-version
-    if: needs.sync-version.outputs.skip_release != 'true'
+    needs: resolve
     runs-on: ubuntu-latest
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -112,27 +62,19 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
       - name: Install Qt system libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0
 
+      - name: Install dependencies
+        run: make deps
+
       - name: Lint
         run: make lint
 
       - name: Test with coverage
-        run: |
-          python -m pytest tests/ -v -m "not functional" \
-            --cov=src \
-            --cov-report=term-missing \
-            --cov-report=html \
-            --cov-report=xml:coverage.xml \
-            --junitxml=junit.xml \
-            -o junit_family=legacy
+        run: make test-cov
 
       - name: Upload coverage
         uses: codecov/codecov-action@v7
@@ -156,53 +98,49 @@ jobs:
 
   create-tag:
     name: Create Release Tag
-    if: github.event_name != 'pull_request' && needs.sync-version.outputs.skip_release != 'true'
-    needs: [sync-version, lint-and-test]
+    if: needs.resolve.outputs.is_release == 'true'
+    needs: [resolve, lint-and-test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     outputs:
-      tag_name: ${{ steps.tag.outputs.tag_name }}
+      tag_name: ${{ needs.resolve.outputs.tag_name }}
+      tag_sha: ${{ steps.tag.outputs.tag_sha }}
+    env:
+      TAG_NAME: ${{ needs.resolve.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ needs.resolve.outputs.create_tag == 'true' && 'master' || format('refs/tags/{0}', needs.resolve.outputs.tag_name) }}
 
       - name: Create or resolve tag
         id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          tag_name="${{ needs.sync-version.outputs.tag_name }}"
-          if [[ -z "${tag_name}" ]]; then
-            echo "Release tag output was empty"
-            exit 1
-          fi
-
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
+          if [[ "${{ needs.resolve.outputs.create_tag }}" != "true" ]]; then
+            echo "tag_sha=$(git rev-parse refs/tags/${TAG_NAME})" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
-          git fetch --tags --force origin
-          if git rev-parse -q --verify "refs/tags/${tag_name}" >/dev/null; then
-            echo "Tag ${tag_name} already exists"
-            exit 1
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "${tag_name}" -m "Release ${tag_name}"
-          git push origin "refs/tags/${tag_name}"
-          echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
+          commit_sha=$(git rev-parse HEAD)
+          gh api "repos/${{ github.repository }}/git/refs" \
+            --method POST \
+            --field "ref=refs/tags/${TAG_NAME}" \
+            --field "sha=${commit_sha}"
+          echo "tag_sha=${commit_sha}" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build Windows Executable
-    if: github.event_name != 'pull_request' && needs.sync-version.outputs.skip_release != 'true'
-    needs: [sync-version, lint-and-test, create-tag]
+    if: needs.resolve.outputs.is_release == 'true'
+    needs: [resolve, create-tag]
     runs-on: windows-latest
+    env:
+      TAG_NAME: ${{ needs.resolve.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: refs/tags/${{ needs.create-tag.outputs.tag_name }}
+          ref: refs/tags/${{ env.TAG_NAME }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -212,6 +150,10 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
+
+      - name: Write release version file
+        shell: bash
+        run: python scripts/write_version.py --tag "${TAG_NAME}"
 
       - name: Install dependencies
         run: |
@@ -241,51 +183,41 @@ jobs:
           }
           & $nsis build\\installer.nsi
 
-      - name: Create portable zip
-        shell: pwsh
-        run: |
-          $version = "${{ needs.create-tag.outputs.tag_name }}".TrimStart("v")
-          Compress-Archive -Path dist/GaleFling.exe -DestinationPath "dist/GaleFling-${version}-portable.zip"
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: windows-build
-          path: |
-            build/GaleFling-Setup-*.exe
+          path: build/GaleFling-Setup-*.exe
 
   release:
     name: Create Beta Release
-    if: github.event_name != 'pull_request' && needs.sync-version.outputs.skip_release != 'true'
-    needs: [sync-version, lint-and-test, create-tag, build]
+    if: needs.resolve.outputs.is_release == 'true'
+    needs: [resolve, create-tag, build]
     runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ needs.resolve.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: refs/tags/${{ needs.create-tag.outputs.tag_name }}
+          ref: refs/tags/${{ env.TAG_NAME }}
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: windows-build
-          path: .
-          merge-multiple: true
-
-      - name: Remove portable zip
-        run: |
-          find . -name "*-portable.zip" -delete
+        run: gh run download "$GITHUB_RUN_ID" --name windows-build --dir .
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: List release assets
         run: |
           echo "Installer assets found:"
           find . -name "GaleFling-Setup-*.exe" -print
 
-      - name: Generate release notes from commits
+      - name: Generate release notes from changelog
         id: release_notes
+        env:
+          CURRENT_TAG: ${{ env.TAG_NAME }}
         run: |
-          # Find the previous release tag (including prereleases, excluding current)
-          PREV_TAG=$(python - <<'PY'
+          PREV_TAG=$(python3 - <<'PY'
           import json
           import os
           import urllib.request
@@ -318,22 +250,12 @@ jobs:
           print(tag)
           PY
           )
-          CURRENT_TAG="${{ needs.create-tag.outputs.tag_name }}"
 
-          if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "$CURRENT_TAG" ]; then
-            # First tag - use all commits
-            git log --pretty=format:"- %s (%h)" HEAD >/dev/null
-          else
-            git log --pretty=format:"- %s (%h)" "${PREV_TAG}..${CURRENT_TAG}" >/dev/null
-          fi
-
-          # Extract changelog sections between current tag and last published release
           CHANGELOG_SECTION=""
           if [ -f CHANGELOG.md ]; then
-            CHANGELOG_SECTION=$(python scripts/release_notes.py)
+            CHANGELOG_SECTION=$(PREV_TAG="$PREV_TAG" CURRENT_TAG="$CURRENT_TAG" python3 scripts/release_notes.py)
           fi
 
-          # Build the body
           {
             echo "body<<RELEASE_EOF"
             if [ -n "$CHANGELOG_SECTION" ]; then
@@ -347,16 +269,14 @@ jobs:
             echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${CURRENT_TAG}"
             echo "RELEASE_EOF"
           } >> "$GITHUB_OUTPUT"
-        env:
-          CURRENT_TAG: ${{ needs.create-tag.outputs.tag_name }}
 
       - name: Create beta release
         uses: softprops/action-gh-release@v3
         with:
           draft: false
           prerelease: true
-          tag_name: ${{ needs.create-tag.outputs.tag_name }}
-          name: "${{ needs.create-tag.outputs.tag_name }} - GaleFling"
+          tag_name: ${{ env.TAG_NAME }}
+          name: "${{ env.TAG_NAME }} - GaleFling"
           body: ${{ steps.release_notes.outputs.body }}
           files: |
             **/GaleFling-Setup-*.exe

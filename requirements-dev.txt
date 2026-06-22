@@ -1,8 +1,8 @@
 -r requirements.txt
-pytest>=9.1.0
+pytest>=9.1.1
 pytest-qt>=4.5.0
 pytest-cov>=7.1.0
-ruff>=0.15.17
+ruff>=0.15.18
 mypy>=2.1.0
 types-requests>=2.33.0.20260518
 pyinstaller>=6.21.0

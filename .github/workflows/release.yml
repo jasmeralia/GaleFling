@@ -33,7 +33,7 @@ jobs:
       create_tag: ${{ steps.r.outputs.create_tag }}
       tag_name: ${{ steps.r.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Resolve release info
@@ -51,7 +51,7 @@ jobs:
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -109,7 +109,7 @@ jobs:
     env:
       TAG_NAME: ${{ needs.resolve.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ needs.resolve.outputs.create_tag == 'true' && 'master' || format('refs/tags/{0}', needs.resolve.outputs.tag_name) }}
@@ -138,7 +138,7 @@ jobs:
     env:
       TAG_NAME: ${{ needs.resolve.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ env.TAG_NAME }}
 
@@ -197,7 +197,7 @@ jobs:
     env:
       TAG_NAME: ${{ needs.resolve.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: refs/tags/${{ env.TAG_NAME }}

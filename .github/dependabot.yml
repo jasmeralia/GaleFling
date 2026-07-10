@@ -1,29 +1,32 @@
 version: 2
 updates:
-  - package-ecosystem: 'pip'
-    directory: '/'
-    schedule:
-      interval: 'weekly'
-      day: 'monday'
-      time: '09:00'
-      timezone: 'America/Los_Angeles'
-    open-pull-requests-limit: 5
-    auto-merge: enable
-    groups:
-      python-dependencies:
-        patterns:
-          - '*'
-
-  - package-ecosystem: 'github-actions'
-    directory: '/'
-    schedule:
-      interval: 'weekly'
-      day: 'monday'
-      time: '09:00'
-      timezone: 'America/Los_Angeles'
-    open-pull-requests-limit: 5
-    auto-merge: enable
-    groups:
-      github-actions:
-        patterns:
-          - '*'
+- package-ecosystem: pip
+  directory: /
+  schedule:
+    interval: weekly
+    day: monday
+    time: 09:00
+    timezone: America/Los_Angeles
+  open-pull-requests-limit: 5
+  auto-merge: enable
+  groups:
+    python-dependencies:
+      patterns:
+      - '*'
+  reviewers:
+  - jasmeralia
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: weekly
+    day: monday
+    time: 09:00
+    timezone: America/Los_Angeles
+  open-pull-requests-limit: 5
+  auto-merge: enable
+  groups:
+    github-actions:
+      patterns:
+      - '*'
+  reviewers:
+  - jasmeralia

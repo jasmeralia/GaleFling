@@ -2,8 +2,8 @@
 pytest>=9.1.1
 pytest-qt>=4.5.0
 pytest-cov>=7.1.0
-ruff>=0.15.20
-mypy>=2.1.0
-types-requests>=2.33.0.20260518
+ruff>=0.15.21
+mypy>=2.3.0
+types-requests>=2.33.0.20260712
 pyinstaller>=6.21.0
 pyotp>=2.10.0

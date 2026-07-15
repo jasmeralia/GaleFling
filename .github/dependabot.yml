@@ -13,6 +13,8 @@ updates:
     python-dependencies:
       patterns:
       - '*'
+  reviewers:
+  - jasmeralia
 - package-ecosystem: github-actions
   directory: /
   schedule:
@@ -26,3 +28,5 @@ updates:
     github-actions:
       patterns:
       - '*'
+  reviewers:
+  - jasmeralia

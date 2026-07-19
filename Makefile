@@ -15,7 +15,7 @@ VERSION_FILE := src/utils/_version.py
 POWERSHELL   := /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
 WIN_PYTHON   ?= py
 
-.PHONY: help venv deps version-file lint lint-fix format test test-cov \
+.PHONY: help venv deps version-file lint lintfix format test test-cov \
         test-functional test-functional-xvfb test-functional-cmd \
         venv-win build-wsl installer-wsl run clean
 
@@ -45,11 +45,11 @@ lint: ## Run ruff, mypy, and shellcheck
 	$(PY) -m mypy src/ scripts/release_info.py scripts/write_version.py
 	shellcheck infrastructure/deploy.sh
 
-lint-fix: ## Auto-fix lint issues and format code
+lintfix: ## Auto-fix lint issues and format code
 	$(PY) -m ruff check --fix src/ tests/ infrastructure/ scripts/
 	$(PY) -m ruff format src/ tests/ infrastructure/ scripts/
 
-format: lint-fix  ## Alias for lint-fix
+format: lintfix  ## Alias for lintfix
 
 test: ## Run test suite (excludes functional)
 	QT_QPA_PLATFORM=offscreen $(PY) -m pytest tests/ -v -m "not functional"

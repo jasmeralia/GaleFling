@@ -30,6 +30,14 @@ Manual release touchpoints are:
 
 On `master` pushes where `APP_VERSION` is stale or already tagged, GitHub Actions commits the next patch version to those files and exits. The follow-up workflow run tags and builds the exact checked-in `APP_VERSION`.
 
+## Linux Packaging
+
+Releases include sideload-only DEB, RPM, AppImage, and Snap packages for both amd64 and arm64. They are attached to GitHub Releases and are not published to a package repository or app store.
+
+The DEB, RPM, and AppImage builds require glibc 2.39 or newer, matching the Ubuntu 24.04 build environment. DEB and RPM packages enforce this through package dependencies; AppImage checks the host glibc version in `AppRun` and prints a clear error on older systems. Snap uses the glibc supplied by its `core24` base and is unaffected by the host system's glibc version.
+
+The Snap uses classic confinement because GaleFling must read arbitrary user-selected media paths, including files outside the home directory and on external drives. Install it locally with `sudo snap install --classic --dangerous <file>.snap`.
+
 ## Update System (App Behavior)
 - update check: GitHub releases API
 - prerelease/stable behavior controlled by config

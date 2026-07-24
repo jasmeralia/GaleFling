@@ -18,7 +18,7 @@ on:
 
 permissions:
   actions: read
-  contents: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
@@ -186,14 +186,263 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: windows-build
+          name: GaleFling-windows
           path: build/GaleFling-Setup-*.exe
+          if-no-files-found: error
+
+  build-linux-deb-rpm:
+    name: Build Linux DEB/RPM (${{ matrix.arch }})
+    if: needs.resolve.outputs.is_release == 'true'
+    needs: [resolve, create-tag]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            nfpm_arch: x86_64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            nfpm_arch: arm64
+    env:
+      TAG_NAME: ${{ needs.resolve.outputs.tag_name }}
+      ARCH: ${{ matrix.arch }}
+      NFPM_VERSION: 2.47.0
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: make deps
+
+      - name: Write release version file
+        run: python scripts/write_version.py --tag "${TAG_NAME}"
+
+      - name: Build Linux executable
+        run: make build-linux
+
+      - name: Install verified nFPM
+        env:
+          NFPM_ARCH: ${{ matrix.nfpm_arch }}
+        run: |
+          archive="nfpm_${NFPM_VERSION}_Linux_${NFPM_ARCH}.tar.gz"
+          base_url="https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}"
+          mkdir -p "${RUNNER_TEMP}/nfpm"
+          cd "${RUNNER_TEMP}/nfpm"
+          curl --fail --location --silent --show-error --remote-name \
+            "${base_url}/${archive}"
+          curl --fail --location --silent --show-error --remote-name \
+            "${base_url}/checksums.txt"
+          grep "  ${archive}$" checksums.txt | sha256sum --check --strict
+          tar -xzf "${archive}" nfpm
+          echo "${RUNNER_TEMP}/nfpm" >> "$GITHUB_PATH"
+
+      - name: Build DEB and RPM packages
+        run: |
+          VERSION="${TAG_NAME#v}"
+          export VERSION ARCH
+          nfpm package --config build/linux/nfpm.yaml --packager deb \
+            --target "dist/GaleFling-${VERSION}-${ARCH}.deb"
+          nfpm package --config build/linux/nfpm.yaml --packager rpm \
+            --target "dist/GaleFling-${VERSION}-${ARCH}.rpm"
+
+      - name: Upload Linux package artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: GaleFling-deb-rpm-${{ matrix.arch }}
+          path: |
+            dist/GaleFling-*.deb
+            dist/GaleFling-*.rpm
+          if-no-files-found: error
+
+  build-appimage:
+    name: Build AppImage (${{ matrix.arch }})
+    if: needs.resolve.outputs.is_release == 'true'
+    needs: [resolve, create-tag]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            appimage_arch: x86_64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            appimage_arch: aarch64
+    env:
+      TAG_NAME: ${{ needs.resolve.outputs.tag_name }}
+      ARCH: ${{ matrix.arch }}
+      APPIMAGETOOL_VERSION: 1.9.1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: make deps
+
+      - name: Write release version file
+        run: python scripts/write_version.py --tag "${TAG_NAME}"
+
+      - name: Build Linux executable
+        run: make build-linux
+
+      - name: Assemble AppDir
+        run: |
+          appdir="${RUNNER_TEMP}/GaleFling.AppDir"
+          install -d "${appdir}/usr/bin"
+          install -Dm755 dist/GaleFling "${appdir}/usr/bin/galefling"
+          install -Dm755 build/linux/appimage/AppRun "${appdir}/AppRun"
+          install -Dm644 resources/linux/galefling.desktop \
+            "${appdir}/galefling.desktop"
+          install -Dm644 resources/icon.png "${appdir}/galefling.png"
+
+      - name: Build AppImage
+        env:
+          APPIMAGE_ARCH: ${{ matrix.appimage_arch }}
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: |
+          VERSION="${TAG_NAME#v}"
+          asset="appimagetool-${APPIMAGE_ARCH}.AppImage"
+          tool="${RUNNER_TEMP}/${asset}"
+          curl --fail --location --silent --show-error \
+            --output "${tool}" \
+            "https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/${asset}"
+
+          expected=$(grep "  ${asset}\$" build/appimagetool.sha256 | cut -d' ' -f1)
+          if [ -z "${expected}" ]; then
+            echo "::error::No pinned checksum for ${asset} in build/appimagetool.sha256"
+            exit 1
+          fi
+          actual=$(sha256sum "${tool}" | cut -d' ' -f1)
+          if [ "${actual}" != "${expected}" ]; then
+            echo "::error::${asset} checksum mismatch: expected ${expected}, got ${actual}"
+            exit 1
+          fi
+
+          chmod +x "${tool}"
+          ARCH="${APPIMAGE_ARCH}" VERSION="${VERSION}" "${tool}" \
+            "${RUNNER_TEMP}/GaleFling.AppDir" \
+            "dist/GaleFling-${VERSION}-${ARCH}.AppImage"
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: GaleFling-appimage-${{ matrix.arch }}
+          path: dist/GaleFling-*.AppImage
+          if-no-files-found: error
+
+  build-snap:
+    name: Build Snap (${{ matrix.arch }})
+    if: needs.resolve.outputs.is_release == 'true'
+    needs: [resolve, create-tag]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      TAG_NAME: ${{ needs.resolve.outputs.tag_name }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: make deps
+
+      - name: Write release version file
+        run: python scripts/write_version.py --tag "${TAG_NAME}"
+
+      - name: Build Linux executable
+        run: make build-linux
+
+      - name: Stage Snap inputs
+        run: |
+          stage=build/linux/snap/stage
+          install -d "${stage}"
+          install -m755 dist/GaleFling "${stage}/GaleFling"
+          install -m644 resources/linux/galefling.desktop \
+            "${stage}/galefling.desktop"
+          install -m644 resources/icon.png "${stage}/galefling.png"
+
+      - name: Set Snap version
+        run: |
+          VERSION="${TAG_NAME#v}"
+          sed -i "s/version: '0.0.0'/version: '${VERSION}'/" \
+            build/linux/snap/snapcraft.yaml
+
+      - name: Build Snap
+        id: snapcraft
+        uses: snapcore/action-build@v1
+        with:
+          path: build/linux/snap
+
+      - name: Name Snap release asset
+        run: |
+          VERSION="${TAG_NAME#v}"
+          cp "${{ steps.snapcraft.outputs.snap }}" \
+            "dist/GaleFling-${VERSION}-${ARCH}.snap"
+
+      - name: Upload Snap artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: GaleFling-snap-${{ matrix.arch }}
+          path: dist/GaleFling-*.snap
+          if-no-files-found: error
 
   release:
     name: Create Beta Release
-    if: needs.resolve.outputs.is_release == 'true'
-    needs: [resolve, create-tag, build]
+    if: |
+      always() &&
+      needs.resolve.outputs.is_release == 'true' &&
+      needs.build.result == 'success'
+    needs:
+      - resolve
+      - create-tag
+      - build
+      - build-linux-deb-rpm
+      - build-appimage
+      - build-snap
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
     env:
       TAG_NAME: ${{ needs.resolve.outputs.tag_name }}
     steps:
@@ -202,14 +451,20 @@ jobs:
           ref: refs/tags/${{ env.TAG_NAME }}
 
       - name: Download build artifacts
-        run: gh run download "$GITHUB_RUN_ID" --name windows-build --dir .
+        run: gh run download "$GITHUB_RUN_ID" --pattern 'GaleFling-*' --dir release-assets
         env:
           GH_TOKEN: ${{ github.token }}
 
       - name: List release assets
+        run: find release-assets -type f -print
+
+      - name: Verify Windows installer asset is present
         run: |
-          echo "Installer assets found:"
-          find . -name "GaleFling-Setup-*.exe" -print
+          count=$(find release-assets -name 'GaleFling-Setup-*.exe' | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "::error::Expected exactly one Windows installer asset (GaleFling-Setup-*.exe), found $count. Refusing to publish a release without it."
+            exit 1
+          fi
 
       - name: Create beta release
         uses: softprops/action-gh-release@v3
@@ -219,5 +474,38 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           name: "${{ env.TAG_NAME }} - GaleFling"
           generate_release_notes: true
+          fail_on_unmatched_files: false
           files: |
-            **/GaleFling-Setup-*.exe
+            release-assets/**/*.exe
+            release-assets/**/*.deb
+            release-assets/**/*.rpm
+            release-assets/**/*.AppImage
+            release-assets/**/*.snap
+
+  verify-release-complete:
+    name: Verify All Release Assets Published
+    if: always() && needs.resolve.outputs.is_release == 'true'
+    needs:
+      - resolve
+      - build
+      - build-linux-deb-rpm
+      - build-appimage
+      - build-snap
+      - release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check every packaging job succeeded
+        run: |
+          echo "build:                 ${{ needs.build.result }}"
+          echo "build-linux-deb-rpm:   ${{ needs.build-linux-deb-rpm.result }}"
+          echo "build-appimage:        ${{ needs.build-appimage.result }}"
+          echo "build-snap:            ${{ needs.build-snap.result }}"
+          echo "release:               ${{ needs.release.result }}"
+          if [ "${{ needs.build.result }}" != "success" ] || \
+             [ "${{ needs.build-linux-deb-rpm.result }}" != "success" ] || \
+             [ "${{ needs.build-appimage.result }}" != "success" ] || \
+             [ "${{ needs.build-snap.result }}" != "success" ] || \
+             [ "${{ needs.release.result }}" != "success" ]; then
+            echo "::error::One or more packaging jobs did not succeed. The release may be missing one or more assets; check the job results above."
+            exit 1
+          fi

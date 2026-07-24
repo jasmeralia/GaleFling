@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=GaleFling
+Comment=Post to multiple social platforms at once
+Exec=galefling
+Icon=galefling
+Type=Application
+Categories=Network;
+Terminal=false

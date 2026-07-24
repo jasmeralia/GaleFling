@@ -17,7 +17,7 @@ WIN_PYTHON   ?= py
 
 .PHONY: help venv deps version-file lint lintfix format test test-cov \
         test-functional test-functional-xvfb test-functional-cmd \
-        venv-win build-wsl installer-wsl run clean
+        venv-win build-wsl build-linux installer-wsl run clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -43,7 +43,7 @@ lint: ## Run ruff, mypy, and shellcheck
 	$(PY) -m ruff check src/ tests/ infrastructure/ scripts/
 	$(PY) -m ruff format --check src/ tests/ infrastructure/ scripts/
 	$(PY) -m mypy src/ scripts/release_info.py scripts/write_version.py
-	shellcheck infrastructure/deploy.sh
+	shellcheck infrastructure/deploy.sh build/linux/appimage/AppRun
 
 lintfix: ## Auto-fix lint issues and format code
 	$(PY) -m ruff check --fix src/ tests/ infrastructure/ scripts/
@@ -83,6 +83,9 @@ build-wsl: ## [WSL→Win] Build standalone executable via PowerShell dispatch to
 	@WIN_DIR=$$(wslpath -w "$(CURDIR)"); \
 	printf "Set-Location '%s'; .venv-win\\\\Scripts\\\\python.exe -m PyInstaller build/build.spec --distpath dist/ --workpath build/tmp --clean\n" "$$WIN_DIR" | \
 	$(POWERSHELL) -NoProfile -Command -
+
+build-linux: ## [Linux] Build standalone Linux executable via PyInstaller
+	$(PY) -m PyInstaller build/build.spec --distpath dist/ --workpath build/tmp --clean
 
 installer-wsl: build-wsl  ## [WSL→Win] Build exe + NSIS installer via PowerShell (use this in WSL)
 	@WIN_DIR=$$(wslpath -w "$(CURDIR)"); \

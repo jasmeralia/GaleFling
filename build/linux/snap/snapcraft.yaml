@@ -1,0 +1,32 @@
+name: galefling
+base: core24
+version: '0.0.0'  # Replaced with the tag-derived version by release.yml.
+summary: Post to multiple social platforms at once
+description: |
+  GaleFling posts to Bluesky, Instagram, Threads, Twitter/X, and other
+  platforms from one desktop app.
+grade: stable
+# GaleFling accepts arbitrary user-selected media paths. Classic confinement
+# preserves access outside the home directory and on external drives.
+confinement: classic
+
+apps:
+  galefling:
+    command: usr/bin/galefling
+    desktop: usr/share/applications/galefling.desktop
+
+parts:
+  galefling:
+    plugin: nil
+    source: stage
+    override-build: |
+      install -Dm755 "$CRAFT_PART_SRC/GaleFling" \
+        "$CRAFT_PART_INSTALL/usr/bin/galefling"
+  desktop-integration:
+    plugin: nil
+    source: stage
+    override-build: |
+      install -Dm644 "$CRAFT_PART_SRC/galefling.desktop" \
+        "$CRAFT_PART_INSTALL/usr/share/applications/galefling.desktop"
+      install -Dm644 "$CRAFT_PART_SRC/galefling.png" \
+        "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/256x256/apps/galefling.png"

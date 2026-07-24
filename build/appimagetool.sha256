@@ -1,0 +1,5 @@
+# SHA-256 hashes for the pinned appimagetool 1.9.1 release binaries.
+# Source release: https://github.com/AppImage/appimagetool/releases/tag/1.9.1
+# Format: <sha256>  <filename>
+ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool-x86_64.AppImage
+f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158  appimagetool-aarch64.AppImage

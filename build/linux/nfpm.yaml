@@ -1,0 +1,33 @@
+name: galefling
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: net
+priority: optional
+maintainer: Morgan Blackthorne <morgan@windsofstorm.net>
+description: |
+  Post to multiple social platforms (Bluesky, Instagram, Threads, Twitter/X,
+  and more) from one desktop app.
+vendor: Winds of Storm
+homepage: https://github.com/jasmeralia/GaleFling
+license: MIT
+# PyInstaller Linux builds link against the glibc of their build environment
+# (Ubuntu 24.04 LTS / ubuntu-24.04-arm, glibc 2.39) and are only
+# forward-compatible. Refuse installation on incompatible systems.
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.39)
+  rpm:
+    depends:
+      - glibc >= 2.39
+contents:
+  - src: dist/GaleFling
+    dst: /usr/bin/galefling
+    file_info:
+      mode: 0755
+  - src: resources/linux/galefling.desktop
+    dst: /usr/share/applications/galefling.desktop
+  - src: resources/icon.png
+    dst: /usr/share/icons/hicolor/256x256/apps/galefling.png

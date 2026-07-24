@@ -5,7 +5,7 @@
 ![Release](https://img.shields.io/github/v/release/jasmeralia/GaleFling?include_prereleases&sort=semver&label=Release)
 ![Coverage](https://codecov.io/gh/jasmeralia/GaleFling/branch/master/graph/badge.svg)
 
-GaleFling is a Windows desktop app for posting to multiple social platforms at once. It’s designed for non-technical creators, with clear guidance, robust error handling, and one-click log sharing for support.
+GaleFling is a desktop app for posting to multiple social platforms at once, packaged for Windows and Linux. It’s designed for non-technical creators, with clear guidance, robust error handling, and one-click log sharing for support.
 
 **Current Version:** 1.8.15
 
@@ -13,7 +13,15 @@ Docs: [Changelog](CHANGELOG.md) | [Roadmap](docs/ROADMAP.md) | [Contributing](do
 
 ## Download & Install
 
-Grab the latest installer from the GitHub Releases page and run it on Windows 10/11.
+Grab the latest package from the [GitHub Releases page](https://github.com/jasmeralia/GaleFling/releases).
+
+- **Windows 10/11:** Run `GaleFling-Setup-<version>.exe`.
+- **Debian/Ubuntu (amd64 or arm64):** `sudo apt install ./GaleFling-<version>-<arch>.deb`
+- **Fedora/RHEL (amd64 or arm64):** `sudo dnf install ./GaleFling-<version>-<arch>.rpm`
+- **AppImage (amd64 or arm64):** `chmod +x GaleFling-<version>-<arch>.AppImage`, then run it with `./GaleFling-<version>-<arch>.AppImage`.
+- **Snap (amd64 or arm64):** `sudo snap install --classic --dangerous ./GaleFling-<version>-<arch>.snap`
+
+Linux packages are sideloaded from GitHub Releases. See [Linux Packaging](docs/BUILD_AND_RELEASE.md#linux-packaging) for the glibc baseline and Snap confinement details.
 
 ## First-Time Setup
 

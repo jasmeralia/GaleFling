@@ -45,3 +45,18 @@ def test_extract_sections_falls_back_to_current_only():
     result = extract_sections(changelog, current_version='0.2.5', prev_version='1.0.0')
     assert '0.2.5' in result
     assert '0.2.4' not in result
+
+
+def test_extract_sections_empty_when_neither_tag_documented():
+    """Dependabot/chore releases often skip the changelog entirely; with no
+    boundary to anchor on, we must not dump the whole file's history."""
+    changelog = """# Changelog
+
+## [0.2.0] - 2026-02-01
+
+### Added
+- Original feature
+"""
+
+    result = extract_sections(changelog, current_version='0.2.9', prev_version='0.2.8')
+    assert result == ''

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Release notes generation:** `scripts/release_notes.py` no longer dumps the entire `CHANGELOG.md` history into GitHub release notes when neither the current nor the previous release tag has a corresponding changelog entry (common for dependency-bump/chore releases, since a changelog entry is optional for patch releases). It now reports no changelog section for those releases instead of every past entry back to the beginning of the file.
+
 ## [1.8.15] - 2026-05-07
 
 ### Fixed

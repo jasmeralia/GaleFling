@@ -50,11 +50,20 @@ def extract_sections(changelog: str, current_version: str, prev_version: str) ->
             continue
         output_sections.append(section)
 
-    if not found_prev and current_version:
-        for section in sections:
-            if section_version(section) == current_version:
-                output_sections = [section]
-                break
+    if not found_prev:
+        if has_current:
+            for section in sections:
+                if section_version(section) == current_version:
+                    output_sections = [section]
+                    break
+        else:
+            # Neither the current nor the previous tag has a CHANGELOG.md
+            # entry (common for dependency-bump/chore releases, where a
+            # changelog entry is optional). With no boundary to anchor on,
+            # dumping every section collected above would mean the entire
+            # changelog history, so report nothing instead of a bogus wall
+            # of unrelated past releases.
+            output_sections = []
 
     return '\n\n'.join(output_sections).strip()
 

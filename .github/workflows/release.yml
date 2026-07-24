@@ -199,7 +199,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           ref: refs/tags/${{ env.TAG_NAME }}
 
       - name: Download build artifacts
@@ -212,64 +211,6 @@ jobs:
           echo "Installer assets found:"
           find . -name "GaleFling-Setup-*.exe" -print
 
-      - name: Generate release notes from changelog
-        id: release_notes
-        env:
-          CURRENT_TAG: ${{ env.TAG_NAME }}
-        run: |
-          PREV_TAG=$(python3 - <<'PY'
-          import json
-          import os
-          import urllib.request
-
-          repo = os.environ.get("GITHUB_REPOSITORY")
-          current = os.environ.get("CURRENT_TAG", "")
-          url = f"https://api.github.com/repos/{repo}/releases?per_page=20"
-
-          tag = ""
-          try:
-              with urllib.request.urlopen(url, timeout=10) as resp:
-                  data = json.load(resp)
-              for release in data:
-                  if release.get("draft"):
-                      continue
-                  rel_tag = release.get("tag_name", "")
-                  if rel_tag and rel_tag != current:
-                      tag = rel_tag
-                      break
-          except Exception:
-              tag = ""
-
-          if not tag:
-              tags = os.popen("git tag --sort=-v:refname").read().strip().splitlines()
-              for rel_tag in tags:
-                  if rel_tag and rel_tag != current:
-                      tag = rel_tag
-                      break
-
-          print(tag)
-          PY
-          )
-
-          CHANGELOG_SECTION=""
-          if [ -f CHANGELOG.md ]; then
-            CHANGELOG_SECTION=$(PREV_TAG="$PREV_TAG" CURRENT_TAG="$CURRENT_TAG" python3 scripts/release_notes.py)
-          fi
-
-          {
-            echo "body<<RELEASE_EOF"
-            if [ -n "$CHANGELOG_SECTION" ]; then
-              echo "## What's Changed"
-              echo ""
-              echo "$CHANGELOG_SECTION"
-              echo ""
-            fi
-            echo "---"
-            echo ""
-            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${CURRENT_TAG}"
-            echo "RELEASE_EOF"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Create beta release
         uses: softprops/action-gh-release@v3
         with:
@@ -277,6 +218,6 @@ jobs:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
           name: "${{ env.TAG_NAME }} - GaleFling"
-          body: ${{ steps.release_notes.outputs.body }}
+          generate_release_notes: true
           files: |
             **/GaleFling-Setup-*.exe

@@ -28,3 +28,17 @@ updates:
       - '*'
   reviewers:
   - jasmeralia
+- package-ecosystem: devcontainers
+  directory: /
+  schedule:
+    interval: weekly
+    day: monday
+    time: '09:00'
+    timezone: America/Los_Angeles
+  open-pull-requests-limit: 5
+  groups:
+    devcontainers:
+      patterns:
+      - '*'
+  reviewers:
+  - jasmeralia

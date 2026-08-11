@@ -2,16 +2,16 @@
 
 **Status:** Phases 1 and 3 implemented; Phase 2 in progress; Phases 4–7 not started
 **Created:** 2026-08-10
-**Last updated:** 2026-08-11
+**Last updated:** 2026-08-11 (OnlyFans auth + checkbox scope)
 **Owner:** Jas
 **Tracks:** GitHub issue #1 (WebView2 migration), `debug_state.md`
 
 ## Purpose
 
-Establish a reproducible loop for debugging the three long-standing WebView defect
-classes — renderer crashes, checkbox clicks not registering, and sessions not
-persisting — by making Linux the primary test host and adding a scriptable Windows
-VM for target-platform confirmation.
+Establish a reproducible loop for debugging WebView defect classes — renderer
+crashes, session persistence, and (where functional tests demonstrate a need)
+embedded-browser interaction — by making Linux the primary test host and adding
+a scriptable Windows VM for target-platform confirmation.
 
 Windows remains the primary target platform. Linux does not replace Windows testing;
 it narrows the gap so Windows testing can be targeted and infrequent.
@@ -21,7 +21,7 @@ it narrows the gap so Windows testing can be targeted and infrequent.
 | Class | Status as of 2026-08-11 |
 |---|---|
 | Sessions not persisting | **Root-caused and fixed.** Every WebView ran in an off-the-record profile, because `setPage()` does not pass ownership to Python and the page was garbage-collected, so no cookie database was ever written. Retest remaining reports before assuming they survive. Durability across a process boundary is still unproven — see Phase 6. |
-| Checkbox clicks not registering | **Changed shape.** The 2FA checkbox that motivated it is unreachable: GaleFling no longer logs in to OnlyFans at all. The injected fix is generic and still applies to composer checkboxes, which is where Phase 6 should now aim. |
+| Checkbox clicks not registering | **Closed for OnlyFans login.** The 2FA checkbox that motivated the injected fix is unreachable: GaleFling no longer logs in to OnlyFans (auth.json import only). No composer checkbox defect has been reproduced by functional tests. Phase 6 does **not** include standing OnlyFans checkbox coverage — add interaction tests only if a future functional test (e.g. mutating post with PPV/schedule options) demonstrates a real failure. FetLife login still has a separate remember-me checkbox fix. |
 | Renderer crashes | **Open, but no longer Snapchat-shaped.** A genuine navigation loop was found and fixed in `SnapchatPlatform`; with it fixed the app renders on Chromium 140 with no crash. Snapchat itself is now disabled (no automatable posting surface), so this class needs a different subject. |
 
 OnlyFans authentication changed materially in the same period: its login form is gated
@@ -273,7 +273,6 @@ Three of the four known defect classes need no GPU at all:
 | Defect | Needs GPU? | Rationale |
 |---|---|---|
 | Snapchat renderer crash | No in principle | Issue #1 states `--disable-gpu` does not prevent it. **In practice the GPU-less VM cannot test it**: WebGL is blocklisted there, so Snapchat bounces to the marketing page and the bundle never runs. Needs Phase 4 or a Linux host. |
-| OnlyFans checkbox clicks | No | Blink hit-tests the layout tree, not the compositor. Target composer checkboxes — the 2FA form is unreachable now that OnlyFans login is import-only. |
 | Session persistence | No | SQLite cookie flush on shutdown. Root cause since found and fixed; note the flush is lazy (20–35 s), so a test polling the database immediately reports a false negative. |
 | `VSyncService`/`QDxgi` abort | Unknown | DXGI runs under WARP — test rather than assume |
 
@@ -350,10 +349,12 @@ Three things were learned building it that are worth keeping:
   for Phase 2 — the bundle that crash-looped never executed, exactly as in the
   earlier logged-out probe — but the cause is now identified: the GPU-less VM has no
   WebGL. **Phase 2 cannot be answered in this VM without the GPU work in Phase 4.**
-- **OnlyFans authenticates in the guest.** `test_page_loads_authenticated` passes;
-  only `test_composer_accessible` fails, reporting `editables=1` but no
-  `div[contenteditable="true"].b-make-post__text`. That is a selector question, not a
-  session or crash question — worth checking whether the composer markup has drifted.
+- **OnlyFans session tests pass; composer tests need a valid imported session.**
+  Functional tests no longer log in with email/password — they require
+  `webprofiles/onlyfans_1/` or `ONLYFANS_AUTH_JSON`. When the guest profile lacks
+  imported-session metadata (`galefling_session.json`), composer tests fail at the
+  login-form check even though cookie-based `has_valid_session()` may pass. Re-import
+  auth.json on the guest or set `ONLYFANS_AUTH_JSON` on the share.
 - **Fansly and FetLife session tests pass**, having logged in earlier in the same run.
 
 ### Remaining
@@ -361,7 +362,7 @@ Three things were learned building it that are worth keeping:
 - Time a `--revert` run and confirm the 60 s target.
 - Snapchat needs a session in the guest (its 2 session tests fail with "No Snapchat
   cookie databases found") and a GPU before it can be meaningfully tested at all.
-- Investigate the OnlyFans composer selector against the current markup.
+- Investigate OnlyFans composer failures against current markup and session-import state.
 - The `mutating` tests have not been run in the guest; they create real posts.
 
 ### Non-goals
@@ -408,19 +409,18 @@ Do not perform the BIOS change before this phase reports. It may prove unnecessa
 
 ### Background
 
-`tests/functional/webview_helpers.py` (~700 lines) builds its own `QWebEngineProfile`,
+`tests/functional/webview_helpers.py` (~500 lines) builds its own `QWebEngineProfile`,
 its own page, and its own login JS. `src/platforms/base_webview.py` (~1130 lines) does
 all of it differently — a class-level `_profile_registry` for Cloudflare fingerprint
 stability, `_LoggingWebEnginePage`, `renderProcessTerminated` handlers,
 `SESSION_EXPIRED_SELECTORS`, and platform-specific timing constants.
 
-The tests validate a reimplementation. Every defect under investigation lives in the
-code the tests do not touch: the checkbox fix is
-`src/platforms/onlyfans.py:_inject_2fa_checkbox_fix` (never invoked by any test — and
-now misnamed, since the 2FA form it was written for is unreachable, though the script
-itself patches every checkbox on every page), and the abort is dialog/profile lifecycle
-in `src/gui/settings_dialog.py` (never invoked). The tests create a fresh profile per
-test where the app deliberately shares one.
+The tests validate a reimplementation. Defects under investigation live in the code
+the tests do not touch — for example dialog/profile lifecycle in
+`src/gui/settings_dialog.py` (never invoked by functional tests), Snapchat URL redirect
+handling in `SnapchatPlatform._on_url_changed`, and `import_session()` timing against
+Chromium's lazy cookie flush. The tests create a fresh profile per case where the app
+deliberately shares one via `_profile_registry`.
 
 **This is no longer hypothetical.** On 2026-08-11 the Snapchat redirect loop was found
 precisely because the two paths disagreed: the shipped `SnapchatPlatform` was rate
@@ -451,7 +451,10 @@ verifying against a file Chromium had not yet written.
 
 ## Phase 6 — Real persistence and interaction tests
 
-**Goal:** Cover the two defect classes that no current test can detect.
+**Goal:** Cover defect classes that no current test can detect — primarily session
+durability across a process boundary. Interaction/click tests are added **only when
+functional tests demonstrate a real failure** (not as standing coverage for
+hypothetical composer checkboxes).
 **Prerequisites:** Phase 5; Phase 3 for the Windows half.
 
 ### Session persistence
@@ -486,25 +489,29 @@ cheaply.
 
 ### Interaction / clicks
 
-Replace "assert `checked === true` after our JS ran" with a genuine
-`QTest.mouseClick` at the element's viewport coordinates, then assert the resulting
-Vue state. That distinguishes *"our workaround sets the property"* from *"a user's
-click reaches the input"* — precisely the OnlyFans `.b-chckbox` failure mode, where
-decorator `<span>` and icon elements absorb the click before it reaches the hidden
-`<input>`.
+**Not in scope by default.** The OnlyFans 2FA checkbox that originally motivated
+`_inject_2fa_checkbox_fix` is unreachable — GaleFling no longer logs in to OnlyFans
+(auth.json import only). Current functional tests exercise text injection only; they
+have not reproduced a composer checkbox failure. Do **not** add Phase 6 click tests for
+OnlyFans unless a functional test (for example a future mutating post that toggles PPV
+or schedule options) fails because a real `QTest.mouseClick` does not reach the input.
 
-The OnlyFans 2FA checkbox is no longer reachable, since GaleFling no longer logs in to
-OnlyFans (see "Status of the three defect classes" above); target the composer's
-checkboxes instead. The injected fix is generic — it patches every
-`input[type="checkbox"]` on every page — so the composer exercises the same code path
-the 2FA form used to.
+When interaction tests *are* warranted, the pattern is: replace "assert
+`checked === true` after our JS ran" with a genuine `QTest.mouseClick` at the
+element's viewport coordinates, then assert the resulting framework state. That
+distinguishes *"our workaround sets the property"* from *"a user's click reaches the
+input."*
+
+**FetLife** remains the one platform where login-form checkbox interaction is still
+reachable via WebView and may justify a targeted test once Phase 5 routes tests through
+the shipped platform code.
 
 ### Acceptance criteria
 
 - Persistence test fails if cookies are not durable across a process boundary.
-- Click test fails if a real click is absorbed before reaching the input, even when
-  `_inject_2fa_checkbox_fix` has run.
-- Both pass on Linux and in the Windows VM.
+- Interaction tests exist only for UI paths that functional tests have shown to fail;
+  no standing OnlyFans checkbox suite.
+- Persistence test passes on Linux and in the Windows VM.
 
 ---
 

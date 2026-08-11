@@ -463,6 +463,11 @@ The tables above show what **is** tested. The gaps below map missing functional 
 | Paid / schedule / tier UI flows | — | — | — |
 | Media processing functional tests | unit only | unit only | — |
 
+Composer checkbox interaction (OnlyFans PPV/schedule toggles, etc.) is **not** covered
+today. If mutating functional tests that exercise those controls fail because clicks do
+not reach the input, that failure should drive Phase 6 interaction tests — not standing
+OnlyFans checkbox coverage. See `docs/testing/WEBVIEW_TEST_PLAN.md` Phase 6.
+
 **Snapchat** — disabled in the product; WebView functional tests are retained but
 excluded from routine runs (`disabled_platform`). Image→video pipeline tests in
 `test_media_processing.py` still cover the processing code path.

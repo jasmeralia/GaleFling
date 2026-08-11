@@ -25,13 +25,6 @@ Once imported, posting works exactly as before — OnlyFans' own site composes a
 the post inside GaleFling. Your session is stored in an isolated profile directory under
 `%APPDATA%\GaleFling\webprofiles\onlyfans_1\`.
 
-### Checkbox Fix
-
-OnlyFans renders checkboxes using Vue.js custom components whose decorator elements can
-absorb clicks before they reach the underlying input. GaleFling injects a script that
-restores pointer events and forwards clicks on these components, so checkboxes in the
-composer behave normally.
-
 ### Session Expiry
 
 OnlyFans sessions expire periodically. Unlike most platforms, OnlyFans does **not redirect to a login URL** when the session expires — it renders an inline login form at the same URL. GaleFling detects this by checking the DOM for login form selectors (`.b-loginreg__form`, `input[type="password"]`).
@@ -89,7 +82,6 @@ The maximum file sizes below are GaleFling-imposed limits, not values published 
 | Import reports the cookies were rejected | The `auth.json` is malformed or was edited by hand. Export a fresh one. |
 | Import succeeds but OnlyFans still shows a login form | The exported session is no longer valid. Log out and back in with your browser — re-exporting without a fresh login reuses the same dead session — then export and import again. |
 | No login button on the OnlyFans tab | Intentional. OnlyFans rejects embedded-browser logins, so sessions must be imported. |
-| Checkbox not clickable | GaleFling injects a fix for this automatically. If it still fails, try clicking the checkbox directly in the WebView panel. |
 | Composer not found | The SPA may need more time to hydrate. Run on Windows for the best chance of full rendering. |
 | `WV-SESSION-EXPIRED` in results | Session cookies expired. Export a fresh `auth.json` and re-import it via Settings. |
 | Cloudflare challenge loop | Clear the OnlyFans WebView profile (Settings > Accounts > OnlyFans > Clear Session) and import a fresh session. |

@@ -1,12 +1,17 @@
 # Debug Instrumentation Plan
 
-Targeted logging additions to help diagnose two known issues without requiring a HAR
+Targeted logging additions to help diagnose known issues without requiring a HAR
 capture or Chrome DevTools session. These are small, self-contained changes that can
 be shipped independently of the WebView2 migration.
 
 ---
 
 ## 1. OnlyFans — 2FA checkbox DOM dump
+
+> **Obsolete (2026-08-11).** GaleFling no longer logs in to OnlyFans; the 2FA form this
+> section targeted is unreachable. Do not implement unless a functional test demonstrates
+> a composer checkbox failure on current builds. See `docs/testing/WEBVIEW_TEST_PLAN.md`
+> Phase 6.
 
 ### Problem
 

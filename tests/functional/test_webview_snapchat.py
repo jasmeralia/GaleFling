@@ -1,11 +1,19 @@
 """Functional tests for Snapchat WebView posting.
 
-Snapchat's web app requires WebGL/GPU. Session expiry is detected by checking
-that the final URL stays at web.snapchat.com (expired sessions redirect to
-accounts.snapchat.com).
+Snapchat support is currently disabled (`SNAPCHAT_SPECS.available = False`): its
+web app offers no upload control, only an interactive in-page camera that cannot
+be driven without a virtual camera device. See `docs/platforms/SNAPCHAT.md`.
 
-Requires GALEFLING_DATA_DIR and SNAPCHAT_USERNAME / SNAPCHAT_PASSWORD in .env.
-If the session cookie is still valid the login flow is skipped.
+These tests are kept and still run, because they remain the best live exercise of
+the WebView stack — session handling, rendering and renderer stability — and are
+what a future virtual-camera spike would build on. `test_video_upload_accessible`
+is expected to fail: there is no upload control to find. It is marked xfail so
+that its failure is not noise, while a sudden *pass* is reported loudly, since
+that would mean Snapchat has added one.
+
+Requires SNAPCHAT_USERNAME / SNAPCHAT_PASSWORD in .env. `GALEFLING_DATA_DIR` is
+optional and defaults to the platform's own application data directory. If the
+session cookie is still valid the login flow is skipped.
 """
 
 import json
@@ -124,6 +132,14 @@ class TestSnapchatComposer:
             page.deleteLater()
             profile.deleteLater()
 
+    @pytest.mark.xfail(
+        reason=(
+            'Snapchat web has no upload control — posting is only possible through '
+            'its interactive in-page camera. A pass here means Snapchat added one, '
+            'which would justify revisiting support.'
+        ),
+        strict=False,
+    )
     def test_video_upload_accessible(self, galefling_data_dir, snapchat_credentials):
         """Verify the video upload mechanism is accessible on Snapchat web."""
         get_or_create_app()

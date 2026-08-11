@@ -99,7 +99,7 @@ class SettingsDialog(QDialog):
 
         self._webview_profile_edits: dict[str, QLineEdit] = {}
         for platform_id, specs in PLATFORM_SPECS_MAP.items():
-            if specs.api_type != 'webview':
+            if specs.api_type != 'webview' or not specs.available:
                 continue
             self._create_webview_platform_tab(tabs, platform_id, specs)
 

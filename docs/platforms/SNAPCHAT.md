@@ -1,5 +1,32 @@
 # Snapchat Setup Guide
 
+> ## ⚠ Snapchat support is disabled
+>
+> **Snapchat is not currently available in GaleFling.** It does not appear in the setup
+> wizard, in Settings, or as a post target. Nothing else is affected.
+>
+> **Why.** Snapchat's web app has no upload control. Verified 2026-08-11 against a live
+> authenticated session: zero `input[type=file]` elements, zero `<canvas>`, and no
+> link, button or label offering camera, story, create, post, upload, capture or
+> record. What the web app serves is a chat client.
+>
+> Posting is possible there, but only interactively: the interface invites you to
+> "click on the camera to send snaps", which activates an in-page camera you use to
+> take a photo or record a video, optionally apply filters, and send. There is no file
+> picker anywhere in that flow.
+>
+> **Why that is hard to automate.** GaleFling would have to attach a virtual camera
+> device to the browser and play media into it as a live stream, then drive the capture
+> UI. That means a platform-specific virtual camera (a kernel module on Linux, a signed
+> driver on Windows) as a user-facing dependency; capture that runs in real time, so a
+> 60-second video takes 60 seconds to "record"; and synthetic interaction with a camera
+> UI, which is close to the shape of automation that platforms actively detect. It is
+> likely technically possible and definitely not cheap.
+>
+> **Status.** Paused rather than removed. The platform code, specs and tests remain in
+> place, and an existing Snapchat session is untouched. A future spike may revisit the
+> virtual-camera approach; see `docs/testing/WEBVIEW_TEST_PLAN.md` for the evidence.
+
 GaleFling posts to Snapchat via an embedded WebView at `web.snapchat.com`. This is the Snapchat **web app** — a different interface from the mobile app, with different capabilities.
 
 ## Account Type

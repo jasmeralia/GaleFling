@@ -22,7 +22,7 @@ it narrows the gap so Windows testing can be targeted and infrequent.
 |---|---|
 | Sessions not persisting | **Root-caused and fixed.** Every WebView ran in an off-the-record profile, because `setPage()` does not pass ownership to Python and the page was garbage-collected, so no cookie database was ever written. Retest remaining reports before assuming they survive. Durability across a process boundary is still unproven — see Phase 6. |
 | Checkbox clicks not registering | **Changed shape.** The 2FA checkbox that motivated it is unreachable: GaleFling no longer logs in to OnlyFans at all. The injected fix is generic and still applies to composer checkboxes, which is where Phase 6 should now aim. |
-| Renderer crashes | **Open.** A genuine navigation loop was found and fixed in `SnapchatPlatform`, which may account for some of the recorded crash-looping. Phase 2 must re-test against the fixed path. |
+| Renderer crashes | **Open, but no longer Snapchat-shaped.** A genuine navigation loop was found and fixed in `SnapchatPlatform`; with it fixed the app renders on Chromium 140 with no crash. Snapchat itself is now disabled (no automatable posting surface), so this class needs a different subject. |
 
 OnlyFans authentication changed materially in the same period: its login form is gated
 by reCAPTCHA Enterprise, which rejects embedded browsers regardless of credentials, so
@@ -181,11 +181,25 @@ entries. `SNAPCHAT_SPECS` already declares `supports_images=False` and
 `supports_text=False`, leaving a single video upload as the only intended path — and
 that upload control does not exist in the web app.
 
-This reframes the whole Snapchat effort. The renderer crash is not the blocker; the
-absence of a composer is. **Phases 2 and 4 should not be funded on Snapchat's behalf
-until someone decides whether Snapchat web is worth supporting at all**, given that the
-platform appears to offer no posting surface here. Confirm on Windows before acting —
-this was observed on one account, on Linux — but plan for the likely answer.
+**Correction — posting does exist, but only interactively.** Verified by hand the same
+day: the interface invites the user to "click on the camera to send snaps", which
+activates an in-page camera for taking a photo or recording a video, applying filters,
+and sending. The automated scan missed it because the affordance is an icon with no
+matching label, and concluding "no posting UI" from a negative keyword search was an
+over-reach. There is still no file picker anywhere in that flow.
+
+Automating it would require attaching a **virtual camera device** to the browser and
+playing media into it as a live stream, then driving the capture UI. That means a
+platform-specific virtual camera as a user-facing dependency (kernel module on Linux,
+signed driver on Windows), capture that runs in real time so a 60-second video takes 60
+seconds, and synthetic interaction with a camera UI — close to the shape of automation
+platforms actively detect.
+
+**Snapchat is therefore disabled in the application** (`SNAPCHAT_SPECS.available =
+False`) rather than left as a broken target. This reframes the phase: the renderer crash
+was never the blocker for Snapchat posting. **Do not fund Phase 4 GPU passthrough on
+Snapchat's behalf.** Its remaining value to Phase 2 is as a crash test case, and the
+crash-loop it exhibited turned out to be a navigation loop in GaleFling's own code.
 
 The 429s tracked the code path rather than elapsed time: the platform probe failed at
 09:05 and 09:10 while the helper path rendered cleanly at 09:08 and 09:09 in between.

@@ -24,6 +24,17 @@ def pytest_configure():
             '--no-sandbox --disable-gpu --disable-software-rasterizer',
         )
 
+    # Qt requires this before the QApplication exists, or any later import of
+    # QtWebEngineWidgets raises ImportError.  Several GUI modules import
+    # WebEngine lazily inside a handler, so without this a test file passes or
+    # fails depending on whether some *other* file happened to import WebEngine
+    # earlier in the session — `pytest tests/` passed while
+    # `pytest tests/test_settings_dialog.py` did not.
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QApplication
+
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
+
 
 def _is_container() -> bool:
     """Return True when running inside a container (Docker / devcontainer)."""

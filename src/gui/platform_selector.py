@@ -42,6 +42,14 @@ class PlatformSelector(QWidget):
             cb.setParent(None)
             cb.deleteLater()
         self._checkboxes.clear()
+        # Drop platforms that are not offered at all.  Their specs remain
+        # resolvable so stored accounts and config still load; they simply
+        # cannot be selected as a post target.
+        accounts = [
+            account
+            for account in accounts
+            if getattr(PLATFORM_SPECS_MAP.get(account.platform_id), 'available', True)
+        ]
         self._accounts = sorted(accounts, key=self._account_sort_key)
         self._available.clear()
 

@@ -11,7 +11,7 @@ Quick reference for all platform limits and capabilities. For credential setup a
 | Instagram | [INSTAGRAM.md](INSTAGRAM.md) | API |
 | Threads | [THREADS.md](THREADS.md) | API |
 | Facebook | [FACEBOOK.md](FACEBOOK.md) | API |
-| Snapchat | [SNAPCHAT.md](SNAPCHAT.md) | WebView |
+| Snapchat | [SNAPCHAT.md](SNAPCHAT.md) | WebView — **disabled**, see below |
 | OnlyFans | [ONLYFANS.md](ONLYFANS.md) | WebView |
 | Fansly | [FANSLY.md](FANSLY.md) | WebView |
 | FetLife | [FETLIFE.md](FETLIFE.md) | WebView |
@@ -19,6 +19,8 @@ Quick reference for all platform limits and capabilities. For credential setup a
 ## Source of Truth
 
 Platform limits and capabilities are defined in `src/utils/constants.py` (`PlatformSpecs` + `PLATFORM_SPECS_MAP`). The tables below are derived from that file.
+
+> **Snapchat is disabled** (`available=False`) and does not appear in the setup wizard, Settings, or the post composer. Its web app offers no upload control — posting there requires an interactive in-page camera GaleFling cannot drive. Its limits remain listed below for reference and are unchanged. See [SNAPCHAT.md](SNAPCHAT.md).
 
 ## Account Limits
 

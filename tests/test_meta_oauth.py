@@ -208,10 +208,13 @@ def test_build_auth_url_facebook():
         'pages_manage_posts',
         'pages_read_engagement',
         'pages_show_list',
-        'pages_manage_engagement',
     ]:
         assert perm in scope, f'Missing scope: {perm}'
     assert 'publish_video' not in scope
+    # pages_manage_engagement drags in its pages_read_user_content dependency,
+    # which the app does not hold; Meta rejects the whole authorize request.
+    assert 'pages_manage_engagement' not in scope
+    assert 'pages_read_user_content' not in scope
 
 
 # ── MetaOAuthFlow.exchange_code ───────────────────────────────────────────────

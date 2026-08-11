@@ -169,10 +169,12 @@ class OAuthFlowResult:
 
 _THREADS_SCOPES = 'threads_basic,threads_content_publish'
 _INSTAGRAM_SCOPES = 'instagram_business_basic,instagram_business_content_publish'
-_FACEBOOK_SCOPES = (
-    'pages_manage_metadata,pages_manage_posts,pages_read_engagement,'
-    'pages_show_list,pages_manage_engagement'
-)
+# pages_manage_engagement is deliberately absent: it covers creating, editing and
+# deleting comments and likes, which GaleFling never does, and Meta expands it to
+# its pages_read_user_content dependency — a permission the app does not hold, so
+# the authorization dialog fails with "Invalid Scopes: pages_read_user_content".
+# Publishing photos and videos is covered by pages_manage_posts.
+_FACEBOOK_SCOPES = 'pages_manage_metadata,pages_manage_posts,pages_read_engagement,pages_show_list'
 
 _AUTH_URLS: dict[str, str] = {
     'meta_threads': 'https://threads.net/oauth/authorize',

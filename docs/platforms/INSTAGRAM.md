@@ -123,10 +123,28 @@ GET https://graph.facebook.com/v21.0/oauth/access_token
   &fb_exchange_token=YOUR_CURRENT_LONG_LIVED_TOKEN
 ```
 
+## Webhooks (not required)
+
+Leave the **Configure webhooks** step of the Instagram use case unconfigured.
+GaleFling only publishes and consumes no webhook events, so there is nothing for
+a callback URL to deliver to. The dashboard's note that "your app must be in
+published state" to receive webhooks concerns event delivery, not App Review,
+and does not apply here.
+
+In particular, do **not** put the OAuth relay URL
+(`https://galefling.jasmer.tools/oauth/callback`) in the webhook Callback URL
+field. That endpoint answers OAuth redirects by issuing a 302 to localhost; it
+does not implement Meta's `hub.challenge` verification handshake, so Meta
+rejects it with "The callback URL or verify token couldn't be validated." That
+URL belongs in **OAuth redirect URIs** under the business login settings.
+
 ## Troubleshooting
 
 | Problem | Solution |
 |---|---|
+| `Invalid platform app` on the authorization screen | The `client_id` is the top-level Meta App ID. Use the **Instagram app ID** shown at the top of App Dashboard > Instagram > API setup with Instagram login — it is a different number from the app's top-level ID. See [META_APPS.md](META_APPS.md#the-app-id-asymmetry). |
+| `Insufficient developer role` on the authorization screen | The Instagram account has no accepted **Instagram Tester** role on the app. A pending invitation is not enough — accept it at Instagram > Settings and privacy > Apps and websites > Tester invites. See [META_APPS.md](META_APPS.md#tester-roles-while-apps-are-in-development). |
+| "The callback URL or verify token couldn't be validated" | Something that is not a webhook endpoint was entered as the webhook Callback URL. See [Webhooks](#webhooks-not-required) — the step can be skipped entirely. |
 | `IG-AUTH-INVALID` | Token is wrong or lacks required permissions. Regenerate with correct scopes. |
 | `IG-AUTH-EXPIRED` | Token has expired (60-day limit). Generate a new long-lived token. |
 | `IG-RATE-LIMIT` | Instagram limits posting frequency. Wait before posting again. |

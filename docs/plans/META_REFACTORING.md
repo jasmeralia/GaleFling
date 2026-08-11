@@ -184,7 +184,12 @@ Key permissions/scopes:
 - `pages_read_engagement` — required
 - `pages_show_list` — required to enumerate Pages
 - `pages_manage_engagement` — required for photo posts
-- `publish_video` — required for video posts
+
+`publish_video` is not requested — it is a deprecated personal-profile-video
+permission (retired with `publish_actions` in the Graph API v3.3 era) and has no
+bearing on Page video posts. Requesting it causes Meta's OAuth dialog to reject the
+authorize request outright with `Invalid Scopes: publish_video`. Page video
+publishing is already covered by `pages_manage_posts`.
 
 Token model (two-token chain — most complex of the three):
 1. Facebook Login OAuth → **Facebook User access token** (60 days, long-lived)
@@ -289,7 +294,10 @@ Credentials to extract for the JSON import file:
    - `pages_read_engagement`
    - `pages_show_list`
    - `pages_manage_engagement`
-   - `publish_video` (if video posting to Pages is desired)
+
+   Do not add `publish_video` — it is deprecated and Meta's OAuth dialog rejects
+   the whole authorize request if it's requested. `pages_manage_posts` already
+   covers Page video posts.
 7. Configure Facebook Login for Business:
    - Add OAuth redirect URIs (see Redirect URI section below)
 8. Add Rin as a tester/developer on the app so she can authorize in development mode:

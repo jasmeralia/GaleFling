@@ -46,7 +46,12 @@ GaleFling requests the following Facebook permissions during the connect flow:
 | `pages_read_engagement` | Required to read Page data |
 | `pages_show_list` | Required to enumerate Pages the user administers |
 | `pages_manage_engagement` | Required for photo posts |
-| `publish_video` | Required for video posts to the Page |
+
+`publish_video` is intentionally **not** requested. It's a deprecated
+personal-profile-video permission (retired alongside `publish_actions` in the
+Graph API v3.3 era) with no bearing on Page video posts — requesting it makes
+Meta's OAuth dialog reject the entire authorize request with `Invalid Scopes:
+publish_video`. Page video publishing is already covered by `pages_manage_posts`.
 
 ## Post Types Supported
 

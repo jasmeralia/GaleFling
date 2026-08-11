@@ -209,9 +209,9 @@ def test_build_auth_url_facebook():
         'pages_read_engagement',
         'pages_show_list',
         'pages_manage_engagement',
-        'publish_video',
     ]:
         assert perm in scope, f'Missing scope: {perm}'
+    assert 'publish_video' not in scope
 
 
 # ── MetaOAuthFlow.exchange_code ───────────────────────────────────────────────

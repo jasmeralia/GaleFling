@@ -171,7 +171,7 @@ _THREADS_SCOPES = 'threads_basic,threads_content_publish'
 _INSTAGRAM_SCOPES = 'instagram_business_basic,instagram_business_content_publish'
 _FACEBOOK_SCOPES = (
     'pages_manage_metadata,pages_manage_posts,pages_read_engagement,'
-    'pages_show_list,pages_manage_engagement,publish_video'
+    'pages_show_list,pages_manage_engagement'
 )
 
 _AUTH_URLS: dict[str, str] = {

@@ -1,5 +1,7 @@
 """FetLife platform implementation using WebView."""
 
+import json
+
 from PyQt6.QtCore import QUrl
 from PyQt6.QtWebEngineCore import QWebEngineScript
 from PyQt6.QtWidgets import QWidget
@@ -16,7 +18,7 @@ class FetLifePlatform(BaseWebViewPlatform):
     IMAGE_COMPOSER_URL = 'https://fetlife.com/pictures/new?source=Main+Navigation'
     VIDEO_COMPOSER_URL = 'https://fetlife.com/videos/new?source=Main+Navigation'
     COMPOSER_URL = TEXT_COMPOSER_URL
-    TEXT_SELECTOR = 'div.tiptap.ProseMirror[contenteditable="true"]'
+    TEXT_SELECTOR = 'div.lexxy-editor__content[contenteditable="true"][role="textbox"]'
     SUCCESS_URL_PATTERN = r'fetlife\.com/(?:users/\d+/(?:statuses|posts|pictures|videos)/\d+|(?:posts|pictures|videos)/\d+)'
     SUCCESS_SELECTOR = ''
     COOKIE_DOMAINS = ['fetlife.com']
@@ -115,7 +117,18 @@ class FetLifePlatform(BaseWebViewPlatform):
         });
     }
 
-    function patchCheckboxes() {
+    function dismissMaybeLater() {
+        var candidates = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+        var later = candidates.find(function (el) {
+            return (el.textContent || '').trim().toLowerCase() === 'maybe later';
+        });
+        if (later) {
+            later.click();
+            console.log('[GaleFling] FetLife recurring prompt dismissed with Maybe Later');
+        }
+    }
+
+    function patchPage() {
         document.querySelectorAll('input[type="checkbox"]').forEach(function (input) {
             var s = window.getComputedStyle(input);
             console.log('[GaleFling] FetLife checkbox name=' + input.name
@@ -174,11 +187,12 @@ class FetLifePlatform(BaseWebViewPlatform):
         });
 
         setupFormSubmitLogging();
+        dismissMaybeLater();
     }
 
-    var mo = new MutationObserver(patchCheckboxes);
+    var mo = new MutationObserver(patchPage);
     mo.observe(document.documentElement, { childList: true, subtree: true });
-    patchCheckboxes();
+    patchPage();
 })();
 """
         script = QWebEngineScript()
@@ -197,6 +211,30 @@ class FetLifePlatform(BaseWebViewPlatform):
 
     def get_specs(self) -> PlatformSpecs:
         return FETLIFE_SPECS
+
+    def _inject_text(self, text: str):
+        """Set text through Lexxy's form-associated custom-element API."""
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+        selector = json.dumps(self.TEXT_SELECTOR)
+        escaped = json.dumps(text)
+        page.runJavaScript(
+            f"""
+            (function() {{
+                const content = document.querySelector({selector});
+                const editor = content && content.closest('lexxy-editor');
+                if (!editor) return;
+                const paragraph = document.createElement('p');
+                paragraph.textContent = {escaped};
+                editor.value = paragraph.outerHTML;
+                editor.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                editor.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            }})();
+            """
+        )
 
     def navigate_to_login(self):
         if not self._view:

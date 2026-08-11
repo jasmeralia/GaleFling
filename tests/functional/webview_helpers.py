@@ -119,6 +119,18 @@ def create_webview(data_dir: Path, account_id: str):
     return view, page, profile
 
 
+def close_webview(view: QWebEngineView, page: QWebEnginePage, profile: QWebEngineProfile) -> None:
+    """Destroy a test WebView before reopening its persistent profile."""
+    with contextlib.suppress(RuntimeError):
+        view.close()
+        page.deleteLater()
+        view.deleteLater()
+    wait_ms(500)
+    with contextlib.suppress(RuntimeError):
+        profile.deleteLater()
+    wait_ms(500)
+
+
 def has_cookie_db(data_dir: Path, account_id: str) -> bool:
     """Check whether a cookie database exists for the given account."""
     return (data_dir / 'webprofiles' / account_id / 'Cookies').exists()
@@ -148,16 +160,22 @@ def login_fetlife(page: QWebEnginePage, email: str, password: str) -> bool:
         f"""
         (function() {{
             var emailInput = document.querySelector(
-                'input[type="email"], input[name="user[email]"], input[name="email"]'
+                'input[name="user[login]"], input[autocomplete="username"], '
+                + 'input[type="email"], input[name="user[email]"], input[name="email"]'
             );
             var passwordInput = document.querySelector(
                 'input[type="password"], input[name="user[password]"]'
             );
             if (!emailInput || !passwordInput) return {{found: false}};
-            emailInput.focus();
-            document.execCommand('insertText', false, {json.dumps(email)});
-            passwordInput.focus();
-            document.execCommand('insertText', false, {json.dumps(password)});
+            var setter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'value'
+            ).set;
+            setter.call(emailInput, {json.dumps(email)});
+            emailInput.dispatchEvent(new Event('input', {{bubbles: true}}));
+            emailInput.dispatchEvent(new Event('change', {{bubbles: true}}));
+            setter.call(passwordInput, {json.dumps(password)});
+            passwordInput.dispatchEvent(new Event('input', {{bubbles: true}}));
+            passwordInput.dispatchEvent(new Event('change', {{bubbles: true}}));
             var rememberCb = document.querySelector(
                 'input[name="user[remember_me]"], input[name="remember_me"], '
                 + 'input[id="remember_me"], input[id="user_remember_me"]'
@@ -195,15 +213,26 @@ def login_fansly(page: QWebEnginePage, email: str, password: str) -> bool:
         page,
         """
         (function() {
-            var emailInput = document.querySelector('input[type="email"]');
+            var usernameInput = document.querySelector(
+                'input[autocomplete="username"], input[type="email"]'
+            );
             var loginBtn = document.querySelector(
                 'button[data-cy="login"], a[href*="/login"], '
                 + '.b-login-btn, [class*="login"][class*="btn"], '
                 + 'button[class*="login"]'
             );
+            if (!loginBtn) {
+                loginBtn = Array.from(document.querySelectorAll('.btn, [role="button"]'))
+                    .find(function(el) {
+                        return (el.textContent || '').trim().toLowerCase() === 'login';
+                    });
+            }
             return {
-                hasEmailInput: !!emailInput,
-                hasLoginBtn: !!loginBtn
+                hasUsernameInput: !!usernameInput,
+                hasLoginBtn: !!loginBtn,
+                hasLoggedOutShell: !!document.querySelector(
+                    '.nav-content-wrapper.not-logged-in'
+                )
             };
         })();
         """,
@@ -212,19 +241,21 @@ def login_fansly(page: QWebEnginePage, email: str, password: str) -> bool:
         return False
 
     # If neither a login form nor a login button is visible, assume logged in
-    if not session_check.get('hasEmailInput') and not session_check.get('hasLoginBtn'):
+    if not any(
+        session_check.get(key) for key in ('hasUsernameInput', 'hasLoginBtn', 'hasLoggedOutShell')
+    ):
         return True
 
     # Click login button to open modal if form not yet visible
-    if session_check.get('hasLoginBtn') and not session_check.get('hasEmailInput'):
+    if session_check.get('hasLoginBtn') and not session_check.get('hasUsernameInput'):
         run_js(
             page,
             """
-            var loginBtn = document.querySelector(
-                'button[data-cy="login"], a[href*="/login"], '
-                + '.b-login-btn, [class*="login"][class*="btn"], '
-                + 'button[class*="login"]'
-            );
+            var loginBtn = Array.from(
+                document.querySelectorAll('.btn, button, a, [role="button"]')
+            ).find(function(el) {
+                return (el.textContent || '').trim().toLowerCase() === 'login';
+            });
             if (loginBtn) loginBtn.click();
             """,
         )
@@ -235,14 +266,25 @@ def login_fansly(page: QWebEnginePage, email: str, password: str) -> bool:
         page,
         f"""
         (function() {{
-            var emailInput = document.querySelector('input[type="email"]');
+            var usernameInput = document.querySelector(
+                'input[autocomplete="username"], input[type="email"]'
+            );
             var passwordInput = document.querySelector('input[type="password"]');
-            if (!emailInput || !passwordInput) return {{found: false}};
-            emailInput.focus();
-            document.execCommand('insertText', false, {json.dumps(email)});
-            passwordInput.focus();
-            document.execCommand('insertText', false, {json.dumps(password)});
-            var submitBtn = document.querySelector('button[type="submit"]');
+            var submitBtn = document.querySelector(
+                'app-button.auth-submit, .auth-submit, button[type="submit"]'
+            );
+            if (!usernameInput || !passwordInput || !submitBtn) {{
+                return {{found: false}};
+            }}
+            var setter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'value'
+            ).set;
+            setter.call(usernameInput, {json.dumps(email)});
+            usernameInput.dispatchEvent(new Event('input', {{bubbles: true}}));
+            usernameInput.dispatchEvent(new Event('change', {{bubbles: true}}));
+            setter.call(passwordInput, {json.dumps(password)});
+            passwordInput.dispatchEvent(new Event('input', {{bubbles: true}}));
+            passwordInput.dispatchEvent(new Event('change', {{bubbles: true}}));
             if (submitBtn) submitBtn.click();
             return {{found: true}};
         }})();
@@ -258,9 +300,16 @@ def login_fansly(page: QWebEnginePage, email: str, password: str) -> bool:
     if '/login' in final_url.lower():
         return False
 
-    # Confirm the login form is gone
-    form_gone = run_js(page, '!document.querySelector(\'input[type="password"]\')')
-    return bool(form_gone)
+    # Confirm both the login form and public landing-page navigation are gone.
+    logged_in = run_js(
+        page,
+        """
+        !document.querySelector(
+            'input[type="password"], .nav-content-wrapper.not-logged-in'
+        )
+        """,
+    )
+    return bool(logged_in)
 
 
 def login_onlyfans(

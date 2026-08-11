@@ -77,7 +77,10 @@ FetLife sessions expire periodically (especially without "remember me"). When yo
   - Text only → `fetlife.com/posts/new`
   - Image → `fetlife.com/pictures/new`
   - Video → `fetlife.com/videos/new`
-- **Text pre-fill**: Uses a ProseMirror / Tiptap editor (`div.tiptap.ProseMirror[contenteditable="true"]`). Pre-fill delay is 200 ms (fast — traditional MPA pages load quickly).
+- **Text pre-fill**: Uses FetLife's Lexxy editor (`div.lexxy-editor__content[contenteditable="true"][role="textbox"]`). Pre-fill delay is 200 ms (fast — traditional MPA pages load quickly).
+- **Recurring prompt**: If FetLife displays its post-login prompt again, GaleFling
+  selects **Maybe Later** so the composer remains usable. The prompt is detected on
+  every page load rather than assumed to be a one-time event.
 - **Success detection**: FetLife supports URL capture. Post URLs match the pattern `fetlife.com/users/<id>/(statuses|posts|pictures|videos)/<id>`.
 
 ### Post Cleanup Note

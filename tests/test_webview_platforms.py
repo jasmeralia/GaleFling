@@ -152,6 +152,13 @@ def test_fansly_prefill_delay():
     assert FanslyPlatform.PREFILL_DELAY_MS == 1500
 
 
+def test_fansly_current_routes_and_session_expiry_selectors():
+    assert FanslyPlatform.LOGIN_URL == 'https://fansly.com/'
+    assert FanslyPlatform.COMPOSER_URL == 'https://fansly.com/home'
+    assert '.nav-content-wrapper.not-logged-in' in FanslyPlatform.SESSION_EXPIRED_SELECTORS
+    assert 'input[autocomplete="password"]' in FanslyPlatform.SESSION_EXPIRED_SELECTORS
+
+
 def test_fansly_build_result_not_confirmed():
     p = FanslyPlatform(account_id='fansly_1', profile_name='model')
     result = p.build_result()
@@ -197,6 +204,40 @@ def test_fetlife_specs():
 
 def test_fetlife_composer_url():
     assert FetLifePlatform.COMPOSER_URL == 'https://fetlife.com/posts/new?source=Feed'
+
+
+def test_fetlife_uses_current_lexxy_editor():
+    assert FetLifePlatform.TEXT_SELECTOR == (
+        'div.lexxy-editor__content[contenteditable="true"][role="textbox"]'
+    )
+
+
+def test_fetlife_injects_text_through_lexxy_custom_element():
+    class RecordingPage:
+        def __init__(self):
+            self.js_calls = []
+
+        def runJavaScript(self, script):  # noqa: N802 - mirrors Qt API
+            self.js_calls.append(script)
+
+    class RecordingView:
+        def __init__(self, page):
+            self._page = page
+
+        def page(self):
+            return self._page
+
+    platform = FetLifePlatform(account_id='fetlife_1')
+    page = RecordingPage()
+    platform._view = RecordingView(page)
+
+    platform._inject_text('Hello Lexxy')
+
+    assert len(page.js_calls) == 1
+    script = page.js_calls[0]
+    assert "closest('lexxy-editor')" in script
+    assert 'editor.value = paragraph.outerHTML' in script
+    assert 'Hello Lexxy' in script
 
 
 def test_fetlife_login_url():

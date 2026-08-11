@@ -67,6 +67,9 @@ Fansly sessions expire periodically. When your session expires, GaleFling will s
 
 - **API type**: `webview` — you confirm the post in the embedded browser panel.
 - **Auth method**: `fansly-d` + CloudFront session cookies in isolated WebView profile.
+- **Composer route**: Authenticated composer sessions open at `fansly.com/home`. The
+  public landing page remains at `/`, so GaleFling also checks the logged-out
+  navigation shell instead of treating a non-redirecting `/` response as authenticated.
 - **Cloudflare**: Pages load with a Cloudflare challenge. GaleFling waits 1500 ms before attempting to pre-fill the text composer (`textarea`) to allow Cloudflare and the SPA to complete page hydration.
 - **Success detection**: Fansly is a SPA; post URLs are not captured. "Posted (link unavailable)" is a normal, non-error result.
 

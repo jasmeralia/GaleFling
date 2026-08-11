@@ -158,8 +158,34 @@ were in the test and platform code, not in Chromium.
   destination is now navigated to at most once per platform instance.
 
 With the login fix in place, **the authenticated web app rendered on Linux and no
-renderer crash occurred.** That is not yet a Phase 2 answer — it is one cycle, not ten,
-and the app was reached through the test helper rather than the shipped platform path.
+renderer crash occurred** — first through the test helper, and after the loop fix
+through the shipped platform path as well, which had previously been rate limited on
+every attempt. The app settled on `https://www.snapchat.com/web/` with ~1330 DOM nodes
+and stayed there for 50 s with no `renderProcessTerminated`. That is not yet a Phase 2
+answer — it is a handful of cycles, not the ten this phase requires — but it is the
+first time the bundle has actually executed under Chromium 140.
+
+### Snapchat web has no posting UI at all — 2026-08-11
+
+Inspecting the rendered, authenticated app found **no way to post**:
+
+- `input[type=file]`: **0**
+- `canvas`: **0** (a camera view would need one)
+- Scanning every `a[href]`, `button`, `[role="button"]` and `[aria-label]` for
+  camera / story / create / post / upload / capture / record / memories / spotlight
+  produced **no genuine matches** — only a chat button ("Send this text to MyAI") and
+  profile links that matched incidentally on "snap" in `snapchat.com`.
+
+What renders is a **chat client**: conversation list, chat panes, Discover-style
+entries. `SNAPCHAT_SPECS` already declares `supports_images=False` and
+`supports_text=False`, leaving a single video upload as the only intended path — and
+that upload control does not exist in the web app.
+
+This reframes the whole Snapchat effort. The renderer crash is not the blocker; the
+absence of a composer is. **Phases 2 and 4 should not be funded on Snapchat's behalf
+until someone decides whether Snapchat web is worth supporting at all**, given that the
+platform appears to offer no posting surface here. Confirm on Windows before acting —
+this was observed on one account, on Linux — but plan for the likely answer.
 
 The 429s tracked the code path rather than elapsed time: the platform probe failed at
 09:05 and 09:10 while the helper path rendered cleanly at 09:08 and 09:09 in between.

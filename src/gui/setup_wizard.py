@@ -1078,6 +1078,9 @@ class SetupWizard(QWizard):
             ('fansly', 'Fansly', 'fansly_1'),
             ('fetlife', 'FetLife', 'fetlife_1'),
         ]:
+            wizard_specs = PLATFORM_SPECS_MAP.get(platform_id)
+            if wizard_specs is not None and not wizard_specs.available:
+                continue
             self.addPage(
                 WebViewPlatformSetupPage(
                     auth_manager,

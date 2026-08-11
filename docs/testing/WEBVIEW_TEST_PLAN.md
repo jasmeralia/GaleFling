@@ -1,7 +1,8 @@
 # WebView Functional Testing — Multi-Phase Plan
 
-**Status:** Phases 1 and 3 implemented; Phases 2, 4–7 not started
+**Status:** Phases 1 and 3 implemented; Phase 2 in progress; Phases 4–7 not started
 **Created:** 2026-08-10
+**Last updated:** 2026-08-11
 **Owner:** Jas
 **Tracks:** GitHub issue #1 (WebView2 migration), `debug_state.md`
 
@@ -15,6 +16,19 @@ VM for target-platform confirmation.
 Windows remains the primary target platform. Linux does not replace Windows testing;
 it narrows the gap so Windows testing can be targeted and infrequent.
 
+### Status of the three defect classes
+
+| Class | Status as of 2026-08-11 |
+|---|---|
+| Sessions not persisting | **Root-caused and fixed.** Every WebView ran in an off-the-record profile, because `setPage()` does not pass ownership to Python and the page was garbage-collected, so no cookie database was ever written. Retest remaining reports before assuming they survive. Durability across a process boundary is still unproven — see Phase 6. |
+| Checkbox clicks not registering | **Changed shape.** The 2FA checkbox that motivated it is unreachable: GaleFling no longer logs in to OnlyFans at all. The injected fix is generic and still applies to composer checkboxes, which is where Phase 6 should now aim. |
+| Renderer crashes | **Open, but no longer Snapchat-shaped.** A genuine navigation loop was found and fixed in `SnapchatPlatform`; with it fixed the app renders on Chromium 140 with no crash. Snapchat itself is now disabled (no automatable posting surface), so this class needs a different subject. |
+
+OnlyFans authentication changed materially in the same period: its login form is gated
+by reCAPTCHA Enterprise, which rejects embedded browsers regardless of credentials, so
+the embedded-login path was removed and sessions are now imported from a normal browser.
+Anything in this plan that assumes GaleFling can log in to OnlyFans is obsolete.
+
 ## How to use this document
 
 Each phase is self-contained: goal, prerequisites, tasks with explicit file paths,
@@ -22,7 +36,8 @@ acceptance criteria, and non-goals. Phases 1 and 2 are independent of each other
 of all hardware work. A phase may be handed to another agent by giving it this
 document plus the phase number.
 
-Phases 3–4 depend on hardware/BIOS changes only Jas can perform (Appendix A).
+Phase 4 depends on hardware/BIOS changes only Jas can perform (Appendix A). Phase 3 was
+completed without any BIOS change, as planned — the VM is GPU-less.
 
 ---
 
@@ -35,10 +50,10 @@ on any of it — these are point-in-time observations.
 |---|---|
 | Repo is on **Chromium 140**, not 134 | `QWebEngineProfile.httpUserAgent()` → `QtWebEngine/6.11.1 Chrome/140.0.0.0`; `requirements.txt` pins `PyQt6-WebEngine>=6.11.0` |
 | The bump was untested | Arrived via Dependabot batch `e54b858` (2026-05-07), "Bump the python-dependencies group with 18 updates" |
-| `www.snapchat.com/web/` did **not** crash the renderer | 45 s probe, offscreen, no `renderProcessTerminated`. **Logged out** — redirected to `/?original_referrer=none`, so the 8.3 MB bundle likely never executed. Not conclusive. |
+| `www.snapchat.com/web/` did **not** crash the renderer | 45 s probe, offscreen, no `renderProcessTerminated`. **Logged out** — redirected to `/?original_referrer=none`, so the 8.3 MB bundle likely never executed. Not conclusive. Superseded by the 2026-08-11 authenticated runs below. |
 | Hardware WebGL works from a non-interactive shell | `DISPLAY=:0` → `ANGLE (NVIDIA GeForce RTX 2080 SUPER, OpenGL 4.5.0)`; `WAYLAND_DISPLAY=wayland-0` → `ANGLE (… OpenGL ES 3.2)`; both WebGL 2.0 |
 | Qt cookie layout matches Windows | Probe profile contains `Cookies` (SQLite), `Service Worker/`, `Session Storage/`, `Network Persistent State` |
-| CI never ran functional tests | `.github/workflows/release.yml:77` → `make test-cov` → `pytest -m "not functional"` |
+| CI never ran functional tests | `.github/workflows/release.yml:77` → `make test-ci` → `pytest -m "not functional"` (`test-cov` is now a deprecated alias for it) |
 
 **Issue #1's central premise is stale.** It states "there is no newer PyQt6-WebEngine
 version to upgrade to." Six Chromium majors have landed since. Phase 2 exists to
@@ -56,10 +71,11 @@ determine whether the WebView2 migration is still necessary before anyone starts
 
 `pytest.skip` appears ~20 times across `tests/functional/test_webview_*.py` for
 conditions that are defects, not environment gaps. The worst case is
-`test_webview_snapchat.py:95`: a renderer crash makes `run_js` return `None`, which
-is caught and reported as `pytest.skip('JS execution unavailable — needs real
-display with WebGL')`. **The blocker in issue #1 currently classifies itself as an
-environment limitation and the suite stays green.**
+`test_webview_snapchat.py::test_video_upload_accessible`: a renderer crash makes
+`run_js` return `None`, which is caught and reported as
+`pytest.skip('JS execution unavailable — needs real display with WebGL')`.
+**The blocker in issue #1 currently classifies itself as an environment limitation and
+the suite stays green.**
 
 These skips were added to protect CI, but CI was never at risk — the `functional`
 marker already deselects every one of these tests.
@@ -86,12 +102,18 @@ marker already deselects every one of these tests.
 
 ### Acceptance criteria
 
-- `make test-ci` passes and collects zero functional tests.
-- `make test-functional` with credentials present and a deliberately broken selector
+- [x] `make test-ci` passes and collects zero functional tests.
+- [x] `make test-functional` with credentials present and a deliberately broken selector
   **fails**, and the failure names the selector.
-- Absent credentials still skip, with the platform named.
-- A renderer crash fails the test even if assertions would otherwise pass.
-- `make lint` and `make test-cov` pass.
+- [x] Absent credentials still skip, with the platform named.
+- [x] A renderer crash fails the test even if assertions would otherwise pass.
+- [x] `make lint` and `make test-ci` pass.
+
+Strict mode alone proved insufficient in one respect worth carrying forward: a test can
+still pass against an *error page* served from the expected URL. Snapchat returns HTTP
+429 from `web.snapchat.com` itself, which satisfied both "JS runs" and "URL matches".
+Assert that the application rendered — not merely that a document exists — before making
+any DOM claim.
 
 ### Non-goals
 
@@ -107,23 +129,110 @@ largest item on the roadmap.
 **Prerequisites:** None (Phase 1 improves reporting but is not required).
 **Cost:** Hours. Read-only; commits nothing.
 
+> **A crash fix does not make Snapchat work.** Snapchat's web app has no real
+> composer: `SNAPCHAT_SPECS` sets `supports_images=False` and `supports_text=False`,
+> the only path is a single video upload (MP4, ≤60 s, ≤50 MB), and static images are
+> converted to MP4 to fit it. Text captions are ignored outright. Surviving the
+> renderer crash is necessary but nowhere near sufficient, so do not count Snapchat as
+> a success case when deciding whether issue #1 can close — and weigh that before
+> spending much on crash debugging. Whether Snapchat is worth supporting on the web
+> path at all is the prior question.
+
+### Progress — 2026-08-11
+
+Two blockers were found and fixed before the crash question could even be asked. Both
+were in the test and platform code, not in Chromium.
+
+- **The suite never logged in.** `_ensure_session` checked the URL that `load_page`
+  returned, but a logged-out load still *finishes* on `web.snapchat.com` and is bounced
+  to the marketing page by client-side JS a moment later. The stale URL looked
+  authenticated, so login was skipped and every Snapchat test ran against a logged-out
+  page — reporting "requires a real display with WebGL" on a host whose WebGL works.
+  Fixed by checking the settled URL.
+- **The shipped platform loops.** `SnapchatPlatform._on_url_changed` rewrites
+  `www.snapchat.com/web` navigations, but it runs *from* `urlChanged`, so each rewrite
+  re-enters the handler and `_visited_accounts_page` toggles instead of settling: SSO,
+  web app, SSO, web app, without end. A unit test driving the real handler through
+  Snapchat's bounce recorded **12 navigations for one page load**. Snapchat answers the
+  resulting request storm with **HTTP 429**, served from the web-app URL itself. Each
+  destination is now navigated to at most once per platform instance.
+
+With the login fix in place, **the authenticated web app rendered on Linux and no
+renderer crash occurred** — first through the test helper, and after the loop fix
+through the shipped platform path as well, which had previously been rate limited on
+every attempt. The app settled on `https://www.snapchat.com/web/` with ~1330 DOM nodes
+and stayed there for 50 s with no `renderProcessTerminated`. That is not yet a Phase 2
+answer — it is a handful of cycles, not the ten this phase requires — but it is the
+first time the bundle has actually executed under Chromium 140.
+
+### Snapchat web has no posting UI at all — 2026-08-11
+
+Inspecting the rendered, authenticated app found **no way to post**:
+
+- `input[type=file]`: **0**
+- `canvas`: **0** (a camera view would need one)
+- Scanning every `a[href]`, `button`, `[role="button"]` and `[aria-label]` for
+  camera / story / create / post / upload / capture / record / memories / spotlight
+  produced **no genuine matches** — only a chat button ("Send this text to MyAI") and
+  profile links that matched incidentally on "snap" in `snapchat.com`.
+
+What renders is a **chat client**: conversation list, chat panes, Discover-style
+entries. `SNAPCHAT_SPECS` already declares `supports_images=False` and
+`supports_text=False`, leaving a single video upload as the only intended path — and
+that upload control does not exist in the web app.
+
+**Correction — posting does exist, but only interactively.** Verified by hand the same
+day: the interface invites the user to "click on the camera to send snaps", which
+activates an in-page camera for taking a photo or recording a video, applying filters,
+and sending. The automated scan missed it because the affordance is an icon with no
+matching label, and concluding "no posting UI" from a negative keyword search was an
+over-reach. There is still no file picker anywhere in that flow.
+
+Automating it would require attaching a **virtual camera device** to the browser and
+playing media into it as a live stream, then driving the capture UI. That means a
+platform-specific virtual camera as a user-facing dependency (kernel module on Linux,
+signed driver on Windows), capture that runs in real time so a 60-second video takes 60
+seconds, and synthetic interaction with a camera UI — close to the shape of automation
+platforms actively detect.
+
+**Snapchat is therefore disabled in the application** (`SNAPCHAT_SPECS.available =
+False`) rather than left as a broken target. This reframes the phase: the renderer crash
+was never the blocker for Snapchat posting. **Do not fund Phase 4 GPU passthrough on
+Snapchat's behalf.** Its remaining value to Phase 2 is as a crash test case, and the
+crash-loop it exhibited turned out to be a navigation loop in GaleFling's own code.
+
+The 429s tracked the code path rather than elapsed time: the platform probe failed at
+09:05 and 09:10 while the helper path rendered cleanly at 09:08 and 09:09 in between.
+An hour of waiting changed nothing. That is why the loop, not throttling policy, is
+believed to be the cause — and it means the crash-loop of 82 renderer deaths recorded in
+issue #1 may itself be loop-shaped rather than a Chromium fault.
+
 ### Tasks
 
-1. Run with a **live session** — the logged-out probe is not a valid test, because
-   Snapchat bounces logged-out users away from the crashing bundle:
+1. Re-run against the **fixed platform path** and confirm the app renders without a 429.
+   Until that passes, nothing downstream is measuring Chromium.
+2. Run with a **live session** — the logged-out probe is not a valid test, because
+   Snapchat bounces logged-out users away from the crashing bundle. `GALEFLING_DATA_DIR`
+   no longer needs setting; the suite resolves the platform's own profile directory:
    ```bash
-   DISPLAY=:0 GALEFLING_STRICT_FUNCTIONAL=1 \
+   GALEFLING_STRICT_FUNCTIONAL=1 ./scripts/run-with-desktop-session.sh \
      .venv/bin/python -m pytest tests/functional/test_webview_snapchat.py -m functional -v
    ```
-2. Drive the full SSO flow via `login_snapchat` in `tests/functional/webview_helpers.py:479`
+3. Drive the full SSO flow via `login_snapchat` in `tests/functional/webview_helpers.py`
    so the `web.snapchat.com/#ticket=<token>` redirect executes — that is the path that
    crash-looped 82 times in the recorded session.
-3. Instrument `renderProcessTerminated` with status, exit code, URL, and time since
+4. Instrument `renderProcessTerminated` with status, exit code, URL, and time since
    `loadFinished`. The historical signature is `STATUS_ACCESS_VIOLATION` /
    `-1073741819` at ~1200 ms (variance < 20 ms).
-4. Repeat ≥10 cycles — the original was highly reproducible, so a single clean run
-   proves little.
-5. Record the result in this document and on issue #1.
+5. Repeat ≥10 cycles — the original was highly reproducible, so a single clean run
+   proves little. Space the cycles: rapid repetition is what triggered the 429s above.
+6. Record the result in this document and on issue #1.
+
+> **Rate limiting is a real constraint on this phase.** Snapchat throttles per session
+> or account, and a throttled response is served *from the web-app URL* with an HTTP
+> status code as the document title. The tests now detect that explicitly, but plan for
+> far fewer attempts than a normal debugging loop would use, and prefer one thorough
+> DOM inspection over repeated pass/fail runs.
 
 ### Acceptance criteria
 
@@ -163,9 +272,9 @@ Three of the four known defect classes need no GPU at all:
 
 | Defect | Needs GPU? | Rationale |
 |---|---|---|
-| Snapchat renderer crash | No | Issue #1 states `--disable-gpu` does not prevent it |
-| OnlyFans checkbox clicks | No | Blink hit-tests the layout tree, not the compositor |
-| Session persistence | No | SQLite cookie flush on shutdown |
+| Snapchat renderer crash | No in principle | Issue #1 states `--disable-gpu` does not prevent it. **In practice the GPU-less VM cannot test it**: WebGL is blocklisted there, so Snapchat bounces to the marketing page and the bundle never runs. Needs Phase 4 or a Linux host. |
+| OnlyFans checkbox clicks | No | Blink hit-tests the layout tree, not the compositor. Target composer checkboxes — the 2FA form is unreachable now that OnlyFans login is import-only. |
+| Session persistence | No | SQLite cookie flush on shutdown. Root cause since found and fixed; note the flush is lazy (20–35 s), so a test polling the database immediately reports a false negative. |
 | `VSyncService`/`QDxgi` abort | Unknown | DXGI runs under WARP — test rather than assume |
 
 ### Delivered
@@ -190,13 +299,19 @@ in `docs/testing/FUNCTIONAL_TESTING.md`.
 
 Three things were learned building it that are worth keeping:
 
-- **Pytest cannot run from the `Z:` share.** The repository's `logs` entry is an
-  absolute Linux symlink that Windows cannot represent through VirtIO-FS, and pytest's
-  rootdir scan dies on it with `WinError 123` before collecting anything —
-  `--ignore` does not help, because the scan precedes filtering, and running from a
-  subdirectory does not help either, because pytest still walks up to the rootdir. The
-  guest therefore runs from a `C:\GaleFling` copy, re-synced with `robocopy /MIR` on
-  every run so it is never stale. This is why the finalizer created that copy.
+- **The guest runs from a `C:\GaleFling` copy, not the `Z:` share.** Originally this
+  was forced: the repository carried a `logs` symlink to an absolute Linux path that
+  Windows cannot represent through VirtIO-FS, and pytest's rootdir scan died on it with
+  `WinError 123` before collecting anything (`--ignore` does not help — the scan
+  precedes filtering — and nor does running from a subdirectory, since pytest still
+  walks up to the rootdir). That symlink was removed on 2026-08-11, and running from the
+  share no longer hits `WinError 123`. The copy is retained because it is proven and
+  because a share-rooted run was observed collecting the entire suite rather than the
+  requested subset, which is not yet explained. The copy is re-synced with
+  `robocopy /MIR` every run, so it is never stale. `--no-sync` plus
+  `GUEST_REPO='Z:\'` runs from the share for anyone wanting to revisit this; the script
+  refuses that combination without `--no-sync`, because mirroring the share onto itself
+  would point `robocopy /MIR` at its own source.
 - **Windows OpenSSH mangles a multi-line `-Command` payload** — it joins argv into a
   single command line, and the result silently runs nothing while still exiting 0. That
   failure is indistinguishable from a passing run. Use `-EncodedCommand` with base64
@@ -204,6 +319,11 @@ Three things were learned building it that are worth keeping:
 - **Credentials stay on the host.** The synced copy excludes `.env`; the run points
   `GALEFLING_FUNCTIONAL_ENV` at the copy on the `Z:` share instead, so credentials are
   never written to the guest disk where a later snapshot would preserve them.
+- **No absolute data-dir path belongs in `.env`.** That file is read by both the Linux
+  host and the Windows guest over the same share, so a path valid on one is wrong on
+  the other — which silently skipped every WebView test in the guest. The suite now
+  resolves each platform's own application data directory, and `GALEFLING_DATA_DIR` is
+  an override rather than a requirement.
 
 ### Acceptance criteria
 
@@ -217,11 +337,32 @@ Three things were learned building it that are worth keeping:
 - [ ] `virsh snapshot-revert` returns the guest to `clean-loggedout` in under 60 s —
   `--revert` is implemented but has not been timed against a real snapshot.
 
+### First credential-backed run — 2026-08-11
+
+`make test-functional-win-vm PYTEST_ARGS="tests/functional -m 'functional and non_mutating'"`
+→ **51 passed, 8 skipped, 5 failed** in 2m35s. The skips are unconfigured platforms
+(Instagram, Meta) and are genuine. Findings from the five failures:
+
+- **Snapchat is blocked by WebGL, not by a renderer crash.** The guest logged
+  `ContextResult::kFatalFailure: WebGL2 blocklisted` / `WebGL1 blocklisted`, and
+  Snapchat bounced to `www.snapchat.com/?original_referrer=none`. No
+  `ACCESS_VIOLATION`, no renderer termination. This is *not* a clean bill of health
+  for Phase 2 — the bundle that crash-looped never executed, exactly as in the
+  earlier logged-out probe — but the cause is now identified: the GPU-less VM has no
+  WebGL. **Phase 2 cannot be answered in this VM without the GPU work in Phase 4.**
+- **OnlyFans authenticates in the guest.** `test_page_loads_authenticated` passes;
+  only `test_composer_accessible` fails, reporting `editables=1` but no
+  `div[contenteditable="true"].b-make-post__text`. That is a selector question, not a
+  session or crash question — worth checking whether the composer markup has drifted.
+- **Fansly and FetLife session tests pass**, having logged in earlier in the same run.
+
 ### Remaining
 
 - Time a `--revert` run and confirm the 60 s target.
-- Run the credential-backed platform tests in the guest; only the credential-free
-  media-processing suite has been exercised so far.
+- Snapchat needs a session in the guest (its 2 session tests fail with "No Snapchat
+  cookie databases found") and a GPU before it can be meaningfully tested at all.
+- Investigate the OnlyFans composer selector against the current markup.
+- The `mutating` tests have not been run in the guest; they create real posts.
 
 ### Non-goals
 
@@ -267,23 +408,34 @@ Do not perform the BIOS change before this phase reports. It may prove unnecessa
 
 ### Background
 
-`tests/functional/webview_helpers.py` (604 lines) builds its own `QWebEngineProfile`,
-its own page, and its own login JS. `src/platforms/base_webview.py` (950 lines) does
+`tests/functional/webview_helpers.py` (~700 lines) builds its own `QWebEngineProfile`,
+its own page, and its own login JS. `src/platforms/base_webview.py` (~1130 lines) does
 all of it differently — a class-level `_profile_registry` for Cloudflare fingerprint
 stability, `_LoggingWebEnginePage`, `renderProcessTerminated` handlers,
 `SESSION_EXPIRED_SELECTORS`, and platform-specific timing constants.
 
 The tests validate a reimplementation. Every defect under investigation lives in the
 code the tests do not touch: the checkbox fix is
-`src/platforms/onlyfans.py:_inject_2fa_checkbox_fix` (never invoked by any test), and
-the abort is dialog/profile lifecycle in `src/gui/settings_dialog.py` (never invoked).
-The tests create a fresh profile per test where the app deliberately shares one.
+`src/platforms/onlyfans.py:_inject_2fa_checkbox_fix` (never invoked by any test — and
+now misnamed, since the 2FA form it was written for is unreachable, though the script
+itself patches every checkbox on every page), and the abort is dialog/profile lifecycle
+in `src/gui/settings_dialog.py` (never invoked). The tests create a fresh profile per
+test where the app deliberately shares one.
+
+**This is no longer hypothetical.** On 2026-08-11 the Snapchat redirect loop was found
+precisely because the two paths disagreed: the shipped `SnapchatPlatform` was rate
+limited on every attempt while the helper path rendered the app cleanly, minutes apart.
+A defect serious enough to trigger HTTP 429 sat in code the functional suite has never
+executed. Two further defects that same day were in shipped code the suite does not
+reach — the WebView profile falling back to off-the-record, and `import_session`
+verifying against a file Chromium had not yet written.
 
 ### Tasks
 
 1. Replace `webview_helpers.create_webview` with the real
    `BaseWebViewPlatform.create_webview()`, patching `get_app_data_dir` to the test
-   data directory (the pattern already used in `test_webview_sessions.py:57`).
+   data directory (the `patch('src.platforms.base_webview.get_app_data_dir', ...)`
+   pattern already used in `test_webview_sessions.py`).
 2. Retire the duplicate login JS in favour of the platform classes' own logic.
    Keep `load_page`, `run_js`, `wait_ms` — those are genuine test utilities.
 3. Confirm the shared-profile registry behaves under test (it is process-lifetime
@@ -293,7 +445,7 @@ The tests create a fresh profile per test where the app deliberately shares one.
 
 - No functional test constructs a `QWebEngineProfile` directly.
 - A deliberate break in `base_webview.py` fails at least one functional test.
-- `make lint` and `make test-cov` pass.
+- `make lint` and `make test-ci` pass.
 
 ---
 
@@ -320,8 +472,10 @@ false negative.
 `test_webview_sessions.py` asserts only that a cookie file exists and is non-empty.
 That cannot detect "sessions not persisted." The real test is **multi-process**:
 
-1. Subprocess A logs in and exits **cleanly** (Chromium flushes cookies to SQLite
-   asynchronously on shutdown — a prime suspect).
+1. Subprocess A establishes a session and exits **cleanly** (Chromium flushes cookies to
+   SQLite asynchronously on shutdown — a prime suspect). For OnlyFans this means
+   importing an `auth.json`, not logging in; `import_session()` is a convenient way to
+   seed any platform's profile deterministically.
 2. Assert cookies on disk.
 3. Subprocess B starts cold, asserts `has_valid_session()`, then loads a real page
    and asserts it stays authenticated.
@@ -340,9 +494,10 @@ decorator `<span>` and icon elements absorb the click before it reaches the hidd
 `<input>`.
 
 The OnlyFans 2FA checkbox is no longer reachable, since GaleFling no longer logs in to
-OnlyFans (see below); target the composer's checkboxes instead. The injected fix is
-generic — it patches every `input[type="checkbox"]` on every page — so the composer
-exercises the same code path the 2FA form used to.
+OnlyFans (see "Status of the three defect classes" above); target the composer's
+checkboxes instead. The injected fix is generic — it patches every
+`input[type="checkbox"]` on every page — so the composer exercises the same code path
+the 2FA form used to.
 
 ### Acceptance criteria
 
@@ -359,10 +514,21 @@ Update issue #1 with the Chromium 140 finding, the Phase 2 result, and the off-t
 profile fix from Phase 6's notes. Decide whether the WebView2 migration proceeds,
 narrows, or closes. Do not begin the migration before this phase.
 
-Two of issue #1's premises have already moved: it assumes PyQt6-WebEngine 6.10 /
-Chromium 134 is the newest available (the repo is on Chromium 140), and the session
-persistence defect had a concrete Qt-side cause that is now fixed rather than being
-inherent to Qt WebEngine. Weigh both before concluding the migration is necessary.
+Three of issue #1's premises have already moved:
+
+1. It assumes PyQt6-WebEngine 6.10 / Chromium 134 is the newest available. The repo is
+   on Chromium 140.
+2. The session-persistence defect had a concrete Qt-side cause — the view falling back
+   to an off-the-record profile — which is fixed, rather than being inherent to Qt
+   WebEngine.
+3. Snapchat's 82-renderer-death crash-loop is loop-shaped, and a genuine navigation loop
+   has since been found and fixed in `SnapchatPlatform._on_url_changed`. Whether that
+   accounts for the crashes is unproven, but the crash count should not be treated as
+   evidence against Qt until Phase 2 re-tests against the fixed path.
+
+Weigh all three before concluding the migration is necessary. Note also that Snapchat
+has no real composer on the web path at all, so a favourable crash result does not by
+itself make Snapchat usable.
 
 Per repo convention, ask before adding references that create cross-links on
 third-party trackers.

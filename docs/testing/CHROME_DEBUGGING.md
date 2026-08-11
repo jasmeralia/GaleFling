@@ -44,22 +44,27 @@ JSON target list.
 
 ---
 
-## Troubleshooting: OnlyFans MFA Checkbox
+## Troubleshooting: OnlyFans Checkboxes
 
 ### Background
 
-OnlyFans renders its 2FA "remember me" checkbox as a Vue.js custom component
-(`.b-chckbox`). In the embedded WebView the native `<input type="checkbox">`
-is hidden and clicks are absorbed by decorator `<span>` and icon elements
-before reaching the input. GaleFling injects a MutationObserver script
-(`galefling_onlyfans_checkbox_fix`) to work around this, but the fix may
-not cover all cases — particularly when a Cloudflare Turnstile challenge is
-active on the same page.
+> **The 2FA flow this section was written for is no longer reachable.** OnlyFans
+> gates its login form with reCAPTCHA Enterprise, which rejects embedded browsers,
+> so GaleFling no longer logs in to OnlyFans — sessions are imported from a normal
+> browser instead. The same injected script still patches every checkbox on every
+> page, so the procedure below remains valid for composer checkboxes; just reproduce
+> against the composer rather than the MFA form.
+
+OnlyFans renders checkboxes as Vue.js custom components (`.b-chckbox`). In the
+embedded WebView the native `<input type="checkbox">` is hidden and clicks are
+absorbed by decorator `<span>` and icon elements before reaching the input.
+GaleFling injects a MutationObserver script (`galefling_onlyfans_checkbox_fix`)
+to work around this, but the fix may not cover all cases.
 
 ### What to Capture
 
-After connecting DevTools to the OnlyFans WebView tab, reproduce the MFA
-flow and collect the following:
+After connecting DevTools to the OnlyFans WebView tab, reproduce the checkbox
+problem in the composer and collect the following:
 
 #### 1. Console output
 
@@ -77,7 +82,7 @@ when the checkbox is clicked.
 
 #### 2. Element inspection
 
-In the **Elements** tab, find the 2FA form. Locate the `.b-chckbox` wrapper
+In the **Elements** tab, find the form containing the checkbox. Locate the `.b-chckbox` wrapper
 and its `<input type="checkbox">` child. Check and record:
 
 - `pointer-events` on `.b-chckbox`, `.b-chckbox__icon`, `.b-chckbox__label`,
@@ -89,7 +94,7 @@ and its `<input type="checkbox">` child. Check and record:
 
 #### 3. Event tracing
 
-In the **Console**, run the following after the 2FA form is visible:
+In the **Console**, run the following once the checkbox is visible:
 
 ```js
 document.querySelectorAll('input[type="checkbox"]').forEach(el => {
@@ -108,9 +113,9 @@ handler.
 If the issue seems related to Cloudflare challenge timing (checkbox appears
 disabled until the challenge resolves):
 
-1. Switch to the **Network** tab before navigating to the 2FA step.
+1. Switch to the **Network** tab before reproducing the problem.
 2. Enable **Preserve log**.
-3. Reproduce the MFA flow.
+3. Reproduce the checkbox interaction.
 4. Right-click any request → **Save all as HAR with content**.
 
 Include the HAR file when reporting — it shows whether the Turnstile

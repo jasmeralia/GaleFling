@@ -18,7 +18,8 @@ Validate that a real user can install, configure, post, update, recover from err
   - Bluesky (1-2 accounts)
   - Instagram (1-2 accounts)
   - Snapchat (WebView login)
-  - OnlyFans (WebView login)
+  - OnlyFans (session imported from a browser — in-app login is not available;
+    see `docs/platforms/ONLYFANS_SESSION_IMPORT.md`)
   - Fansly (WebView login)
   - FetLife (WebView login)
 

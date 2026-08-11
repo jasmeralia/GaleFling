@@ -20,6 +20,8 @@ Install the release build from the installer (not from source). Use a clean Wind
 
 Have at least one active account available for each platform type: Twitter, Bluesky, Instagram, Threads, Facebook Page, Snapchat, OnlyFans, Fansly, and FetLife.
 
+OnlyFans has no in-app login — its login form rejects embedded browsers. Export a session from a normal browser and import it via **Settings > OnlyFans > Import Session from auth.json** before testing. See [platforms/ONLYFANS_SESSION_IMPORT.md](platforms/ONLYFANS_SESSION_IMPORT.md).
+
 ---
 
 ## 1. Install and Launch

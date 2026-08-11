@@ -61,6 +61,15 @@ if [[ ${#pytest_args[@]} -eq 0 ]]; then
 fi
 pytest_args+=(-v --no-header)
 
+# robocopy /MIR deletes whatever is in the destination but not the source, so a
+# destination equal to the source would mirror the live share onto itself.
+if [[ $skip_sync -eq 0 && "${GUEST_REPO%\\}" == "${GUEST_SHARE%\\}" ]]; then
+    printf 'GUEST_REPO must differ from GUEST_SHARE (%s): syncing a share onto\n' "$GUEST_SHARE" >&2
+    printf 'itself would mirror it with robocopy /MIR. Pass --no-sync to run\n' >&2
+    printf 'directly from the share instead.\n' >&2
+    exit 2
+fi
+
 if [[ $revert_first -eq 1 ]]; then
     "$script_dir/snapshot-vm.sh" revert "$BASELINE_SNAPSHOT"
 else
@@ -111,6 +120,8 @@ $sync_block
 Set-Location $(ps_quote "$GUEST_REPO")
 \$env:GALEFLING_STRICT_FUNCTIONAL = '1'
 \$env:GALEFLING_FUNCTIONAL_ENV = $(ps_quote "${GUEST_SHARE}tests\\functional\\.env")
+# GALEFLING_DATA_DIR is deliberately not set: the suite resolves the guest's own
+# %APPDATA%\\GaleFling, so no host path leaks in through the shared .env.
 & $(ps_quote "$GUEST_PYTHON") -m pytest -p no:cacheprovider$quoted_args
 exit \$LASTEXITCODE
 EOF

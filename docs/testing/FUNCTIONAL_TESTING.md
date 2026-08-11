@@ -85,21 +85,20 @@ $env:GALEFLING_STRICT_FUNCTIONAL = "1"
 
 > **Note:** `make` is not required. The Makefile targets are convenience wrappers around `pytest` commands shown above. If you want `make` on Windows, install via `winget install GnuWin32.Make` or `choco install make`.
 
-### Windows .env Path
+### The GaleFling data directory
 
-On Windows, set the native path for `GALEFLING_DATA_DIR`:
+Leave `GALEFLING_DATA_DIR` **unset**. The suite resolves the running platform's own
+location automatically — `~/.config/GaleFling` on Linux, `%APPDATA%\GaleFling` on
+Windows.
 
-```env
-GALEFLING_DATA_DIR=C:\Users\you\AppData\Roaming\GaleFling
-```
+Set it only to point at a non-default profile location. Be aware that the Windows test
+VM reads this same `.env` over the VirtIO-FS share, so an absolute path that is valid
+on one platform is wrong on the other, and the WebView tests there will skip with
+`GALEFLING_DATA_DIR does not exist`.
 
-In WSL, use the Plan9 mount path instead:
-
-```env
-GALEFLING_DATA_DIR=/mnt/c/Users/you/AppData/Roaming/GaleFling
-```
-
-Easiest: export via **Settings > Advanced > Export Test Config** in GaleFling.
+The Linux and Windows profiles are separate: logging in on one does not authenticate
+the other, and a Chromium profile copied between them will not decrypt, because cookie
+values are encrypted per-platform.
 
 ## Quick Start (Windows VM, from Linux)
 
@@ -190,9 +189,10 @@ selectors, unavailable JavaScript, missing session databases, and WebEngine rend
 terminations. Failure messages retain the original diagnostic, including the selector
 or platform state where available.
 
-Missing platform credentials remain legitimate skips in every mode. An absent or
-invalid `GALEFLING_DATA_DIR` also skips tests that require an existing GaleFling
-profile, because those tests cannot start without that external configuration.
+Missing platform credentials remain legitimate skips in every mode. An explicitly
+configured `GALEFLING_DATA_DIR` that does not exist also skips tests requiring a
+GaleFling profile, because those tests cannot start without that external
+configuration. When it is unset the platform default is used instead of skipping.
 
 `make test-functional`, `make test-functional-non-mutating`,
 `make test-functional-mutating`, and `make test-functional-linux` enable strict
@@ -245,11 +245,11 @@ INSTAGRAM_PAGE_ID=your-facebook-page-id
 
 #### WebView Platforms — Common
 
-All WebView platform tests also require:
-```env
-GALEFLING_DATA_DIR=C:\Users\you\AppData\Roaming\GaleFling
-```
-Set to the GaleFling application data directory containing `webprofiles/`. This is where the persistent browser profile (including cookies) is stored. Export via **Settings > Advanced > Export Test Config** or set manually.
+All WebView platform tests read persistent browser profiles from the GaleFling
+application data directory (the one containing `webprofiles/`). This resolves
+automatically per platform, so no configuration is needed. Override it with
+`GALEFLING_DATA_DIR` only to point at a non-default location — see
+[The GaleFling data directory](#the-galefling-data-directory).
 
 #### OnlyFans (WebView)
 ```env

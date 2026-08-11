@@ -1,14 +1,24 @@
 """Functional tests for Snapchat WebView posting.
 
-Snapchat's web app requires WebGL/GPU. Session expiry is detected by checking
-that the final URL stays at web.snapchat.com (expired sessions redirect to
-accounts.snapchat.com).
+Snapchat support is currently disabled (`SNAPCHAT_SPECS.available = False`): its
+web app offers no upload control, only an interactive in-page camera that cannot
+be driven without a virtual camera device. See `docs/platforms/SNAPCHAT.md`.
 
-Requires GALEFLING_DATA_DIR and SNAPCHAT_USERNAME / SNAPCHAT_PASSWORD in .env.
-If the session cookie is still valid the login flow is skipped.
+These tests are kept and still run, because they remain the best live exercise of
+the WebView stack — session handling, rendering and renderer stability — and are
+what a future virtual-camera spike would build on. `test_video_upload_accessible`
+is expected to fail: there is no upload control to find. It is marked xfail so
+that its failure is not noise, while a sudden *pass* is reported loudly, since
+that would mean Snapchat has added one.
+
+Requires SNAPCHAT_USERNAME / SNAPCHAT_PASSWORD in .env. `GALEFLING_DATA_DIR` is
+optional and defaults to the platform's own application data directory. If the
+session cookie is still valid the login flow is skipped.
 """
 
+import json
 import os
+import re
 
 import pytest
 
@@ -25,12 +35,45 @@ from tests.functional.webview_helpers import (
 ACCOUNT_ID = 'snapchat_1'
 
 
+# A rendered Snapchat app has thousands of nodes; an error page has a handful.
+_MIN_RENDERED_NODES = 50
 _SNAPCHAT_WEB_HOSTS = ('web.snapchat.com', 'www.snapchat.com/web')
 
 
 def _is_snapchat_web(url: str) -> bool:
     """Return True if *url* is the Snapchat web app (either domain variant)."""
     return any(s in url for s in _SNAPCHAT_WEB_HOSTS)
+
+
+def _assert_app_rendered(page) -> None:
+    """Fail unless the Snapchat web application actually rendered.
+
+    Snapchat serves error pages from the web-app URL itself — a rate-limited
+    request returns an HTTP status code as the document title with a handful of
+    DOM nodes. Those satisfy a plain "URL looks right, JS runs" check, so
+    without this the suite reports a throttled session as a working one and
+    every DOM assertion afterwards silently measures the error page instead.
+    """
+    state = run_js(
+        page,
+        """
+        JSON.stringify({
+            title: document.title,
+            nodes: document.querySelectorAll('*').length
+        })
+        """,
+    )
+    if not state:
+        return
+    parsed = json.loads(state)
+    title = (parsed.get('title') or '').strip()
+    nodes = parsed.get('nodes') or 0
+    if re.fullmatch(r'\d{3}', title) or nodes < _MIN_RENDERED_NODES:
+        fail_or_skip(
+            f'Snapchat served an error page instead of the web app '
+            f'(title={title!r}, nodes={nodes}). A 429 title means the session or '
+            f'account is being rate limited — wait before retrying.'
+        )
 
 
 def _ensure_session(page, credentials: dict) -> None:
@@ -46,7 +89,11 @@ def _ensure_session(page, credentials: dict) -> None:
     assert ok, f'Page load failed: {final_url}'
     wait_ms(5000)
 
-    if not _is_snapchat_web(final_url) and not _is_snapchat_web(page.url().toString()):
+    # Only the settled URL indicates whether a session exists.  A logged-out
+    # load still *finishes* on web.snapchat.com and is bounced to the marketing
+    # page by client-side JS afterwards, so trusting the load-time URL made this
+    # check pass while logged out and skip the login entirely.
+    if not _is_snapchat_web(page.url().toString()):
         success, reason = login_snapchat(page, credentials['username'], credentials['password'])
         if not success:
             fail_or_skip(f'Snapchat login failed — {reason}')
@@ -80,10 +127,19 @@ class TestSnapchatComposer:
                     f'Snapchat redirected away from web app (platform={qt_platform}, '
                     f'url={current_url}). Requires a real display with WebGL.'
                 )
+            _assert_app_rendered(page)
         finally:
             page.deleteLater()
             profile.deleteLater()
 
+    @pytest.mark.xfail(
+        reason=(
+            'Snapchat web has no upload control — posting is only possible through '
+            'its interactive in-page camera. A pass here means Snapchat added one, '
+            'which would justify revisiting support.'
+        ),
+        strict=False,
+    )
     def test_video_upload_accessible(self, galefling_data_dir, snapchat_credentials):
         """Verify the video upload mechanism is accessible on Snapchat web."""
         get_or_create_app()
@@ -98,6 +154,7 @@ class TestSnapchatComposer:
 
             # Wait for SPA to fully render
             wait_ms(3000)
+            _assert_app_rendered(page)
 
             result = run_js(
                 page,

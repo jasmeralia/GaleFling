@@ -390,10 +390,20 @@ def meta_aws_credentials():
 
 @pytest.fixture
 def galefling_data_dir():
+    """Resolve the application data directory holding WebView profiles.
+
+    Defaults to the platform's own location rather than requiring a configured
+    path.  The credential file is shared between the Linux host and the Windows
+    test VM over VirtIO-FS, so an absolute path written there is necessarily
+    wrong for one of them; letting each side resolve its own avoids that.
+    """
+    from pathlib import Path
+
+    from src.utils.helpers import get_app_data_dir
+
     data_dir = os.environ.get('GALEFLING_DATA_DIR')
     if not data_dir:
-        pytest.skip('GALEFLING_DATA_DIR not configured')
-    from pathlib import Path
+        return get_app_data_dir()
 
     path = Path(data_dir)
     if not path.is_dir():

@@ -2,6 +2,7 @@
 
 from PyQt6.QtCore import QTimer, QUrl
 
+from src.core.logger import get_logger
 from src.platforms.base_webview import BaseWebViewPlatform
 from src.utils.constants import SNAPCHAT_SPECS, PlatformSpecs
 
@@ -22,6 +23,12 @@ class SnapchatPlatform(BaseWebViewPlatform):
         # Used to detect the post-login redirect back to www.snapchat.com/web
         # and replace it with a safe navigation to web.snapchat.com.
         self._visited_accounts_page = False
+        # Destinations this view has already been redirected to.  Snapchat
+        # bounces between web.snapchat.com and www.snapchat.com/web, and each
+        # bounce re-enters _on_url_changed, so rewriting unconditionally turns
+        # one page load into an endless request loop that Snapchat answers with
+        # HTTP 429.  A healthy flow needs each destination at most once.
+        self._redirect_destinations: set[str] = set()
 
     def _is_login_redirect_url(self, url_string: str) -> bool:
         """Detect session expiry via subdomain: authenticated app lives at
@@ -68,7 +75,17 @@ class SnapchatPlatform(BaseWebViewPlatform):
                     '?client_id=web-calling-corp--prod'
                     '&referrer=https%3A%2F%2Fweb.snapchat.com%2F'
                 )
-            QTimer.singleShot(0, lambda: view.load(QUrl(dest)))
+            if dest in self._redirect_destinations:
+                get_logger().warning(
+                    'Snapchat redirect interception stopping: already navigated here',
+                    extra={
+                        'account_id': self._account_id or 'default',
+                        'destination': dest,
+                    },
+                )
+            else:
+                self._redirect_destinations.add(dest)
+                QTimer.singleShot(0, lambda: view.load(QUrl(dest)))
 
         super()._on_url_changed(url)
 

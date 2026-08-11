@@ -59,6 +59,12 @@ class PlatformSpecs:
     supports_embedded_login: bool = True
     # Whether the platform can restore a session from an exported auth.json.
     supports_session_import: bool = False
+    # Whether the platform is offered to users at all. False hides it from the
+    # setup wizard, settings and the post composer, while keeping its specs
+    # available so existing accounts and stored config still resolve.
+    available: bool = True
+    # Shown to the user when `available` is False, explaining why.
+    unavailable_reason: str = ''
 
 
 @dataclass
@@ -140,6 +146,14 @@ SNAPCHAT_SPECS = PlatformSpecs(
     max_video_duration_seconds=60,
     supports_images=False,
     supports_text=False,
+    # Snapchat's web app exposes no upload control: posting is only possible by
+    # activating the in-page camera and capturing a live stream, which GaleFling
+    # cannot drive without a virtual camera device. See docs/platforms/SNAPCHAT.md.
+    available=False,
+    unavailable_reason=(
+        'Snapchat can only be posted to through its web camera, which GaleFling '
+        'cannot drive. Support is paused; no other platform is affected.'
+    ),
 )
 
 # GET https://onlyfans.com/api2/v2/init -> postMediaConfig (verified 2026-08-10)

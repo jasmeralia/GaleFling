@@ -104,6 +104,19 @@ def test_onlyfans_specs():
     assert specs.has_cloudflare is True
     assert specs.requires_user_confirm is True
     assert specs.max_accounts == 1
+    assert specs.max_image_dimensions == (10000, 10000)
+    assert specs.max_media_attachments == 40
+    assert specs.supported_formats == ['JPEG', 'PNG', 'GIF']
+    assert specs.supported_video_formats == [
+        'MP4',
+        'MOV',
+        'M4V',
+        'MPEG',
+        'WMV',
+        'AVI',
+        'WEBM',
+        'MKV',
+    ]
 
 
 def test_onlyfans_prefill_delay():

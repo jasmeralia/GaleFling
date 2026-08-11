@@ -135,11 +135,13 @@ SNAPCHAT_SPECS = PlatformSpecs(
     supports_text=False,
 )
 
+# GET https://onlyfans.com/api2/v2/init -> postMediaConfig (verified 2026-08-10)
 ONLYFANS_SPECS = PlatformSpecs(
     platform_name='OnlyFans',
-    max_image_dimensions=(4096, 4096),
+    max_image_dimensions=(10000, 10000),
     max_file_size_mb=50.0,
-    supported_formats=['JPEG', 'PNG', 'WEBP'],
+    # HEIC is deliberately omitted because this project's Pillow pipeline has no HEIC decoder.
+    supported_formats=['JPEG', 'PNG', 'GIF'],
     max_text_length=1000,
     platform_color='#00AFF0',
     api_type='webview',
@@ -147,10 +149,19 @@ ONLYFANS_SPECS = PlatformSpecs(
     max_accounts=1,
     requires_user_confirm=True,
     has_cloudflare=True,
-    supported_video_formats=['MP4', 'MOV'],
+    supported_video_formats=[
+        'MP4',
+        'MOV',
+        'M4V',
+        'MPEG',
+        'WMV',
+        'AVI',
+        'WEBM',
+        'MKV',
+    ],
     max_video_dimensions=(3840, 2160),
     max_video_file_size_mb=5120.0,
-    max_media_attachments=4,
+    max_media_attachments=40,
 )
 
 FANSLY_SPECS = PlatformSpecs(

@@ -321,13 +321,12 @@ class SettingsDialog(QDialog):
         # OAuth relay URI setting
         relay_group = QGroupBox('OAuth Relay')
         relay_layout = QFormLayout(relay_group)
-        relay_layout.addRow(
-            QLabel(
-                '<i>HTTPS redirect URI registered in each Meta app dashboard. '
-                'All three platforms share the same relay URL.</i>'
-            ),
-            QLabel(),
+        relay_hint = QLabel(
+            '<i>HTTPS redirect URI registered in each Meta app dashboard. '
+            'All three platforms share the same relay URL.</i>'
         )
+        relay_hint.setWordWrap(True)
+        relay_layout.addRow(relay_hint)
         self._meta_oauth_redirect_uri_edit = QLineEdit(
             self._auth_manager.get_meta_oauth_redirect_uri()
         )
@@ -580,7 +579,7 @@ class SettingsDialog(QDialog):
             )
         intro_label = QLabel(intro)
         intro_label.setWordWrap(True)
-        form.addRow(intro_label, QLabel())
+        form.addRow(intro_label)
 
         for n in range(1, specs.max_accounts + 1):
             account_id = f'{platform_id}_{n}'
@@ -634,7 +633,10 @@ class SettingsDialog(QDialog):
         scroll.setWidget(widget)
         tabs.addTab(scroll, specs.platform_name)
 
-    def _create_advanced_tab(self) -> QWidget:
+    def _create_advanced_tab(self) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
@@ -646,11 +648,11 @@ class SettingsDialog(QDialog):
         )
         self._webview_compatibility_cb.setChecked(self._config.webview_compatibility_mode)
         webview_layout.addWidget(self._webview_compatibility_cb)
-        webview_layout.addWidget(
-            QLabel(
-                '<i>Requires app restart to take effect. May improve stability on some systems.</i>'
-            )
+        webview_compat_hint = QLabel(
+            '<i>Requires app restart to take effect. May improve stability on some systems.</i>'
         )
+        webview_compat_hint.setWordWrap(True)
+        webview_layout.addWidget(webview_compat_hint)
 
         # Remote debugging
         self._remote_debug_cb = QCheckBox('Enable remote debugging (Chrome DevTools Protocol)')
@@ -664,12 +666,12 @@ class SettingsDialog(QDialog):
         remote_debug_port_layout.addStretch()
         webview_layout.addWidget(self._remote_debug_cb)
         webview_layout.addLayout(remote_debug_port_layout)
-        webview_layout.addWidget(
-            QLabel(
-                '<i>Session only — not saved to config. Connect via '
-                'chrome://inspect or DevTools at the configured port.</i>'
-            )
+        remote_debug_hint = QLabel(
+            '<i>Session only — not saved to config. Connect via '
+            'chrome://inspect or DevTools at the configured port.</i>'
         )
+        remote_debug_hint.setWordWrap(True)
+        webview_layout.addWidget(remote_debug_hint)
 
         # Pre-populate from config
         self._remote_debug_cb.setChecked(self._config.remote_debug_enabled)
@@ -714,9 +716,11 @@ class SettingsDialog(QDialog):
         # Export test config
         export_group = QGroupBox('Functional Tests')
         export_layout = QVBoxLayout(export_group)
-        export_layout.addWidget(
-            QLabel('<i>Export all configured credentials as a .env file for functional tests.</i>')
+        export_hint = QLabel(
+            '<i>Export all configured credentials as a .env file for functional tests.</i>'
         )
+        export_hint.setWordWrap(True)
+        export_layout.addWidget(export_hint)
         export_test_btn = QPushButton('Export Test Config')
         export_test_btn.clicked.connect(self._export_test_config)
         export_layout.addWidget(export_test_btn)
@@ -725,13 +729,13 @@ class SettingsDialog(QDialog):
         # Credential import
         import_group = QGroupBox('Credential Import')
         import_layout = QVBoxLayout(import_group)
-        import_layout.addWidget(
-            QLabel(
-                '<i>Import app-level credentials for Meta (Threads/Instagram/Facebook), '
-                'Twitter OAuth 2.0, and AWS from a JSON file provided by your administrator. '
-                'The file is not modified or deleted by GaleFling after import.</i>'
-            )
+        import_hint = QLabel(
+            '<i>Import app-level credentials for Meta (Threads/Instagram/Facebook), '
+            'Twitter OAuth 2.0, and AWS from a JSON file provided by your administrator. '
+            'The file is not modified or deleted by GaleFling after import.</i>'
         )
+        import_hint.setWordWrap(True)
+        import_layout.addWidget(import_hint)
         import_btn = QPushButton('Import Credentials from JSON\u2026')
         import_btn.clicked.connect(self._import_credentials_from_json)
         import_layout.addWidget(import_btn)
@@ -765,7 +769,8 @@ class SettingsDialog(QDialog):
         layout.addWidget(aws_group)
 
         layout.addStretch()
-        return widget
+        scroll.setWidget(widget)
+        return scroll
 
     def _save_and_close(self):
         if not self._validate_bluesky_accounts():

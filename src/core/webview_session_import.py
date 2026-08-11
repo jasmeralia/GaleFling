@@ -12,6 +12,9 @@ from pathlib import Path
 from src.core.webview_environment import chrome_compatible_user_agent
 
 _METADATA_FILENAME = 'galefling_session.json'
+# Chromium's cookie store is flushed to SQLite lazily; measured at 20-35 seconds.
+# Treat a just-imported session as valid for slightly longer than the worst case.
+SESSION_IMPORT_GRACE_SECONDS = 60.0
 _REQUIRED_KEYS = ('USER_ID', 'USER_AGENT', 'X_BC', 'COOKIE')
 _METADATA_KEYS = ('user_agent', 'x_bc', 'user_id', 'imported_at')
 
@@ -133,6 +136,30 @@ def load_session_metadata(storage_path: Path) -> dict | None:
     ):
         return None
     return metadata
+
+
+def session_recently_imported(
+    storage_path: Path, within_seconds: float = SESSION_IMPORT_GRACE_SECONDS
+) -> bool:
+    """Report whether a session was imported into this profile very recently.
+
+    Chromium keeps injected cookies in memory and only writes them to its
+    on-disk store every 30 seconds or so.  An import that the live cookie store
+    already accepted is therefore genuinely valid while the database still looks
+    empty, and callers that read the database need this to avoid reporting a
+    successful import as an expired session.
+    """
+    metadata = load_session_metadata(storage_path)
+    if metadata is None:
+        return False
+    try:
+        imported_at = datetime.fromisoformat(metadata['imported_at'])
+    except ValueError:
+        return False
+    if imported_at.tzinfo is None:
+        imported_at = imported_at.replace(tzinfo=UTC)
+    age = (datetime.now(UTC) - imported_at).total_seconds()
+    return 0 <= age <= within_seconds
 
 
 def effective_user_agent(storage_path: Path, default_ua: str) -> str:

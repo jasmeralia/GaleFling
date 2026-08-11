@@ -1,6 +1,8 @@
 """Pure-Python tests for browser-exported WebView session imports."""
 
 import json
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -136,3 +138,71 @@ def test_load_session_metadata_returns_none_for_corrupt_sidecar(tmp_path):
     (tmp_path / 'galefling_session.json').write_text('{invalid', encoding='utf-8')
 
     assert load_session_metadata(tmp_path) is None
+
+
+# ── Import grace window ─────────────────────────────────────────────
+
+
+def _write_metadata(storage_path: Path, imported_at: str) -> None:
+    storage_path.mkdir(parents=True, exist_ok=True)
+    (storage_path / 'galefling_session.json').write_text(
+        json.dumps(
+            {
+                'user_agent': USER_AGENT,
+                'x_bc': X_BC,
+                'user_id': USER_ID,
+                'imported_at': imported_at,
+            }
+        ),
+        encoding='utf-8',
+    )
+
+
+def test_session_recently_imported_true_within_window(tmp_path):
+    from src.core.webview_session_import import session_recently_imported
+
+    _write_metadata(tmp_path, (datetime.now(UTC) - timedelta(seconds=25)).isoformat())
+    assert session_recently_imported(tmp_path) is True
+
+
+def test_session_recently_imported_false_after_window(tmp_path):
+    from src.core.webview_session_import import session_recently_imported
+
+    _write_metadata(tmp_path, (datetime.now(UTC) - timedelta(seconds=120)).isoformat())
+    assert session_recently_imported(tmp_path) is False
+
+
+def test_session_recently_imported_covers_measured_flush_delay(tmp_path):
+    """Chromium's flush was measured at 20-35s; the window must outlast it."""
+    from src.core.webview_session_import import (
+        SESSION_IMPORT_GRACE_SECONDS,
+        session_recently_imported,
+    )
+
+    assert SESSION_IMPORT_GRACE_SECONDS > 35
+    _write_metadata(tmp_path, (datetime.now(UTC) - timedelta(seconds=35)).isoformat())
+    assert session_recently_imported(tmp_path) is True
+
+
+def test_session_recently_imported_rejects_future_timestamp(tmp_path):
+    """A clock change must not grant an indefinite grace window."""
+    from src.core.webview_session_import import session_recently_imported
+
+    _write_metadata(tmp_path, (datetime.now(UTC) + timedelta(hours=2)).isoformat())
+    assert session_recently_imported(tmp_path) is False
+
+
+def test_session_recently_imported_handles_missing_or_corrupt(tmp_path):
+    from src.core.webview_session_import import session_recently_imported
+
+    assert session_recently_imported(tmp_path / 'absent') is False
+    _write_metadata(tmp_path, 'not-a-timestamp')
+    assert session_recently_imported(tmp_path) is False
+
+
+def test_session_recently_imported_assumes_utc_for_naive_timestamp(tmp_path):
+    from src.core.webview_session_import import session_recently_imported
+
+    naive = datetime.now(UTC).replace(tzinfo=None).isoformat()
+    _write_metadata(tmp_path, naive)
+    assert session_recently_imported(tmp_path) is True

@@ -39,10 +39,10 @@ OnlyFans sessions expire periodically. Unlike most platforms, OnlyFans does **no
 When your session expires, GaleFling will show a "session expired" warning. Export a fresh
 `auth.json` from your browser and re-import it to re-establish the session.
 
-Note that GaleFling verifies an import against Chromium's live cookie store, but its own
-"session valid" check reads Chromium's on-disk cookie database, which is only written every
-30 seconds or so. A successful import may therefore still report "session expired" for about
-half a minute afterwards.
+GaleFling verifies an import against Chromium's live cookie store, while its "session valid"
+check reads Chromium's on-disk cookie database, which is only written every 30 seconds or so.
+A freshly imported session is treated as valid during that gap, so a successful import does
+not report itself as expired.
 
 ## Media Restrictions
 
@@ -85,7 +85,7 @@ The maximum file sizes below are GaleFling-imposed limits, not values published 
 
 | Problem | Solution |
 |---|---|
-| "Session expired" right after a successful import | Expected for up to ~30 seconds while Chromium writes its cookie database to disk. Re-check after a moment. |
+| "Session expired" right after a successful import | Should not happen — a fresh import is trusted while Chromium writes its cookie database. If it does, the import did not complete; check for an error message and import again. |
 | Import reports the cookies were rejected | The `auth.json` is malformed or was edited by hand. Export a fresh one. |
 | Import succeeds but OnlyFans still shows a login form | The exported session is no longer valid. Log out and back in with your browser — re-exporting without a fresh login reuses the same dead session — then export and import again. |
 | No login button on the OnlyFans tab | Intentional. OnlyFans rejects embedded-browser logins, so sessions must be imported. |

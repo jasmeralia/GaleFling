@@ -98,10 +98,18 @@ galefling/
   changes.
 - Run functional tests in the VM with `make test-functional-win-vm`
   (`PYTEST_ARGS="..."` for a subset, `-clean` variant to revert first). Tests execute
-  from a `C:\GaleFling` copy that is re-synced each run, because pytest cannot scan the
-  VirtIO-FS share — the repository's `logs` symlink breaks its rootdir walk. Credentials
-  are read from the share via `GALEFLING_FUNCTIONAL_ENV` and must never be written to
-  the guest disk or captured in a snapshot.
+  from a `C:\GaleFling` copy that is re-synced with `robocopy /MIR` each run, so it is
+  never stale. Credentials are read from the share via `GALEFLING_FUNCTIONAL_ENV` and
+  must never be written to the guest disk or captured in a snapshot.
+- The copy exists because a `logs` symlink to an absolute Linux path once broke pytest's
+  rootdir walk over VirtIO-FS. That symlink is gone and the share no longer fails that
+  way, but a share-rooted run was seen collecting the whole suite instead of the
+  requested subset, so the copy is retained. `GUEST_REPO='Z:\'` with `--no-sync` runs
+  from the share for anyone revisiting it; without `--no-sync` the script refuses, since
+  mirroring the share onto itself would aim `robocopy /MIR` at its own source.
+- Do not put an absolute path in `GALEFLING_DATA_DIR`: both the Linux host and the
+  Windows guest read the same `.env` over the share, so a path valid on one is wrong on
+  the other. Leave it unset and each side resolves its own application data directory.
 - The host repository is shared to Windows as `Z:` through VirtIO-FS. WinFsp is a
   guest dependency for that mount, not an application dependency.
 - The configured baseline snapshot defaults to `clean-loggedout` and must contain

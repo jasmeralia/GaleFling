@@ -107,6 +107,15 @@ largest item on the roadmap.
 **Prerequisites:** None (Phase 1 improves reporting but is not required).
 **Cost:** Hours. Read-only; commits nothing.
 
+> **A crash fix does not make Snapchat work.** Snapchat's web app has no real
+> composer: `SNAPCHAT_SPECS` sets `supports_images=False` and `supports_text=False`,
+> the only path is a single video upload (MP4, ≤60 s, ≤50 MB), and static images are
+> converted to MP4 to fit it. Text captions are ignored outright. Surviving the
+> renderer crash is necessary but nowhere near sufficient, so do not count Snapchat as
+> a success case when deciding whether issue #1 can close — and weigh that before
+> spending much on crash debugging. Whether Snapchat is worth supporting on the web
+> path at all is the prior question.
+
 ### Tasks
 
 1. Run with a **live session** — the logged-out probe is not a valid test, because
@@ -217,11 +226,32 @@ Three things were learned building it that are worth keeping:
 - [ ] `virsh snapshot-revert` returns the guest to `clean-loggedout` in under 60 s —
   `--revert` is implemented but has not been timed against a real snapshot.
 
+### First credential-backed run — 2026-08-11
+
+`make test-functional-win-vm PYTEST_ARGS="tests/functional -m 'functional and non_mutating'"`
+→ **51 passed, 8 skipped, 5 failed** in 2m35s. The skips are unconfigured platforms
+(Instagram, Meta) and are genuine. Findings from the five failures:
+
+- **Snapchat is blocked by WebGL, not by a renderer crash.** The guest logged
+  `ContextResult::kFatalFailure: WebGL2 blocklisted` / `WebGL1 blocklisted`, and
+  Snapchat bounced to `www.snapchat.com/?original_referrer=none`. No
+  `ACCESS_VIOLATION`, no renderer termination. This is *not* a clean bill of health
+  for Phase 2 — the bundle that crash-looped never executed, exactly as in the
+  earlier logged-out probe — but the cause is now identified: the GPU-less VM has no
+  WebGL. **Phase 2 cannot be answered in this VM without the GPU work in Phase 4.**
+- **OnlyFans authenticates in the guest.** `test_page_loads_authenticated` passes;
+  only `test_composer_accessible` fails, reporting `editables=1` but no
+  `div[contenteditable="true"].b-make-post__text`. That is a selector question, not a
+  session or crash question — worth checking whether the composer markup has drifted.
+- **Fansly and FetLife session tests pass**, having logged in earlier in the same run.
+
 ### Remaining
 
 - Time a `--revert` run and confirm the 60 s target.
-- Run the credential-backed platform tests in the guest; only the credential-free
-  media-processing suite has been exercised so far.
+- Snapchat needs a session in the guest (its 2 session tests fail with "No Snapchat
+  cookie databases found") and a GPU before it can be meaningfully tested at all.
+- Investigate the OnlyFans composer selector against the current markup.
+- The `mutating` tests have not been run in the guest; they create real posts.
 
 ### Non-goals
 

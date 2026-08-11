@@ -15,10 +15,13 @@ VERSION_FILE := src/utils/_version.py
 POWERSHELL   := /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
 WIN_PYTHON   ?= py
 DESKTOP_SESSION_RUNNER := scripts/run-with-desktop-session.sh
+WIN_VM_RUNNER := tools/windows-vm/run-tests.sh
+PYTEST_ARGS   ?=
 
 .PHONY: help venv deps version-file lint lintfix format test test-ci test-cov \
         test-functional test-functional-non-mutating test-functional-mutating \
         test-functional-linux test-functional-xvfb test-functional-cmd \
+        test-functional-win-vm test-functional-win-vm-clean \
         venv-win build-wsl build-linux installer-wsl run clean
 
 help: ## Show this help
@@ -46,6 +49,7 @@ lint: ## Run ruff, mypy, and shellcheck
 	$(PY) -m ruff format --check src/ tests/ infrastructure/ scripts/
 	$(PY) -m mypy src/ scripts/release_info.py scripts/write_version.py
 	shellcheck infrastructure/deploy.sh build/linux/appimage/AppRun $(DESKTOP_SESSION_RUNNER)
+	shellcheck -x tools/windows-vm/*.sh
 
 lintfix: ## Auto-fix lint issues and format code
 	$(PY) -m ruff check --fix src/ tests/ infrastructure/ scripts/
@@ -84,6 +88,12 @@ test-functional-linux: ## [Linux] Run all strict functional tests on the live de
 
 test-functional-xvfb: ## [Linux/WSL] Run functional tests under Xvfb virtual display
 	xvfb-run -a $(PY) -m pytest tests/functional/ -m functional -v --no-header
+
+test-functional-win-vm: ## [Linux→VM] Run functional tests in the Windows VM over SSH (PYTEST_ARGS="...")
+	$(WIN_VM_RUNNER) $(PYTEST_ARGS)
+
+test-functional-win-vm-clean: ## [Linux→VM] As above, reverting to the baseline snapshot first (discards guest changes)
+	$(WIN_VM_RUNNER) --revert $(PYTEST_ARGS)
 
 venv-win: ## [WSL→Win] Create Windows venv at .venv-win via PowerShell (run once first)
 	@WIN_DIR=$$(wslpath -w "$(CURDIR)"); \

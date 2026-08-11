@@ -73,6 +73,24 @@ than the selected snapshot.
 Set `GALEFLING_VM_CONFIG=/path/to/vm.env` to use a configuration stored somewhere
 other than `tools/windows-vm/vm.env`.
 
+## Run the functional tests
+
+```bash
+make test-functional-win-vm                    # whole functional suite
+make test-functional-win-vm PYTEST_ARGS="tests/functional/test_media_processing.py"
+make test-functional-win-vm-clean              # revert to the baseline snapshot first
+```
+
+`run-tests.sh` starts the VM if needed, re-syncs the guest copy of the repository,
+runs pytest over SSH, and exits with the guest's exit code. Pass `--no-sync` to skip
+the refresh. See `docs/testing/FUNCTIONAL_TESTING.md` for the full workflow.
+
+Tests run from `C:\GaleFling`, not the share: pytest's rootdir scan fails on the
+repository's `logs` symlink through VirtIO-FS. The copy is mirrored from `Z:` on every
+run, so it always matches the host working tree. Credentials are read from
+`Z:\tests\functional\.env` via `GALEFLING_FUNCTIONAL_ENV` and are never written to the
+guest disk.
+
 ## Repository sharing
 
 The live repository is mounted as `Z:` through VirtIO-FS. The finalizer also makes

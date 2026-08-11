@@ -101,6 +101,55 @@ GALEFLING_DATA_DIR=/mnt/c/Users/you/AppData/Roaming/GaleFling
 
 Easiest: export via **Settings > Advanced > Export Test Config** in GaleFling.
 
+## Quick Start (Windows VM, from Linux)
+
+Runs the suite on real Windows without leaving the Linux shell, using the libvirt VM
+harness in `tools/windows-vm/`. See [`tools/windows-vm/README.md`](../../tools/windows-vm/README.md)
+for creating the VM; this section covers running tests once it exists.
+
+```bash
+make test-functional-win-vm                    # whole functional suite in the guest
+make test-functional-win-vm PYTEST_ARGS="tests/functional/test_media_processing.py"
+make test-functional-win-vm PYTEST_ARGS="-k composer -x"
+make test-functional-win-vm-clean              # revert to the baseline snapshot first
+```
+
+The target starts the VM if it is not already running, executes pytest in the guest over
+SSH, and exits with the guest's own exit code — a failing test in the guest fails the
+make target on the host.
+
+**Start with `test_media_processing.py`.** It needs no credentials, so it separates "the
+VM dispatch works" from "the credentials work" when something goes wrong.
+
+### How it works
+
+The guest runs the tests directly from the host working tree, shared as `Z:` over
+VirtIO-FS. There is no copy or sync step, so the guest always tests the checkout you are
+editing — including uncommitted changes. Tests run with `GALEFLING_STRICT_FUNCTIONAL=1`
+so environment gaps are reported as failures rather than skips; a silently skipped suite
+in a VM nobody is watching looks exactly like a passing one.
+
+Credentials are read from `tests/functional/.env` over that same share at run time, so
+they stay on the host. **Never copy `.env` into the guest filesystem** — a snapshot taken
+afterwards would carry the credentials, and snapshots are long-lived and reverted to
+repeatedly.
+
+### Snapshot reverts
+
+`make test-functional-win-vm-clean` reverts to the baseline snapshot (`clean-loggedout`
+by default) before running, so every run starts from identical state. This is what makes
+persistence testing meaningful, but it **discards all newer guest changes**, including
+any platform session you logged in by hand. The plain target does not revert.
+
+### Troubleshooting
+
+| Problem | Cause |
+|---|---|
+| `Missing VM configuration` | No `vm.env`. Copy `vm.env.example` and set local paths. |
+| `Could not determine the IP address` | The guest booted but has no DHCP lease yet, or the guest agent is not running. |
+| `Z:` not found in the guest | The VirtioFS service is not running. Check `WinFsp` and `VirtioFsSvc` in the guest. |
+| Tests fail only in the guest | Expected for genuine Windows-specific defects — this is the point of the VM. Confirm on Linux with `make test-functional-linux` before assuming a dispatch problem. |
+
 ## Functional Test Groups
 
 Every functional test belongs to exactly one side-effect group:

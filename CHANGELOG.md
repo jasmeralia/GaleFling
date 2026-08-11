@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **OnlyFans session import:** OnlyFans gates its login form with reCAPTCHA Enterprise, which rejects GaleFling's embedded browser regardless of credentials. Log in with a normal browser instead, export the session with the OF-DL Auth Helper extension, and import the resulting `auth.json` via **Settings > Accounts > OnlyFans > Import Session from auth.json**. Posting is unchanged after import. See `docs/platforms/ONLYFANS_SESSION_IMPORT.md`.
-- **Windows WebView test VM:** `tools/windows-vm/` provides a reusable libvirt/KVM harness for provisioning and managing a Windows 11 functional-test VM.
+- **Windows WebView test VM:** `tools/windows-vm/` provides a reusable libvirt/KVM harness for provisioning and managing a Windows 11 functional-test VM. `make test-functional-win-vm` runs the functional suite inside the guest over SSH from a Linux shell and exits with the guest's own pytest status; `make test-functional-win-vm-clean` reverts to the baseline snapshot first. Pass `PYTEST_ARGS="..."` to run a subset. Credentials are read from the host share and never written to the guest disk.
 - **Linux packaging:** Release builds now include DEB, RPM, AppImage, and Snap packages for amd64 and arm64.
 
 ### Changed

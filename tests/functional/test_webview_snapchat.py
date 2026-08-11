@@ -46,7 +46,11 @@ def _ensure_session(page, credentials: dict) -> None:
     assert ok, f'Page load failed: {final_url}'
     wait_ms(5000)
 
-    if not _is_snapchat_web(final_url) and not _is_snapchat_web(page.url().toString()):
+    # Only the settled URL indicates whether a session exists.  A logged-out
+    # load still *finishes* on web.snapchat.com and is bounced to the marketing
+    # page by client-side JS afterwards, so trusting the load-time URL made this
+    # check pass while logged out and skip the login entirely.
+    if not _is_snapchat_web(page.url().toString()):
         success, reason = login_snapchat(page, credentials['username'], credentials['password'])
         if not success:
             fail_or_skip(f'Snapchat login failed — {reason}')

@@ -231,6 +231,12 @@ class AuthManager:
     def has_meta_threads_app_credentials(self) -> bool:
         return self.get_meta_threads_app_credentials() is not None
 
+    def clear_meta_threads_app_credentials(self) -> None:
+        """Remove stored Meta Threads app credentials."""
+        path = self._auth_dir / 'meta_threads_app_auth.json'
+        if path.exists():
+            path.unlink()
+
     def get_meta_instagram_app_credentials(self) -> dict[str, str] | None:
         """Return the Meta Instagram app credentials (app_id, app_secret)."""
         data = self._load_json('meta_instagram_app_auth.json')
@@ -247,6 +253,12 @@ class AuthManager:
     def has_meta_instagram_app_credentials(self) -> bool:
         return self.get_meta_instagram_app_credentials() is not None
 
+    def clear_meta_instagram_app_credentials(self) -> None:
+        """Remove stored Meta Instagram app credentials."""
+        path = self._auth_dir / 'meta_instagram_app_auth.json'
+        if path.exists():
+            path.unlink()
+
     def get_meta_facebook_app_credentials(self) -> dict[str, str] | None:
         """Return the Meta Facebook app credentials (app_id, app_secret)."""
         data = self._load_json('meta_facebook_app_auth.json')
@@ -260,6 +272,12 @@ class AuthManager:
 
     def has_meta_facebook_app_credentials(self) -> bool:
         return self.get_meta_facebook_app_credentials() is not None
+
+    def clear_meta_facebook_app_credentials(self) -> None:
+        """Remove stored Meta Facebook app credentials."""
+        path = self._auth_dir / 'meta_facebook_app_auth.json'
+        if path.exists():
+            path.unlink()
 
     _DEFAULT_META_OAUTH_REDIRECT_URI = 'https://galefling.jasmer.tools/oauth/callback'
 

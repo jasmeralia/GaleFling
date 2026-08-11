@@ -528,6 +528,49 @@ def test_settings_dialog_meta_tab_renders_facebook_page_section(qtbot, tmp_path,
     )
 
 
+def test_settings_dialog_meta_app_credentials_load_and_save(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    auth.save_meta_threads_app_credentials('saved_th', 'saved_secret')
+    monkeypatch.setattr('src.gui.settings_dialog.QMessageBox.information', lambda *_a, **_k: 0)
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    assert dialog._meta_app_credential_edits['meta_threads']['app_id'].text() == 'saved_th'
+    assert dialog._meta_app_credential_edits['meta_threads']['app_secret'].text() == 'saved_secret'
+
+    dialog._meta_app_credential_edits['meta_instagram']['app_id'].setText('ig_id')
+    dialog._meta_app_credential_edits['meta_instagram']['app_secret'].setText('ig_secret')
+    dialog._save_and_close()
+
+    ig = auth.get_meta_instagram_app_credentials()
+    th = auth.get_meta_threads_app_credentials()
+    assert ig == {'app_id': 'ig_id', 'app_secret': 'ig_secret'}
+    assert th == {'app_id': 'saved_th', 'app_secret': 'saved_secret'}
+
+
+def test_settings_dialog_meta_app_credentials_clear_one_provider(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    auth.save_meta_threads_app_credentials('th_id', 'th_secret')
+    auth.save_meta_instagram_app_credentials('ig_id', 'ig_secret')
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.QMessageBox.question',
+        lambda *_args, **_kwargs: 16384,  # QMessageBox.Yes
+    )
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    dialog._clear_meta_app_credentials('meta_instagram', 'Instagram')
+
+    assert auth.has_meta_instagram_app_credentials() is False
+    assert auth.has_meta_threads_app_credentials() is True
+    assert dialog._meta_app_credential_edits['meta_instagram']['app_id'].text() == ''
+    assert dialog._meta_app_credential_edits['meta_instagram']['app_secret'].text() == ''
+
+
 def test_settings_dialog_reset_webview_session_cookies(qtbot, tmp_path, monkeypatch):
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)

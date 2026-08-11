@@ -302,6 +302,11 @@ class SettingsDialog(QDialog):
         ('meta_instagram', 'Instagram', 2, ['meta_instagram_1', 'meta_instagram_2']),
         ('meta_facebook_page', 'Facebook Page', 1, ['meta_facebook_page_1']),
     ]
+    _META_APP_CREDENTIAL_PROVIDERS: list[tuple[str, str]] = [
+        ('meta_threads', 'Threads'),
+        ('meta_instagram', 'Instagram'),
+        ('meta_facebook_page', 'Facebook Page'),
+    ]
 
     def _create_meta_tab(self, tabs: QTabWidget) -> None:
         scroll = QScrollArea()
@@ -310,6 +315,46 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         self._meta_tab_widget = widget
         layout = QVBoxLayout(widget)
+
+        # App credentials — editable per provider without re-importing all platforms
+        app_creds_group = QGroupBox('App Credentials')
+        app_creds_layout = QVBoxLayout(app_creds_group)
+        app_creds_hint = QLabel(
+            '<i>App ID and App Secret for each Meta platform. You can also import all '
+            'credentials at once via Settings → Advanced → Import Credentials. See '
+            'docs/platforms/META_APPS.md for which App ID to use.</i>'
+        )
+        app_creds_hint.setWordWrap(True)
+        app_creds_layout.addWidget(app_creds_hint)
+
+        get_app_cred_fns = {
+            'meta_threads': self._auth_manager.get_meta_threads_app_credentials,
+            'meta_instagram': self._auth_manager.get_meta_instagram_app_credentials,
+            'meta_facebook_page': self._auth_manager.get_meta_facebook_app_credentials,
+        }
+        self._meta_app_credential_edits: dict[str, dict[str, QLineEdit]] = {}
+        for provider, display_name in self._META_APP_CREDENTIAL_PROVIDERS:
+            section = QGroupBox(display_name)
+            section_layout = QFormLayout(section)
+            creds = get_app_cred_fns[provider]() or {}
+            app_id_edit = QLineEdit(creds.get('app_id', ''))
+            app_secret_edit = QLineEdit(creds.get('app_secret', ''))
+            app_secret_edit.setEchoMode(QLineEdit.EchoMode.Password)
+            section_layout.addRow('App ID:', app_id_edit)
+            section_layout.addRow('App Secret:', app_secret_edit)
+            clear_btn = QPushButton('Clear Credentials')
+            clear_btn.clicked.connect(
+                lambda _=False, p=provider, name=display_name: self._clear_meta_app_credentials(
+                    p, name
+                )
+            )
+            section_layout.addRow('', clear_btn)
+            self._meta_app_credential_edits[provider] = {
+                'app_id': app_id_edit,
+                'app_secret': app_secret_edit,
+            }
+            app_creds_layout.addWidget(section)
+        layout.addWidget(app_creds_group)
 
         # Per-provider sections; populated by _refresh_meta_status
         self._meta_provider_groups: dict[str, QGroupBox] = {}
@@ -339,6 +384,33 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         scroll.setWidget(widget)
         tabs.addTab(scroll, 'Meta')
+        self._refresh_meta_status()
+
+    def _clear_meta_app_credentials(self, provider: str, display_name: str) -> None:
+        reply = QMessageBox.question(
+            self,
+            'Clear App Credentials',
+            (
+                f'Remove stored {display_name} app credentials?\n\n'
+                'Connected accounts are left in place but may fail until reconnected '
+                'with the correct app credentials.'
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        get_logger().info(f'User selected Settings > Meta > Clear {display_name} App Credentials')
+        clear_fns = {
+            'meta_threads': self._auth_manager.clear_meta_threads_app_credentials,
+            'meta_instagram': self._auth_manager.clear_meta_instagram_app_credentials,
+            'meta_facebook_page': self._auth_manager.clear_meta_facebook_app_credentials,
+        }
+        clear_fns[provider]()
+        edits = self._meta_app_credential_edits[provider]
+        edits['app_id'].clear()
+        edits['app_secret'].clear()
         self._refresh_meta_status()
 
     def _refresh_meta_status(self) -> None:
@@ -373,7 +445,7 @@ class SettingsDialog(QDialog):
             cred_status = (
                 'App credentials: configured'
                 if has_app_creds
-                else 'App credentials: missing — import via Settings → Advanced'
+                else 'App credentials: not configured — enter above or import via Settings → Advanced'
             )
             cred_label = QLabel(f'<i>{cred_status}</i>')
             group_layout.addWidget(cred_label)
@@ -860,6 +932,19 @@ class SettingsDialog(QDialog):
         meta_relay_uri = self._meta_oauth_redirect_uri_edit.text().strip()
         if meta_relay_uri:
             self._auth_manager.save_meta_oauth_redirect_uri(meta_relay_uri)
+
+        # Meta — app credentials (save only when both fields are filled)
+        meta_save_fns = {
+            'meta_threads': self._auth_manager.save_meta_threads_app_credentials,
+            'meta_instagram': self._auth_manager.save_meta_instagram_app_credentials,
+            'meta_facebook_page': self._auth_manager.save_meta_facebook_app_credentials,
+        }
+        for provider, save_fn in meta_save_fns.items():
+            edits = self._meta_app_credential_edits[provider]
+            app_id = edits['app_id'].text().strip()
+            app_secret = edits['app_secret'].text().strip()
+            if app_id and app_secret:
+                save_fn(app_id, app_secret)
 
         # AWS — update bucket name if the user edited it directly
         aws_bucket_text = self._aws_bucket_edit.text().strip()

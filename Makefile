@@ -72,19 +72,19 @@ test-ci: ## Run the CI test suite with coverage (excludes functional)
 test-cov: test-ci  ## Alias for test-ci (deprecated; kept for one release)
 
 test-functional: ## Run functional tests in strict mode
-	GALEFLING_STRICT_FUNCTIONAL=1 $(PY) -m pytest tests/functional/ -m functional -v --no-header
+	GALEFLING_STRICT_FUNCTIONAL=1 $(PY) -m pytest tests/functional/ -m "functional and not disabled_platform" -v --no-header
 
 test-functional-non-mutating: ## [Linux] Run strict tests that do not change platform state
 	GALEFLING_STRICT_FUNCTIONAL=1 $(DESKTOP_SESSION_RUNNER) \
-		$(PY) -m pytest tests/functional/ -m "functional and non_mutating" -v --no-header
+		$(PY) -m pytest tests/functional/ -m "functional and non_mutating and not disabled_platform" -v --no-header
 
 test-functional-mutating: ## [Linux] Run strict tests that create or change real posts
 	GALEFLING_STRICT_FUNCTIONAL=1 $(DESKTOP_SESSION_RUNNER) \
-		$(PY) -m pytest tests/functional/ -m "functional and mutating" -v --no-header
+		$(PY) -m pytest tests/functional/ -m "functional and mutating and not disabled_platform" -v --no-header
 
 test-functional-linux: ## [Linux] Run all strict functional tests on the live desktop
 	GALEFLING_STRICT_FUNCTIONAL=1 $(DESKTOP_SESSION_RUNNER) \
-		$(PY) -m pytest tests/functional/ -m functional -v --no-header
+		$(PY) -m pytest tests/functional/ -m "functional and not disabled_platform" -v --no-header
 
 test-functional-xvfb: ## [Linux/WSL] Run functional tests under Xvfb virtual display
 	xvfb-run -a $(PY) -m pytest tests/functional/ -m functional -v --no-header

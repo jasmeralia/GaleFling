@@ -15,7 +15,18 @@ from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication
 
-from src.core.webview_environment import chrome_compatible_user_agent
+from src.core.webview_session_import import effective_user_agent
+from src.platforms.fansly import FanslyPlatform
+from src.platforms.fetlife import FetLifePlatform
+from src.platforms.onlyfans import OnlyFansPlatform
+from src.platforms.snapchat import SnapchatPlatform
+
+_SESSION_SCRIPT_PLATFORMS = {
+    'onlyfans': OnlyFansPlatform,
+    'fansly': FanslyPlatform,
+    'fetlife': FetLifePlatform,
+    'snapchat': SnapchatPlatform,
+}
 
 
 def get_or_create_app():
@@ -110,11 +121,14 @@ def create_webview(data_dir: Path, account_id: str):
     # QWebEngineProfile).  A different name creates a fresh Chromium context with
     # no Cloudflare session state, causing re-challenges on protected sites.
     profile = QWebEngineProfile(account_id, None)
-    profile.setHttpUserAgent(chrome_compatible_user_agent(profile.httpUserAgent()))
+    profile.setHttpUserAgent(effective_user_agent(storage, profile.httpUserAgent()))
     profile.setPersistentStoragePath(str(storage))
     profile.setPersistentCookiesPolicy(
         QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
     )
+    platform_cls = _SESSION_SCRIPT_PLATFORMS.get(account_id.split('_', 1)[0])
+    if platform_cls is not None:
+        platform_cls._install_session_token_script(profile, storage)
     page = QWebEnginePage(profile)
     view = QWebEngineView()
     view.setPage(page)
@@ -354,223 +368,6 @@ def login_fansly(page: QWebEnginePage, email: str, password: str) -> bool:
         """,
     )
     return bool(logged_in)
-
-
-def login_onlyfans(
-    page: QWebEnginePage,
-    email: str,
-    password: str,
-    totp_secret: str | None = None,
-) -> bool:
-    """Attempt to log in to OnlyFans via the inline login form.
-
-    OnlyFans renders its login form at / without redirecting. If a TOTP
-    secret is provided and a 2FA code prompt appears after credential
-    submission, the current TOTP code is generated and submitted.
-
-    Returns True if the session is valid after the attempt.
-    """
-    # Wait for Vue.js rendering + Cloudflare challenge
-    wait_ms(8000)
-
-    # Check whether the login form is present
-    form_check = run_js(
-        page,
-        """
-        (function() {
-            var form = document.querySelector('.b-loginreg__form, .b-login-wrapper');
-            var emailInput = document.querySelector(
-                'input[name="email"], input[autocomplete*="username"], '
-                + 'input[type="email"]'
-            );
-            var passwordInput = document.querySelector('input[type="password"]');
-            return {
-                hasForm: !!(form || emailInput),
-                hasEmailInput: !!emailInput,
-                hasPasswordInput: !!passwordInput
-            };
-        })();
-        """,
-    )
-    if not isinstance(form_check, dict) or not form_check.get('hasForm'):
-        # No login form detected — session appears active
-        return True
-
-    # OnlyFans ignores synthetic input events. Use trusted keyboard events and
-    # keep credentials out of the JavaScript execution boundary.
-    email_selector = (
-        '.b-loginreg__form input[name="email"], input[name="email"], '
-        'input[autocomplete*="username"], input[type="email"]'
-    )
-    password_selector = (
-        '.b-loginreg__form input[type="password"], input[name="password"], input[type="password"]'
-    )
-    if not type_into_web_input(page, email_selector, email):
-        return False
-    if not type_into_web_input(page, password_selector, password):
-        return False
-    if not submit_focused_web_form():
-        return False
-
-    # Wait for credential submission to reach either 2FA or the signed-in page.
-    for _ in range(20):
-        login_state = run_js(
-            page,
-            """
-            (function() {
-                return {
-                    hasPassword: !!document.querySelector('input[type="password"]'),
-                    hasCode: !!document.querySelector(
-                        'input[name="code"], input[autocomplete="one-time-code"], '
-                        + 'input[type="text"][maxlength="6"], '
-                        + '.b-2fa input[type="text"], .b-2fa input[type="number"], '
-                        + 'input[placeholder*="code" i], input[placeholder*="2fa" i]'
-                    )
-                };
-            })();
-            """,
-        )
-        if isinstance(login_state, dict) and (
-            login_state.get('hasCode') or not login_state.get('hasPassword')
-        ):
-            break
-        wait_ms(1000)
-
-    # Check for TOTP / 2FA prompt
-    totp_check = run_js(
-        page,
-        """
-        (function() {
-            var codeInput = document.querySelector(
-                'input[name="code"], input[autocomplete="one-time-code"], '
-                + 'input[type="text"][maxlength="6"], '
-                + '.b-2fa input[type="text"], .b-2fa input[type="number"], '
-                + 'input[placeholder*="code" i], input[placeholder*="2fa" i]'
-            );
-            return {hasCodeInput: !!codeInput};
-        })();
-        """,
-    )
-
-    if isinstance(totp_check, dict) and totp_check.get('hasCodeInput'):
-        if not totp_secret:
-            # 2FA is required but no TOTP secret was provided
-            return False
-        try:
-            import pyotp
-
-            code = pyotp.TOTP(totp_secret).now()
-        except Exception:
-            return False
-
-        # Check the "remember me / trust this device" checkbox before submitting
-        # so the resulting session cookie has a longer expiry.
-        run_js(
-            page,
-            """
-            (function() {
-                var cb = document.querySelector(
-                    '.b-2fa input[type="checkbox"], '
-                    + 'input[name="remember_me"], input[name="trust"], '
-                    + 'input[id*="remember" i], input[id*="trust" i]'
-                );
-                if (!cb || cb.checked) return;
-                var desc = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'checked'
-                );
-                if (desc && desc.set) { desc.set.call(cb, true); }
-                else { cb.checked = true; }
-                cb.dispatchEvent(new Event('input', {bubbles: true}));
-                cb.dispatchEvent(new Event('change', {bubbles: true}));
-            })();
-            """,
-        )
-
-        code_selector = (
-            'input[name="code"], input[autocomplete="one-time-code"], '
-            'input[type="text"][maxlength="6"], '
-            '.b-2fa input[type="text"], .b-2fa input[type="number"], '
-            'input[placeholder*="code" i], input[placeholder*="2fa" i]'
-        )
-        if not type_into_web_input(page, code_selector, code):
-            return False
-        if not submit_focused_web_form():
-            return False
-        for _ in range(20):
-            still_logging_in = run_js(
-                page,
-                """!!document.querySelector(
-                    '.b-loginreg__form, .b-login-wrapper, input[type="password"], '
-                    + 'input[name="code"], input[autocomplete="one-time-code"]'
-                )""",
-            )
-            if not still_logging_in:
-                break
-            wait_ms(1000)
-
-    # Confirm no login form remains
-    final_check = run_js(
-        page,
-        """
-        (function() {
-            var form = document.querySelector(
-                '.b-loginreg__form, .b-login-wrapper, input[type="password"]'
-            );
-            return {hasLoginForm: !!form};
-        })();
-        """,
-    )
-    logged_in = not (isinstance(final_check, dict) and final_check.get('hasLoginForm'))
-    if logged_in:
-        # Chromium flushes its cookie store to SQLite asynchronously. Give it
-        # time to write the new session cookies before any has_valid_session()
-        # check reads the DB directly.
-        wait_ms(4000)
-    return logged_in
-
-
-def login_threads(page: QWebEnginePage, username: str, password: str) -> bool:
-    """Attempt to log in to Threads via threads.com/login (Meta/Instagram form).
-
-    Returns True if threads.com is the current host after the attempt.
-    """
-    ok, final_url = load_page(page, 'https://www.threads.com/login', timeout_ms=15000)
-    if not ok:
-        return False
-
-    # If /login redirected away, we're already logged in
-    if 'threads.com/login' not in final_url and 'threads.net/login' not in final_url:
-        return 'threads.com' in final_url or 'threads.net' in final_url
-
-    wait_ms(2000)
-
-    result = run_js(
-        page,
-        f"""
-        (function() {{
-            var usernameInput = document.querySelector(
-                'input[name="username"], input[type="text"], input[type="email"]'
-            );
-            var passwordInput = document.querySelector('input[name="password"], input[type="password"]');
-            if (!usernameInput || !passwordInput) return {{found: false}};
-            usernameInput.focus();
-            document.execCommand('insertText', false, {json.dumps(username)});
-            usernameInput.dispatchEvent(new Event('input', {{bubbles: true}}));
-            passwordInput.focus();
-            document.execCommand('insertText', false, {json.dumps(password)});
-            passwordInput.dispatchEvent(new Event('input', {{bubbles: true}}));
-            var submitBtn = document.querySelector('button[type="submit"]');
-            if (submitBtn) submitBtn.click();
-            return {{found: true}};
-        }})();
-        """,
-    )
-    if not isinstance(result, dict) or not result.get('found'):
-        return False
-
-    wait_ms(5000)
-    current = page.url().toString()
-    return ('threads.com' in current or 'threads.net' in current) and '/login' not in current
 
 
 def login_snapchat(page: QWebEnginePage, username: str, password: str) -> tuple[bool, str]:

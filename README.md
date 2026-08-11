@@ -30,9 +30,9 @@ On first launch, the app walks you through adding credentials for each platform.
 ### Platform-Specific Guides
 
 - **[Twitter Setup](docs/platforms/TWITTER.md)** — Developer portal setup, API keys, and PIN-based OAuth flow (up to 2 accounts).
-- **[Instagram Setup](docs/platforms/INSTAGRAM.md)** — Graph API credentials, Business/Creator account requirements, and token management.
+- **[Meta platforms (API)](docs/platforms/META_APPS.md)** — OAuth connect for [Threads](docs/platforms/THREADS.md), [Instagram](docs/platforms/INSTAGRAM.md), and [Facebook Page](docs/platforms/FACEBOOK.md). Image and video posts for Threads and Instagram are staged to S3 first.
 - **[Bluesky Setup](docs/platforms/BLUESKY.md)** — Enter your handle and an app password (create one at [bsky.app/settings/app-passwords](https://bsky.app/settings/app-passwords)). Supports up to 2 accounts.
-- **WebView platforms** — Log in via the embedded browser during setup. Session cookies are stored locally: [Snapchat](docs/platforms/SNAPCHAT.md) | [OnlyFans](docs/platforms/ONLYFANS.md) | [Fansly](docs/platforms/FANSLY.md) | [FetLife](docs/platforms/FETLIFE.md) | [Threads](docs/platforms/THREADS.md)
+- **WebView platforms** — Log in via the embedded browser during setup. Session cookies are stored locally: [Snapchat](docs/platforms/SNAPCHAT.md) | [OnlyFans](docs/platforms/ONLYFANS.md) | [Fansly](docs/platforms/FANSLY.md) | [FetLife](docs/platforms/FETLIFE.md)
 
 ## Using GaleFling
 

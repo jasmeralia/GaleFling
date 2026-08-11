@@ -1,19 +1,18 @@
 """Functional tests for Snapchat WebView posting.
 
-Snapchat support is currently disabled (`SNAPCHAT_SPECS.available = False`): its
-web app offers no upload control, only an interactive in-page camera that cannot
-be driven without a virtual camera device. See `docs/platforms/SNAPCHAT.md`.
+Snapchat support is disabled in the product (`SNAPCHAT_SPECS.available = False`):
+its web app offers no upload control, only an interactive in-page camera that
+cannot be driven without a virtual camera device. See `docs/platforms/SNAPCHAT.md`.
 
-These tests are kept and still run, because they remain the best live exercise of
-the WebView stack — session handling, rendering and renderer stability — and are
-what a future virtual-camera spike would build on. `test_video_upload_accessible`
-is expected to fail: there is no upload control to find. It is marked xfail so
-that its failure is not noise, while a sudden *pass* is reported loudly, since
-that would mean Snapchat has added one.
+These tests are retained for a future virtual-camera spike but are **skipped by
+default** so they do not affect routine functional runs. To opt in:
 
-Requires SNAPCHAT_USERNAME / SNAPCHAT_PASSWORD in .env. `GALEFLING_DATA_DIR` is
-optional and defaults to the platform's own application data directory. If the
-session cookie is still valid the login flow is skipped.
+    pytest tests/functional/test_webview_snapchat.py --run-disabled-platforms -v
+
+`test_video_upload_accessible` is marked xfail when run: there is no upload
+control to find; a sudden pass would mean Snapchat has added one.
+
+Requires SNAPCHAT_USERNAME / SNAPCHAT_PASSWORD in `.env` when opted in.
 """
 
 import json
@@ -33,6 +32,16 @@ from tests.functional.webview_helpers import (
 )
 
 ACCOUNT_ID = 'snapchat_1'
+
+_SNAPCHAT_DISABLED_REASON = (
+    'Snapchat is disabled in the product (SNAPCHAT_SPECS.available=False); '
+    'WebView tests retained for a future virtual-camera spike'
+)
+
+pytestmark = [
+    pytest.mark.functional,
+    pytest.mark.disabled_platform,
+]
 
 
 # A rendered Snapchat app has thousands of nodes; an error page has a handful.

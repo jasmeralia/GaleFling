@@ -48,6 +48,91 @@ def fail_or_skip(reason: str) -> None:
     pytest.skip(reason)
 
 
+def skip_if_no_cookie_db(data_dir, account_id: str, platform_name: str) -> None:
+    """Skip when a WebView account has no persisted profile (legitimate skip in all modes).
+
+    Clearing a platform in Settings or resetting session cookies removes
+    ``webprofiles/<account_id>/``. That is equivalent to leaving credentials blank:
+    the platform is not configured for functional testing.
+    """
+    from pathlib import Path
+
+    cookie_path = Path(data_dir) / 'webprofiles' / account_id / 'Cookies'
+    if not cookie_path.is_file():
+        pytest.skip(f'No {platform_name} cookie database found')
+
+
+ONLYFANS_ACCOUNT_ID = 'onlyfans_1'
+
+
+def ensure_onlyfans_session(data_dir) -> str:
+    """Return the OnlyFans account id when a WebView session is ready for functional tests.
+
+    Uses the persisted ``webprofiles/onlyfans_1/`` profile when ``has_valid_session()``
+    succeeds. When ``ONLYFANS_AUTH_JSON`` is set, imports that export before tests run.
+    Automated username/password login is not supported (OnlyFans blocks embedded browsers).
+    """
+    from pathlib import Path
+    from unittest.mock import patch
+
+    from src.core.webview_session_import import (
+        SessionImportError,
+        load_auth_json_file,
+        session_recently_imported,
+    )
+    from src.platforms.onlyfans import OnlyFansPlatform
+
+    data_path = Path(data_dir)
+    cookie_path = data_path / 'webprofiles' / ONLYFANS_ACCOUNT_ID / 'Cookies'
+    platform = OnlyFansPlatform(account_id=ONLYFANS_ACCOUNT_ID)
+
+    with patch('src.platforms.base_webview.get_app_data_dir', return_value=data_path):
+        if platform.has_valid_session():
+            return ONLYFANS_ACCOUNT_ID
+
+        auth_json_raw = os.environ.get('ONLYFANS_AUTH_JSON', '').strip()
+        if auth_json_raw:
+            auth_path = Path(auth_json_raw)
+            if not auth_path.is_file():
+                auth_path = Path(__file__).parent / auth_json_raw
+            if not auth_path.is_file():
+                fail_or_skip(f'ONLYFANS_AUTH_JSON file not found: {auth_json_raw}')
+            try:
+                session = load_auth_json_file(auth_path)
+            except SessionImportError as exc:
+                fail_or_skip(f'OnlyFans auth.json invalid: {exc}')
+            ok, err = platform.import_session(session)
+            if not ok:
+                fail_or_skip(err or 'OnlyFans auth.json import failed')
+            storage = platform._get_profile_storage_path()
+            if platform.has_valid_session() or session_recently_imported(storage):
+                return ONLYFANS_ACCOUNT_ID
+            fail_or_skip(
+                'OnlyFans session still invalid after auth.json import — export a fresh auth.json'
+            )
+
+        if not cookie_path.is_file():
+            pytest.skip(
+                'No OnlyFans session — import auth.json in Settings or set ONLYFANS_AUTH_JSON '
+                '(see docs/platforms/ONLYFANS_SESSION_IMPORT.md)'
+            )
+
+        fail_or_skip(
+            'OnlyFans session expired — import a fresh auth.json in Settings or set ONLYFANS_AUTH_JSON'
+        )
+
+
+def skip_if_no_cookie_dbs(data_dir, account_ids: list[str], platform_name: str) -> list[str]:
+    """Return account IDs with cookie databases; skip if none are present."""
+    from pathlib import Path
+
+    root = Path(data_dir) / 'webprofiles'
+    found = [account_id for account_id in account_ids if (root / account_id / 'Cookies').is_file()]
+    if not found:
+        pytest.skip(f'No {platform_name} cookie databases found')
+    return found
+
+
 class _RendererCrashMonitor:
     """Record renderer terminations from every WebEngine page seen by a test."""
 
@@ -216,8 +301,17 @@ def pytest_configure(config):
         pass
 
 
-def pytest_collection_modifyitems(items) -> None:
-    """Require every functional test to declare exactly one side-effect group."""
+def pytest_addoption(parser) -> None:
+    parser.addoption(
+        '--run-disabled-platforms',
+        action='store_true',
+        default=False,
+        help='Include functional tests for product-disabled platforms (e.g. Snapchat)',
+    )
+
+
+def pytest_collection_modifyitems(config, items) -> None:
+    """Require side-effect markers; skip disabled-platform tests unless opted in."""
     errors = []
     for item in items:
         if item.get_closest_marker('functional') is None:
@@ -235,6 +329,19 @@ def pytest_collection_modifyitems(items) -> None:
             'Functional tests must have exactly one side-effect marker:\n' + '\n'.join(errors),
             returncode=4,
         )
+
+    if config.getoption('--run-disabled-platforms'):
+        return
+
+    skip = pytest.mark.skip(
+        reason=(
+            'Platform disabled in the product; pass --run-disabled-platforms to include '
+            '(Snapchat WebView tests are retained for a future virtual-camera spike)'
+        )
+    )
+    for item in items:
+        if item.get_closest_marker('disabled_platform') is not None:
+            item.add_marker(skip)
 
 
 # ── Helper to create a small test image on disk ─────────────────────
@@ -412,16 +519,9 @@ def galefling_data_dir():
 
 
 @pytest.fixture
-def onlyfans_credentials():
-    email = os.environ.get('ONLYFANS_EMAIL')
-    password = os.environ.get('ONLYFANS_PASSWORD')
-    if not email or not password:
-        pytest.skip('OnlyFans credentials not configured')
-    return {
-        'email': email,
-        'password': password,
-        'totp_secret': os.environ.get('ONLYFANS_TOTP_SECRET'),
-    }
+def onlyfans_session(galefling_data_dir):
+    """Ensure an OnlyFans WebView session exists before composer tests run."""
+    return ensure_onlyfans_session(galefling_data_dir)
 
 
 @pytest.fixture
@@ -440,15 +540,6 @@ def fetlife_credentials():
     if not email or not password:
         pytest.skip('FetLife credentials not configured')
     return {'email': email, 'password': password}
-
-
-@pytest.fixture
-def threads_credentials():
-    username = os.environ.get('THREADS_USERNAME')
-    password = os.environ.get('THREADS_PASSWORD')
-    if not username or not password:
-        pytest.skip('Threads credentials not configured')
-    return {'username': username, 'password': password}
 
 
 @pytest.fixture

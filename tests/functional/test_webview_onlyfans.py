@@ -3,9 +3,9 @@
 OnlyFans composer requires click interaction to expand. Session expiry is
 detected via inline login form detection (OnlyFans does not redirect to /login).
 
-Requires GALEFLING_DATA_DIR and ONLYFANS_EMAIL / ONLYFANS_PASSWORD in .env.
-If ONLYFANS_TOTP_SECRET is also set, it is used to satisfy 2FA prompts
-automatically. If the session cookie is still valid the login flow is skipped.
+Requires a valid session in ``GALEFLING_DATA_DIR/webprofiles/onlyfans_1/`` or
+``ONLYFANS_AUTH_JSON`` pointing at an exported auth.json file. Automated
+username/password login is not supported — see docs/platforms/ONLYFANS_SESSION_IMPORT.md.
 """
 
 import json
@@ -14,35 +14,20 @@ import uuid
 
 import pytest
 
-from tests.functional.conftest import fail_or_skip
+from tests.functional.conftest import ONLYFANS_ACCOUNT_ID, fail_or_skip
 from tests.functional.webview_helpers import (
     close_webview,
     create_webview,
     get_or_create_app,
     load_page,
-    login_onlyfans,
     run_js,
     wait_ms,
 )
 
-ACCOUNT_ID = 'onlyfans_1'
 
-
-def _ensure_session(page, credentials: dict) -> None:
-    """Verify we have a valid OnlyFans session, logging in if needed.
-
-    Loads the OnlyFans home page, checks for the inline login form, and
-    calls login_onlyfans if the session has expired. Reports a strict-mode
-    failure if login cannot be completed.
-    """
-    ok, final_url = load_page(page, 'https://onlyfans.com/', timeout_ms=20000)
-    assert ok, f'Page load failed: {final_url}'
-
-    # OnlyFans uses Vue.js — wait for the SPA + Cloudflare to hydrate before
-    # checking whether the login form is present.
-    wait_ms(8000)
-
-    login_check = run_js(
+def _login_form_present(page) -> bool:
+    """Return True when OnlyFans is showing its inline login form."""
+    result = run_js(
         page,
         """
         (function() {
@@ -52,65 +37,24 @@ def _ensure_session(page, credentials: dict) -> None:
         })();
         """,
     )
+    return bool(result)
 
-    if login_check:
-        success = login_onlyfans(
-            page,
-            credentials['email'],
-            credentials['password'],
-            credentials.get('totp_secret'),
+
+def _ensure_authenticated_page(page) -> None:
+    """Load OnlyFans and fail/skip when the persisted session is not active."""
+    ok, final_url = load_page(page, 'https://onlyfans.com/', timeout_ms=20000)
+    assert ok, f'Page load failed: {final_url}'
+
+    # OnlyFans uses Vue.js — wait for the SPA + Cloudflare to hydrate before
+    # checking whether the login form is present.
+    wait_ms(8000)
+
+    if _login_form_present(page):
+        fail_or_skip(
+            'OnlyFans login form present — session expired or missing. '
+            'Import auth.json via Settings or set ONLYFANS_AUTH_JSON in .env '
+            '(see docs/platforms/ONLYFANS_SESSION_IMPORT.md).'
         )
-        if not success:
-            state = run_js(
-                page,
-                """
-                (function() {
-                    var email = document.querySelector(
-                        'input[name="email"], input[autocomplete*="username"]'
-                    );
-                    var password = document.querySelector('input[type="password"]');
-                    var code = document.querySelector(
-                        'input[name="code"], input[autocomplete="one-time-code"], '
-                        + 'input[type="text"][maxlength="6"]'
-                    );
-                    var submit = document.querySelector('button[type="submit"]');
-                    var resources = performance.getEntriesByType('resource').map(
-                        function(entry) { return entry.name; }
-                    );
-                    var turnstileResponse = document.querySelector(
-                        '[name="cf-turnstile-response"]'
-                    );
-                    return {
-                        webAuthnAvailable: typeof PublicKeyCredential !== 'undefined',
-                        hasPassword: !!password,
-                        hasCode: !!code,
-                        emailFilled: !!(email && email.value),
-                        passwordFilled: !!(password && password.value),
-                        submitDisabled: !!(submit && submit.disabled),
-                        submitLoading: !!(submit && submit.classList.contains('m-loading')),
-                        challengeFrames: document.querySelectorAll(
-                            'iframe[src*="challenge"], iframe[src*="turnstile"]'
-                        ).length,
-                        turnstileContainers: document.querySelectorAll(
-                            '.cf-turnstile, [data-sitekey]'
-                        ).length,
-                        turnstileResponseFilled: !!(
-                            turnstileResponse && turnstileResponse.value
-                        ),
-                        turnstileResources: resources.filter(function(url) {
-                            return url.indexOf('challenges.cloudflare.com') !== -1;
-                        }).length,
-                        loginRequests: resources.filter(function(url) {
-                            return url.indexOf('/users/login') !== -1;
-                        }).length,
-                        webauthnOptionRequests: resources.filter(function(url) {
-                            return url.indexOf('/webauthn/login/options') !== -1;
-                        }).length
-                    };
-                })();
-                """,
-            )
-            fail_or_skip(f'OnlyFans login failed; page state: {state}')
 
 
 @pytest.mark.functional
@@ -118,12 +62,13 @@ def _ensure_session(page, credentials: dict) -> None:
 class TestOnlyFansComposer:
     """OnlyFans: verify page loads and attempt composer interaction."""
 
-    def test_page_loads_authenticated(self, galefling_data_dir, onlyfans_credentials):
+    def test_page_loads_authenticated(self, galefling_data_dir, onlyfans_session):
         """Verify OnlyFans home page loads in an authenticated state."""
+        assert onlyfans_session == ONLYFANS_ACCOUNT_ID
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        view, page, profile = create_webview(galefling_data_dir, ONLYFANS_ACCOUNT_ID)
         try:
-            _ensure_session(page, onlyfans_credentials)
+            _ensure_authenticated_page(page)
 
             result = run_js(
                 page,
@@ -148,12 +93,13 @@ class TestOnlyFansComposer:
         finally:
             close_webview(view, page, profile)
 
-    def test_composer_accessible(self, galefling_data_dir, onlyfans_credentials):
+    def test_composer_accessible(self, galefling_data_dir, onlyfans_session):
         """Check if the composer is present and attempt text injection."""
+        assert onlyfans_session == ONLYFANS_ACCOUNT_ID
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        view, page, profile = create_webview(galefling_data_dir, ONLYFANS_ACCOUNT_ID)
         try:
-            _ensure_session(page, onlyfans_credentials)
+            _ensure_authenticated_page(page)
             wait_ms(5000)
 
             # Try to find the composer — it may need a click to expand

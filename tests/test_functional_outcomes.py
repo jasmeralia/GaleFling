@@ -79,3 +79,57 @@ def test_renderer_crash_monitor_records_status_exit_code_and_url():
         match='WebEngine renderer process terminated.*CrashTerminationStatus',
     ):
         monitor.fail_if_crashed()
+
+
+def test_ensure_onlyfans_session_skips_when_unconfigured(monkeypatch, tmp_path):
+    monkeypatch.delenv('ONLYFANS_AUTH_JSON', raising=False)
+
+    with pytest.raises(pytest.skip.Exception, match='No OnlyFans session'):
+        functional_conftest.ensure_onlyfans_session(tmp_path)
+
+
+def test_ensure_onlyfans_session_returns_when_valid(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock, patch
+
+    platform = MagicMock()
+    platform.has_valid_session.return_value = True
+    monkeypatch.delenv('ONLYFANS_AUTH_JSON', raising=False)
+
+    with (
+        patch('src.platforms.onlyfans.OnlyFansPlatform', return_value=platform),
+        patch('src.platforms.base_webview.get_app_data_dir', return_value=tmp_path),
+    ):
+        assert functional_conftest.ensure_onlyfans_session(tmp_path) == 'onlyfans_1'
+
+
+def test_ensure_onlyfans_session_imports_auth_json(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock, patch
+
+    from src.core.webview_session_import import ImportedSession
+
+    auth_path = tmp_path / 'auth.json'
+    auth_path.write_text('{}', encoding='utf-8')
+    session = ImportedSession(
+        user_id='123',
+        user_agent='Mozilla/5.0',
+        x_bc='a' * 40,
+        cookies={'auth_id': '123', 'sess': 'abc'},
+    )
+    platform = MagicMock()
+    platform.has_valid_session.side_effect = [False, False]
+    platform.import_session.return_value = (True, None)
+    platform._get_profile_storage_path.return_value = tmp_path / 'webprofiles' / 'onlyfans_1'
+
+    monkeypatch.setenv('ONLYFANS_AUTH_JSON', str(auth_path))
+
+    with (
+        patch('src.platforms.onlyfans.OnlyFansPlatform', return_value=platform),
+        patch('src.platforms.base_webview.get_app_data_dir', return_value=tmp_path),
+        patch(
+            'src.core.webview_session_import.load_auth_json_file',
+            return_value=session,
+        ),
+        patch('src.core.webview_session_import.session_recently_imported', return_value=True),
+    ):
+        assert functional_conftest.ensure_onlyfans_session(tmp_path) == 'onlyfans_1'
+    platform.import_session.assert_called_once_with(session)

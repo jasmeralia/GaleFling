@@ -1,6 +1,7 @@
 # WebView Functional Testing — Multi-Phase Plan
 
-**Status:** Phase 1 implemented; Phases 2–7 not started
+**Status:** Phase 1 implemented; Phase 3 provisioning done, test dispatch outstanding;
+Phases 2, 4–7 not started
 **Created:** 2026-08-10
 **Owner:** Jas
 **Tracks:** GitHub issue #1 (WebView2 migration), `debug_state.md`
@@ -168,27 +169,54 @@ Three of the four known defect classes need no GPU at all:
 | Session persistence | No | SQLite cookie flush on shutdown |
 | `VSyncService`/`QDxgi` abort | Unknown | DXGI runs under WARP — test rather than assume |
 
-### Tasks
+### Delivered
 
-1. Create the VM per Appendix B. **UEFI + TPM 2.0 + Secure Boot are mandatory** for
-   Windows 11 — OVMF firmware plus `swtpm`.
-2. Install `virtio-win` guest drivers (storage, network, balloon).
-3. In the guest: enable the OpenSSH Server optional feature, install Python 3.12,
-   create `.venv`, `pip install -r requirements.txt -r requirements-dev.txt`.
-4. Share the repo — virtiofs (needs WinFsp + the VirtioFS service from `virtio-win`).
-   Fall back to a host Samba share if virtiofs proves unstable on the guest.
-5. `Makefile` — add `test-functional-win-vm`, dispatching over SSH. Mirror the shape
-   of the existing `test-functional-cmd` PowerShell dispatch; only the transport changes.
-6. Take a baseline snapshot (`clean-loggedout`) immediately after setup, before any
-   platform login.
-7. `docs/testing/FUNCTIONAL_TESTING.md` — document the VM workflow.
+`tools/windows-vm/` provisions and manages the VM: `create-vm.sh` / `finish-vm.sh` for
+unattended installation (UEFI + TPM 2.0 + Secure Boot via OVMF and `swtpm`, virtio-win
+guest drivers), `start-vm.sh` / `stop-vm.sh` for lifecycle, and `snapshot-vm.sh` for
+snapshot list/create/revert. Guest setup — OpenSSH Server, Python, the `.venv`, and
+requirements — runs from `provision.ps1.template`. The repo is shared to the guest as
+`Z:` over VirtIO-FS (WinFsp is a guest dependency). Local paths, credentials and
+resource sizing live in a gitignored `vm.env`; only `vm.env.example` is tracked. The
+baseline snapshot name defaults to `clean-loggedout` and must contain no authenticated
+platform sessions. See `tools/windows-vm/README.md`.
+
+### Next steps — automated test dispatch
+
+The VM can be created, started and snapshotted; nothing yet *runs tests* in it. That is
+the remaining work, and it is the gate for the Windows half of Phase 6.
+
+1. **`make test-functional-win-vm`.** Mirror the shape of the existing
+   `test-functional-cmd` PowerShell dispatch (`Makefile:93`); only the transport
+   changes, to SSH. Read connection details from `vm.env` — never hard-code a host, key
+   path or user. Start the VM if it is not already running, and surface the guest's
+   pytest exit code as the target's own so a guest failure fails the make target.
+2. **Run from `Z:`, not a copy.** The guest should execute the working tree over
+   VirtIO-FS so there is no sync step and no risk of testing a stale checkout. Confirm
+   pytest's cache and coverage writes behave over VirtIO-FS; if they do not, redirect
+   them to a guest-local path rather than copying the tree.
+3. **Snapshot hygiene per run.** Add an opt-in flag (e.g. `REVERT=1`) that reverts to
+   `clean-loggedout` before the run, so persistence tests start from identical state —
+   the capability that makes the VM worth having. Default to *not* reverting, since a
+   revert discards any session the developer logged in by hand.
+4. **Credentials in the guest.** `tests/functional/.env` must reach the guest without
+   being committed or copied into the snapshot. Prefer reading it over the `Z:` share at
+   run time so it lives only on the host. Never bake credentials into a snapshot — a
+   snapshot is a file that outlives the session and gets reverted to repeatedly.
+5. **Establish the credential-free baseline first.** `test_media_processing.py` needs no
+   credentials; make it pass in the guest before wiring anything that does. That
+   separates "the dispatch works" from "the credentials work."
+6. **Document the workflow** in `docs/testing/FUNCTIONAL_TESTING.md`, including how to
+   run a single test in the guest — the loop for actually debugging something.
 
 ### Acceptance criteria
 
 - `make test-functional-win-vm` runs the suite in the guest from a Linux shell, with
   no interactive steps and no window on the host desktop.
+- A failing guest test fails the make target on the host.
 - `virsh snapshot-revert` returns the guest to `clean-loggedout` in under 60 s.
 - `tests/functional/test_media_processing.py` (no credentials needed) passes in the guest.
+- No credential value is written into the VM image or any snapshot.
 
 ### Non-goals
 
@@ -271,6 +299,19 @@ The tests create a fresh profile per test where the app deliberately shares one.
 
 ### Session persistence
 
+**A root cause for this defect class was found and fixed on 2026-08-11.** Every WebView
+platform silently ran in a throwaway off-the-record profile: `setPage()` does not
+transfer ownership to Python, so the page was garbage-collected as soon as
+`create_webview()` returned and the view fell back to Qt's default profile, which never
+writes a cookie database. Retest the remaining reports against current `master` before
+assuming they still exist — some may already be resolved. What is *not* yet proven is
+durability across a process boundary, which is what the test below establishes.
+
+Note also that `has_valid_session()` reads the on-disk database, and Chromium flushes it
+only every 20–35 seconds. Any persistence test must either wait past that window or
+force a clean shutdown first; polling it immediately after writing cookies will report a
+false negative.
+
 `test_webview_sessions.py` asserts only that a cookie file exists and is non-empty.
 That cannot detect "sessions not persisted." The real test is **multi-process**:
 
@@ -293,6 +334,11 @@ click reaches the input"* — precisely the OnlyFans `.b-chckbox` failure mode, 
 decorator `<span>` and icon elements absorb the click before it reaches the hidden
 `<input>`.
 
+The OnlyFans 2FA checkbox is no longer reachable, since GaleFling no longer logs in to
+OnlyFans (see below); target the composer's checkboxes instead. The injected fix is
+generic — it patches every `input[type="checkbox"]` on every page — so the composer
+exercises the same code path the 2FA form used to.
+
 ### Acceptance criteria
 
 - Persistence test fails if cookies are not durable across a process boundary.
@@ -304,9 +350,14 @@ decorator `<span>` and icon elements absorb the click before it reaches the hidd
 
 ## Phase 7 — Re-scope issue #1
 
-Update issue #1 with the Chromium 140 finding and the Phase 2 result. Decide whether
-the WebView2 migration proceeds, narrows, or closes. Do not begin the migration
-before this phase.
+Update issue #1 with the Chromium 140 finding, the Phase 2 result, and the off-the-record
+profile fix from Phase 6's notes. Decide whether the WebView2 migration proceeds,
+narrows, or closes. Do not begin the migration before this phase.
+
+Two of issue #1's premises have already moved: it assumes PyQt6-WebEngine 6.10 /
+Chromium 134 is the newest available (the repo is on Chromium 140), and the session
+persistence defect had a concrete Qt-side cause that is now fixed rather than being
+inherent to Qt WebEngine. Weigh both before concluding the migration is necessary.
 
 Per repo convention, ask before adding references that create cross-links on
 third-party trackers.

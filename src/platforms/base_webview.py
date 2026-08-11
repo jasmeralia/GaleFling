@@ -19,6 +19,7 @@ from src.core.webview_session_import import (
     effective_user_agent,
     load_session_metadata,
     save_session_metadata,
+    session_recently_imported,
 )
 
 # Platform classes are also imported directly by tests and support tooling that
@@ -465,6 +466,16 @@ class BaseWebViewPlatform(BasePlatform):
         """Check for platform auth cookies in persisted cookies without blocking UI."""
         if not self.COOKIE_DOMAINS:
             return False
+        if self._has_persisted_session():
+            return True
+        # A session imported moments ago is already live in Chromium's cookie
+        # store — the import only succeeds once the store accepts it — but will
+        # not reach the database until the next flush.  Trust it for that window
+        # so a successful import is not reported to the user as expired.
+        return session_recently_imported(self._get_profile_storage_path())
+
+    def _has_persisted_session(self) -> bool:
+        """Check the on-disk cookie database for a valid session."""
         cookie_path = self._get_cookie_db_path()
         if not cookie_path.exists():
             return False

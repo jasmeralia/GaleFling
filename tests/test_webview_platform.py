@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1004,3 +1006,40 @@ def test_profile_without_import_has_no_token_script(monkeypatch, tmp_path):
     _, collection = _prepare_import(monkeypatch, tmp_path)
     ConcreteWebViewPlatform(account_id='acct_plain').create_webview()
     assert collection.find('galefling_session_token') == []
+
+
+def test_has_valid_session_trusts_recent_import_before_flush(monkeypatch, tmp_path):
+    """A just-imported session must not be reported as expired.
+
+    Chromium holds injected cookies in memory for ~30s before writing them to
+    its database.  The import already confirmed the live cookie store accepted
+    them, so the session is genuinely valid during that gap.
+    """
+    _prepare_import(monkeypatch, tmp_path)
+    platform = ConcreteWebViewPlatform(account_id='acct_grace')
+
+    assert platform.has_valid_session() is False, 'no session before import'
+    assert platform.import_session(_make_session())[0] is True
+
+    # The cookie database does not exist yet — only the in-memory store has it.
+    assert platform._get_cookie_db_path().exists() is False
+    assert platform._has_persisted_session() is False
+    assert platform.has_valid_session() is True
+
+
+def test_has_valid_session_stops_trusting_stale_import(monkeypatch, tmp_path):
+    from src.core.webview_session_import import save_session_metadata
+
+    _prepare_import(monkeypatch, tmp_path)
+    platform = ConcreteWebViewPlatform(account_id='acct_stale')
+    assert platform.import_session(_make_session())[0] is True
+
+    # Backdate the import well past the grace window; with no cookies on disk
+    # the session must now read as invalid rather than valid forever.
+    storage = platform._get_profile_storage_path()
+    save_session_metadata(storage, _make_session())
+    metadata = json.loads((storage / 'galefling_session.json').read_text())
+    metadata['imported_at'] = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    (storage / 'galefling_session.json').write_text(json.dumps(metadata))
+
+    assert platform.has_valid_session() is False

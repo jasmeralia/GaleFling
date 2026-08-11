@@ -17,6 +17,7 @@ from src.core.webview_environment import (
 from src.core.webview_session_import import (
     ImportedSession,
     effective_user_agent,
+    load_session_metadata,
     save_session_metadata,
 )
 
@@ -26,7 +27,7 @@ disable_conditional_passkey_ui()
 
 from PyQt6.QtCore import QDateTime, QEventLoop, QTimer, QUrl
 from PyQt6.QtNetwork import QNetworkCookie
-from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
+from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineScript
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication, QWidget
 
@@ -34,6 +35,8 @@ from src.core.logger import get_logger
 from src.platforms.base import BasePlatform
 from src.utils.constants import PostResult
 from src.utils.helpers import get_app_data_dir
+
+_SESSION_TOKEN_SCRIPT_NAME = 'galefling_session_token'
 
 
 class BaseWebViewPlatform(BasePlatform):
@@ -148,8 +151,49 @@ class BaseWebViewPlatform(BasePlatform):
             profile.setPersistentCookiesPolicy(
                 QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
             )
+            cls._install_session_token_script(profile, storage_path)
             cls._profile_registry[key] = profile
         return cls._profile_registry[key]
+
+    @classmethod
+    def _install_session_token_script(
+        cls, profile: 'QWebEngineProfile', storage_path: 'Path'
+    ) -> None:
+        """Seed the site's device token into localStorage for an imported session.
+
+        The OnlyFans web app reads ``bcTokenSha`` from localStorage and sends it
+        as the ``x-bc`` header on every API call. Cookies alone are not enough:
+        without the token that the session was issued against, the site's own
+        JavaScript is treated as an anonymous client and renders a login form
+        even though the session cookies are present and valid.
+        """
+        metadata = load_session_metadata(storage_path)
+        token = (metadata or {}).get('x_bc')
+        if not token or not cls.COOKIE_DOMAINS:
+            return
+        scripts = profile.scripts()
+        if scripts is None:
+            return
+        for existing in scripts.find(_SESSION_TOKEN_SCRIPT_NAME):
+            scripts.remove(existing)
+
+        host = json.dumps(cls.COOKIE_DOMAINS[0].lstrip('.'))
+        js = f"""
+(function () {{
+    try {{
+        if (window.location.hostname.indexOf({host}) === -1) {{ return; }}
+        window.localStorage.setItem('bcTokenSha', {json.dumps(token)});
+    }} catch (e) {{ /* storage unavailable on this origin */ }}
+}})();
+"""
+
+        script = QWebEngineScript()
+        script.setName(_SESSION_TOKEN_SCRIPT_NAME)
+        script.setSourceCode(js)
+        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        script.setRunsOnSubFrames(False)
+        scripts.insert(script)
 
     @classmethod
     def _evict_profile(cls, account_id: str) -> None:

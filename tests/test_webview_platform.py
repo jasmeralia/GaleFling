@@ -843,3 +843,164 @@ def test_base_webview_connection_test_helpers(monkeypatch):
         lambda: SimpleNamespace(processEvents=lambda: None),
     )
     assert platform._can_run_live_connection_test() is True
+
+
+# ── Session import ──────────────────────────────────────────────────
+
+
+class DummyScriptCollection:
+    def __init__(self):
+        self.scripts = []
+
+    def find(self, name):
+        return [s for s in self.scripts if s.name() == name]
+
+    def insert(self, script):
+        self.scripts.append(script)
+
+    def remove(self, script):
+        self.scripts.remove(script)
+
+
+class DummyCookieStore:
+    def __init__(self, *, accept=True):
+        self.cookieAdded = DummySignal()
+        self.loaded = False
+        self.set_cookies = []
+        self._accept = accept
+
+    def loadAllCookies(self):  # noqa: N802
+        self.loaded = True
+
+    def setCookie(self, cookie, origin):  # noqa: N802
+        self.set_cookies.append((cookie, origin))
+        if self._accept:
+            self.cookieAdded.emit(cookie)
+
+
+def _make_session(**overrides):
+    from src.core.webview_session_import import ImportedSession
+
+    values = {
+        'user_id': '123456789',
+        'user_agent': 'FixtureBrowser/1.0',
+        'x_bc': 'a' * 40,
+        'cookies': {'auth_id': '123456789', 'sess': 'fixture-token'},
+    }
+    values.update(overrides)
+    return ImportedSession(**values)
+
+
+def _prepare_import(monkeypatch, tmp_path, *, accept=True):
+    """Wire a platform whose profile records cookie writes instead of using Qt."""
+    import src.platforms.base_webview as base_webview
+
+    monkeypatch.setattr(base_webview, 'get_app_data_dir', lambda: tmp_path)
+    monkeypatch.setattr(base_webview, 'get_logger', lambda: DummyLogger())
+    monkeypatch.setattr(
+        base_webview.BaseWebViewPlatform, '_wait_ms', staticmethod(lambda _ms: None)
+    )
+
+    store = DummyCookieStore(accept=accept)
+    collection = DummyScriptCollection()
+
+    class RecordingProfile(DummyProfile):
+        def cookieStore(self):  # noqa: N802
+            return store
+
+        def scripts(self):
+            return collection
+
+    monkeypatch.setattr(base_webview, 'QWebEngineProfile', RecordingProfile)
+    monkeypatch.setattr(base_webview, 'QWebEngineView', DummyView)
+    monkeypatch.setattr(base_webview, '_LoggingWebEnginePage', DummyPage)
+    BaseWebViewPlatform._profile_registry.clear()
+    return store, collection
+
+
+def test_import_session_injects_cookies_with_expiry(monkeypatch, tmp_path):
+    store, _ = _prepare_import(monkeypatch, tmp_path)
+    platform = ConcreteWebViewPlatform(account_id='acct_import')
+
+    ok, error = platform.import_session(_make_session())
+
+    assert ok is True
+    assert error is None
+    assert store.loaded is True, 'store must be bound to disk before writing'
+
+    written = {bytes(c.name()).decode(): c for c, _ in store.set_cookies}
+    assert set(written) == {'auth_id', 'sess'}
+    for cookie in written.values():
+        # Without an expiry Chromium treats these as session cookies and never
+        # persists them, so has_valid_session() could never see them again.
+        assert cookie.isSessionCookie() is False
+        assert cookie.expirationDate().isValid()
+        assert cookie.domain() == '.example.com'
+        assert cookie.isSecure() is True
+        assert cookie.isHttpOnly() is True
+
+    origin = store.set_cookies[0][1]
+    assert origin.toString() == 'https://example.com/', 'origin derives from the platform'
+
+
+def test_import_session_reports_rejected_cookies(monkeypatch, tmp_path):
+    _prepare_import(monkeypatch, tmp_path, accept=False)
+    platform = ConcreteWebViewPlatform(account_id='acct_reject')
+
+    ok, error = platform.import_session(_make_session())
+
+    assert ok is False
+    assert 'auth_id' in error and 'sess' in error
+    assert 'stale' not in error.lower(), 'must not blame the export when the store refused'
+
+
+def test_import_session_persists_user_agent(monkeypatch, tmp_path):
+    _prepare_import(monkeypatch, tmp_path)
+    from src.core.webview_session_import import load_session_metadata
+
+    platform = ConcreteWebViewPlatform(account_id='acct_ua')
+    session = _make_session(user_agent='Mozilla/5.0 (Exported) Firefox/128.0')
+    ok, _ = platform.import_session(session)
+
+    assert ok is True
+    assert platform._profile.user_agent == session.user_agent
+    metadata = load_session_metadata(tmp_path / 'webprofiles' / 'acct_ua')
+    assert metadata['user_agent'] == session.user_agent
+    assert metadata['x_bc'] == session.x_bc
+
+
+def test_import_session_requires_cookie_domains(monkeypatch, tmp_path):
+    _prepare_import(monkeypatch, tmp_path)
+
+    class NoDomainPlatform(ConcreteWebViewPlatform):
+        COOKIE_DOMAINS: list[str] = []
+
+    ok, error = NoDomainPlatform(account_id='acct_nodomain').import_session(_make_session())
+    assert ok is False
+    assert 'does not support session import' in error
+
+
+def test_profile_seeds_device_token_after_import(monkeypatch, tmp_path):
+    _, collection = _prepare_import(monkeypatch, tmp_path)
+    platform = ConcreteWebViewPlatform(account_id='acct_token')
+    session = _make_session(x_bc='f' * 40)
+    assert platform.import_session(session)[0] is True
+
+    # A new profile for the same account must re-seed the token, so the
+    # token survives application restarts rather than only the import run.
+    BaseWebViewPlatform._profile_registry.clear()
+    collection.scripts.clear()
+    ConcreteWebViewPlatform(account_id='acct_token').create_webview()
+
+    seeded = collection.find('galefling_session_token')
+    assert len(seeded) == 1
+    source = seeded[0].sourceCode()
+    assert 'bcTokenSha' in source
+    assert session.x_bc in source
+    assert 'example.com' in source
+
+
+def test_profile_without_import_has_no_token_script(monkeypatch, tmp_path):
+    _, collection = _prepare_import(monkeypatch, tmp_path)
+    ConcreteWebViewPlatform(account_id='acct_plain').create_webview()
+    assert collection.find('galefling_session_token') == []

@@ -567,6 +567,11 @@ def test_base_webview_create_webview_and_navigation_signals(monkeypatch, tmp_pat
     assert platform.get_webview() is view
     assert platform._profile is not None
     assert Path(platform._profile.storage_path).parts[-2:] == ('webprofiles', 'acct1')
+    # The platform must retain the page. setPage() does not hand ownership to
+    # Python, so dropping the reference lets it be garbage-collected and the
+    # view silently falls back to Qt's default off-the-record profile, which
+    # never persists cookies to disk.
+    assert platform._page is page
     # With no imported session, the profile falls back to the normalized user
     # agent: the QtWebEngine product token is stripped, Chrome's is preserved.
     assert 'QtWebEngine/' not in platform._profile.user_agent

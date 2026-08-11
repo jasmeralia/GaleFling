@@ -116,6 +116,7 @@ class BaseWebViewPlatform(BasePlatform):
         self._account_id = account_id
         self._profile_name = profile_name
         self._view: QWebEngineView | None = None
+        self._page: QWebEnginePage | None = None
         self._profile: QWebEngineProfile | None = None
         self._captured_post_url: str | None = None
         self._post_confirmed = False
@@ -159,6 +160,13 @@ class BaseWebViewPlatform(BasePlatform):
         """
         cls._profile_registry.pop(account_id or 'default', None)
 
+    @staticmethod
+    def _wait_ms(milliseconds: int) -> None:
+        """Pump the Qt event loop for the given duration."""
+        loop = QEventLoop()
+        QTimer.singleShot(milliseconds, loop.quit)
+        loop.exec()
+
     def import_session(self, session: ImportedSession) -> tuple[bool, str | None]:
         """Import a browser-exported session into this account's WebEngine profile."""
         storage_path = self._get_profile_storage_path()
@@ -178,10 +186,23 @@ class BaseWebViewPlatform(BasePlatform):
         if key in self._profile_registry:
             self._evict_profile(self._account_id)
             self._profile = None
+            self._view = None
+            self._page = None
 
         profile = self._get_or_create_profile(self._account_id, storage_path)
         self._profile = profile
         profile.setHttpUserAgent(session.user_agent)
+
+        # Chromium only initialises a profile's storage backend once a page
+        # exists for it.  Without one, setCookie() writes into a context that is
+        # never flushed to disk, so the cookies vanish and verification below
+        # fails even though the export is perfectly good.  The view is never
+        # shown; it exists purely to bring the browser context up.
+        if self._page is None:
+            self.create_webview()
+        if self._page is not None:
+            self._page.load(QUrl('about:blank'))
+            self._wait_ms(1000)
 
         expiration = QDateTime.currentDateTimeUtc().addDays(365)
         base_domain = self.COOKIE_DOMAINS[0].lstrip('.')
@@ -196,6 +217,22 @@ class BaseWebViewPlatform(BasePlatform):
                 'GaleFling could not access the browser cookie store. '
                 'Restart GaleFling and try the import again.',
             )
+        # Force the store to bind to its on-disk backend before writing, so the
+        # injected cookies join the persisted set rather than a transient one.
+        cookie_store.loadAllCookies()
+        self._wait_ms(500)
+
+        # Verify against the live cookie store, NOT has_valid_session(): that
+        # reads the Chromium SQLite file, which is only flushed roughly every
+        # 30 seconds.  Polling the file here would time out on a perfectly valid
+        # export and tell the user it was stale — the worst possible advice,
+        # since acting on it burns another session.
+        accepted: set[str] = set()
+        expected = set(session.cookies)
+        connection = cookie_store.cookieAdded.connect(
+            lambda cookie: accepted.add(bytes(cookie.name()).decode('utf-8', 'replace'))
+        )
+
         for name, value in session.cookies.items():
             cookie = QNetworkCookie(name.encode('utf-8'), value.encode('utf-8'))
             cookie.setDomain(domain)
@@ -205,35 +242,20 @@ class BaseWebViewPlatform(BasePlatform):
             cookie.setExpirationDate(expiration)
             cookie_store.setCookie(cookie, origin)
 
-        imported = False
-        loop = QEventLoop()
-        poll_timer = QTimer()
-        poll_timer.setInterval(100)
-        timeout = QTimer()
-        timeout.setSingleShot(True)
+        deadline = time.monotonic() + 5.0
+        while not expected.issubset(accepted) and time.monotonic() < deadline:
+            self._wait_ms(100)
 
-        def _check_session() -> None:
-            nonlocal imported
-            if self.has_valid_session():
-                imported = True
-                loop.quit()
+        with contextlib.suppress(TypeError, RuntimeError):
+            cookie_store.cookieAdded.disconnect(connection)
 
-        poll_timer.timeout.connect(_check_session)
-        timeout.timeout.connect(loop.quit)
-        poll_timer.start()
-        timeout.start(5000)
-        _check_session()
-        if not imported:
-            loop.exec()
-        poll_timer.stop()
-        timeout.stop()
-
-        if imported:
+        if expected.issubset(accepted):
             return True, None
+        rejected = sorted(expected - accepted)
         return (
             False,
-            'GaleFling could not verify the imported session. '
-            'The export may be stale; log in again and export a fresh auth.json file.',
+            'GaleFling could not install the session cookies '
+            f'({", ".join(rejected)}). Export auth.json again and re-import it.',
         )
 
     def create_webview(self, parent: QWidget | None = None) -> QWebEngineView:
@@ -249,6 +271,12 @@ class BaseWebViewPlatform(BasePlatform):
         self._configure_webview_page(page)
         self._view = QWebEngineView(parent)
         self._view.setPage(page)
+        # Hold a reference to the page for the platform's lifetime.  setPage()
+        # does not transfer ownership to Python, so without this the page is
+        # garbage-collected as soon as create_webview() returns and the view
+        # silently falls back to Qt's default off-the-record profile — which
+        # never writes cookies to disk, so no session would ever persist.
+        self._page = page
 
         # Connect WebView lifecycle and navigation monitoring
         page.urlChanged.connect(self._on_url_changed)

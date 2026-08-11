@@ -125,6 +125,8 @@ a `TH-RATE-LIMIT` error.
 
 | Problem | Solution |
 |---|---|
+| `Invalid platform app` on the authorization screen | The configured `app_id` is the app's top-level App ID. Use the **Threads App ID** from App settings > Basic. See [META_APPS.md](META_APPS.md#the-app-id-asymmetry). |
+| `Insufficient developer role` on the authorization screen | The Threads account has no accepted **Threads Tester** role on the app. A pending invitation is not enough — accept it at Threads > Account Settings > Website permissions > Invites. See [META_APPS.md](META_APPS.md#tester-roles-while-apps-are-in-development). |
 | Connect button is disabled | Import Meta app credentials first via **Settings > Advanced > Import Credentials**. |
 | "Re-authorize" prompt on a private profile | Your 60-day token has expired. Click **Re-authorize** and complete the connect flow again. This is expected for private Threads profiles. |
 | `TH-AUTH-EXPIRED` error when posting | Your token has expired. Go to **Settings > Meta** and reconnect the affected Threads account. |

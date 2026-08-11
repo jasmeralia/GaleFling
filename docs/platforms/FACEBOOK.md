@@ -45,8 +45,21 @@ GaleFling requests the following Facebook permissions during the connect flow:
 | `pages_manage_posts` | Required to publish posts to the Page |
 | `pages_read_engagement` | Required to read Page data |
 | `pages_show_list` | Required to enumerate Pages the user administers |
-| `pages_manage_engagement` | Required for photo posts |
-| `publish_video` | Required for video posts to the Page |
+
+`pages_manage_engagement` is intentionally **not** requested. It covers
+creating, editing and deleting comments and likes on Page posts — none of which
+GaleFling does — and Meta expands it to its documented `pages_read_user_content`
+dependency. Because the app does not hold that permission, requesting
+`pages_manage_engagement` makes the OAuth dialog reject the entire authorize
+request with `Invalid Scopes: pages_read_user_content`, naming a scope GaleFling
+never sent. Photo and video posts are covered by `pages_manage_posts`, whose
+documented allowed usage is "Publish a post, photo, or video to your Page."
+
+`publish_video` is intentionally **not** requested. It's a deprecated
+personal-profile-video permission (retired alongside `publish_actions` in the
+Graph API v3.3 era) with no bearing on Page video posts — requesting it makes
+Meta's OAuth dialog reject the entire authorize request with `Invalid Scopes:
+publish_video`. Page video publishing is already covered by `pages_manage_posts`.
 
 ## Post Types Supported
 
@@ -130,8 +143,9 @@ before retrying.
 
 | Problem | Solution |
 |---|---|
+| `Invalid Scopes: <name>` on the authorization screen | A requested permission, or one of its documented dependencies, is unavailable to the app. Meta names the dependency even when the request did not contain it. See [Required Permissions](#required-permissions) above and [META_APPS.md](META_APPS.md#scopes-request-only-what-is-used). |
 | Connect button is disabled | Import Meta app credentials first via **Settings > Advanced > Import Credentials**. |
-| Page list is empty after authorizing | Your Facebook account may not administer any Pages, or the Page is in a restricted state. Verify Page admin access in Facebook. |
+| Page list is empty after authorizing | Your Facebook account may not administer any Pages, or the Page is in a restricted or deactivated state — a deactivated Page must be reactivated before it appears. Verify Page admin access in Facebook. |
 | `FB-AUTH-EXPIRED` error when posting | Your Page token was invalidated (password change or permission revocation). Go to **Settings > Meta** and reconnect the Facebook Page. |
 | `FB-AUTH-INVALID` error when posting | The token or Page ID is incorrect. Disconnect and reconnect. |
 | `FB-RATE-LIMIT` error when posting | Facebook rate limited the request. Wait a few minutes and try again. |

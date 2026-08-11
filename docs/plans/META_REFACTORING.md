@@ -89,7 +89,8 @@ configuration, lifecycle policy, and CloudFormation stack details.
 **App:** GaleFling Threads
 **API:** Threads API
 **Base URL:** `https://graph.threads.net/v1.0/`
-**Auth path:** Threads OAuth (via `api.instagram.com/oauth/authorize` with Threads scopes)
+**Auth path:** Threads OAuth (via `threads.net/oauth/authorize` with Threads scopes; code is
+exchanged at `graph.threads.net/oauth/access_token`)
 
 Relevant capabilities:
 - text posts (500 character limit)
@@ -183,8 +184,19 @@ Key permissions/scopes:
 - `pages_manage_posts` — required for publishing
 - `pages_read_engagement` — required
 - `pages_show_list` — required to enumerate Pages
-- `pages_manage_engagement` — required for photo posts
-- `publish_video` — required for video posts
+
+`pages_manage_engagement` is not requested — it covers comment/like management,
+which GaleFling does not do, and Meta expands it to its documented
+`pages_read_user_content` dependency. The app does not hold that permission, so
+requesting it makes the OAuth dialog reject the authorize request with `Invalid
+Scopes: pages_read_user_content`. Photo and video posts are covered by
+`pages_manage_posts`.
+
+`publish_video` is not requested — it is a deprecated personal-profile-video
+permission (retired with `publish_actions` in the Graph API v3.3 era) and has no
+bearing on Page video posts. Requesting it causes Meta's OAuth dialog to reject the
+authorize request outright with `Invalid Scopes: publish_video`. Page video
+publishing is already covered by `pages_manage_posts`.
 
 Token model (two-token chain — most complex of the three):
 1. Facebook Login OAuth → **Facebook User access token** (60 days, long-lived)
@@ -288,8 +300,14 @@ Credentials to extract for the JSON import file:
    - `pages_manage_posts`
    - `pages_read_engagement`
    - `pages_show_list`
-   - `pages_manage_engagement`
-   - `publish_video` (if video posting to Pages is desired)
+
+   Do not add `publish_video` — it is deprecated and Meta's OAuth dialog rejects
+   the whole authorize request if it's requested. `pages_manage_posts` already
+   covers Page video posts.
+
+   Do not add `pages_manage_engagement` either — it covers comment/like
+   management and pulls in a `pages_read_user_content` dependency the app does
+   not hold, producing `Invalid Scopes: pages_read_user_content`.
 7. Configure Facebook Login for Business:
    - Add OAuth redirect URIs (see Redirect URI section below)
 8. Add Rin as a tester/developer on the app so she can authorize in development mode:

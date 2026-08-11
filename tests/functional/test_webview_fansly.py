@@ -63,7 +63,7 @@ class TestFanslyTextInjection:
     def test_composer_loads(self, galefling_data_dir, fansly_credentials):
         """Verify the Fansly home/composer page loads in an authenticated state."""
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
             _ensure_session(page, fansly_credentials)
             # Confirm no login redirect after session is established
@@ -75,12 +75,12 @@ class TestFanslyTextInjection:
                 "!!document.querySelector('.nav-content-wrapper.not-logged-in')",
             ), 'Fansly public landing page still visible after authentication'
         finally:
-            close_webview(view, page, profile)
+            close_webview(view, page, platform)
 
     def test_text_injection(self, galefling_data_dir, fansly_credentials):
         """Verify text can be injected into the Fansly textarea."""
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
             _ensure_session(page, fansly_credentials)
             wait_ms(5000)  # Extra wait for SPA to fully hydrate after login
@@ -105,4 +105,4 @@ class TestFanslyTextInjection:
             assert result.get('found'), 'Textarea not found'
             assert test_text in result.get('value', ''), f'Text not injected: {result}'
         finally:
-            close_webview(view, page, profile)
+            close_webview(view, page, platform)

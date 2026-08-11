@@ -1,32 +1,42 @@
 """Shared helpers for WebView functional tests.
 
-Provides QWebEngineView creation, page loading, JS execution, event loop
-utilities, and per-platform login helpers used by the per-platform webview
-posting test modules.
+Provides page loading, JS execution, event loop utilities, platform-backed
+WebView creation via ``BaseWebViewPlatform.create_webview()``, and test-only
+login helpers for platforms that still support automated session refresh.
 """
 
 import contextlib
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from PyQt6.QtCore import QEventLoop, Qt, QTimer, QUrl
 from PyQt6.QtTest import QTest
-from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
+from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication
 
-from src.core.webview_session_import import effective_user_agent
+from src.platforms.base_webview import BaseWebViewPlatform
 from src.platforms.fansly import FanslyPlatform
 from src.platforms.fetlife import FetLifePlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
 
-_SESSION_SCRIPT_PLATFORMS = {
+_PLATFORM_CLASSES: dict[str, type[BaseWebViewPlatform]] = {
     'onlyfans': OnlyFansPlatform,
     'fansly': FanslyPlatform,
     'fetlife': FetLifePlatform,
     'snapchat': SnapchatPlatform,
 }
+
+
+def platform_class_for_account(account_id: str) -> type[BaseWebViewPlatform]:
+    """Return the WebView platform class for a GaleFling account id."""
+    prefix = account_id.split('_', 1)[0]
+    platform_cls = _PLATFORM_CLASSES.get(prefix)
+    if platform_cls is None:
+        raise ValueError(f'No WebView platform registered for account_id {account_id!r}')
+    return platform_cls
 
 
 def get_or_create_app():
@@ -107,45 +117,45 @@ def run_js(page: QWebEnginePage, js: str, timeout_ms: int = 5000):
     return state['value']
 
 
-def create_webview(data_dir: Path, account_id: str):
-    """Create a QWebEngineView with persistent cookies from the given profile.
+def create_webview(
+    data_dir: Path, account_id: str
+) -> tuple[QWebEngineView, QWebEnginePage, BaseWebViewPlatform]:
+    """Create a WebView through the shipped platform implementation.
 
-    Uses the same profile name and storage path as the app so that Chromium loads
-    the full persisted browser context (including Cloudflare fingerprint state) from
-    prior app sessions.  The app must NOT be running simultaneously — Chromium holds
-    an exclusive SQLite WAL lock on the cookie database.
+    Uses ``BaseWebViewPlatform.create_webview()`` so functional tests exercise
+    the same profile registry, page lifecycle, URL handlers, and injected scripts
+    as the application.  The app must NOT be running simultaneously — Chromium
+    holds an exclusive SQLite WAL lock on the cookie database.
     """
-    storage = data_dir / 'webprofiles' / account_id
-    # Use the same profile name as the app (_get_profile_storage_path returns
-    # get_app_data_dir() / 'webprofiles' / account_id and passes .name to
-    # QWebEngineProfile).  A different name creates a fresh Chromium context with
-    # no Cloudflare session state, causing re-challenges on protected sites.
-    profile = QWebEngineProfile(account_id, None)
-    profile.setHttpUserAgent(effective_user_agent(storage, profile.httpUserAgent()))
-    profile.setPersistentStoragePath(str(storage))
-    profile.setPersistentCookiesPolicy(
-        QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
-    )
-    platform_cls = _SESSION_SCRIPT_PLATFORMS.get(account_id.split('_', 1)[0])
-    if platform_cls is not None:
-        platform_cls._install_session_token_script(profile, storage)
-    page = QWebEnginePage(profile)
-    view = QWebEngineView()
-    view.setPage(page)
-    view.resize(1280, 900)
-    view.show()
-    return view, page, profile
+    data_path = Path(data_dir)
+    platform_cls = platform_class_for_account(account_id)
+    with patch('src.platforms.base_webview.get_app_data_dir', return_value=data_path):
+        platform = platform_cls(account_id=account_id)
+        view = platform.create_webview()
+        view.resize(1280, 900)
+        view.show()
+        page = platform._page
+        if page is None:
+            raise RuntimeError(
+                f'{platform_cls.__name__}.create_webview() did not retain a page reference'
+            )
+        return view, page, platform
 
 
-def close_webview(view: QWebEngineView, page: QWebEnginePage, profile: QWebEngineProfile) -> None:
-    """Destroy a test WebView before reopening its persistent profile."""
+def close_webview(
+    view: QWebEngineView,
+    page: QWebEnginePage,
+    platform: BaseWebViewPlatform,
+) -> None:
+    """Tear down a platform-backed test WebView and release its shared profile."""
+    account_id = platform._account_id or 'default'
     with contextlib.suppress(RuntimeError):
         view.close()
-        page.deleteLater()
+        platform._view = None
+        platform._page = None
         view.deleteLater()
     wait_ms(500)
-    with contextlib.suppress(RuntimeError):
-        profile.deleteLater()
+    BaseWebViewPlatform._evict_profile(account_id)
     wait_ms(500)
 
 

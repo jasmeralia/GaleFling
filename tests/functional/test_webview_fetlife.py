@@ -108,20 +108,20 @@ class TestFetLifeTextPost:
     def test_composer_loads(self, galefling_data_dir, fetlife_credentials):
         """Verify the text composer page loads in an authenticated state."""
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
             _ensure_session(page, fetlife_credentials)
             final_url = page.url().toString()
             assert '/login' not in final_url.lower(), f'Redirected to login: {final_url}'
             assert 'posts/new' in final_url, f'Unexpected URL: {final_url}'
         finally:
-            close_webview(view, page, profile)
+            close_webview(view, page, platform)
 
     @pytest.mark.non_mutating
     def test_text_injection(self, galefling_data_dir, fetlife_credentials):
         """Verify text can be injected into the Lexxy editor."""
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
             _ensure_session(page, fetlife_credentials)
             wait_ms(2000)
@@ -133,13 +133,13 @@ class TestFetLifeTextPost:
             assert result.get('found'), 'Lexxy editor not found'
             assert test_text in result.get('content', ''), f'Text not injected: {result}'
         finally:
-            close_webview(view, page, profile)
+            close_webview(view, page, platform)
 
     @pytest.mark.mutating
     def test_text_post_submit_and_delete(self, galefling_data_dir, fetlife_credentials):
         """Submit a text post, capture the URL, then attempt deletion."""
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         post_url = None
         try:
             _ensure_session(page, fetlife_credentials)
@@ -193,7 +193,7 @@ class TestFetLifeTextPost:
                 print('  Manual cleanup needed — check recent posts')
 
         finally:
-            close_webview(view, page, profile)
+            close_webview(view, page, platform)
 
     @staticmethod
     def _attempt_delete(page):
@@ -269,7 +269,7 @@ class TestFetLifePictureComposer:
     def test_picture_composer_loads(self, galefling_data_dir, fetlife_credentials):
         """Verify the picture composer loads with file input and submit button."""
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
             # Establish session via the text composer (handles login redirect)
             _ensure_session(page, fetlife_credentials)
@@ -312,7 +312,7 @@ class TestFetLifePictureComposer:
                 'File input does not accept images'
             )
         finally:
-            close_webview(view, page, profile)
+            close_webview(view, page, platform)
 
 
 @pytest.mark.functional
@@ -323,7 +323,7 @@ class TestFetLifeVideoComposer:
     def test_video_composer_loads(self, galefling_data_dir, fetlife_credentials):
         """Verify the video composer loads with file input and submit button."""
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
             # Establish session via the text composer (handles login redirect)
             _ensure_session(page, fetlife_credentials)
@@ -363,4 +363,4 @@ class TestFetLifeVideoComposer:
                 'File input does not accept video'
             )
         finally:
-            close_webview(view, page, profile)
+            close_webview(view, page, platform)

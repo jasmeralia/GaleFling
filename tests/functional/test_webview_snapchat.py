@@ -23,6 +23,7 @@ import pytest
 
 from tests.functional.conftest import fail_or_skip
 from tests.functional.webview_helpers import (
+    close_webview,
     create_webview,
     get_or_create_app,
     load_page,
@@ -116,15 +117,15 @@ class TestSnapchatComposer:
     def test_page_loads(self, galefling_data_dir, snapchat_credentials):
         """Verify Snapchat web loads and JS executes in an authenticated state."""
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
             _ensure_session(page, snapchat_credentials)
 
             result = run_js(page, 'document.title')
             if result is None:
-                platform = os.environ.get('QT_QPA_PLATFORM', 'default')
+                qt_platform = os.environ.get('QT_QPA_PLATFORM', 'default')
                 fail_or_skip(
-                    f'Snapchat JS execution failed (platform={platform}). '
+                    f'Snapchat JS execution failed (platform={qt_platform}). '
                     'Requires a real display with WebGL — try running with '
                     'DISPLAY=:0 or xvfb-run.'
                 )
@@ -138,8 +139,7 @@ class TestSnapchatComposer:
                 )
             _assert_app_rendered(page)
         finally:
-            page.deleteLater()
-            profile.deleteLater()
+            close_webview(view, page, platform)
 
     @pytest.mark.xfail(
         reason=(
@@ -152,7 +152,7 @@ class TestSnapchatComposer:
     def test_video_upload_accessible(self, galefling_data_dir, snapchat_credentials):
         """Verify the video upload mechanism is accessible on Snapchat web."""
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
             _ensure_session(page, snapchat_credentials)
 
@@ -208,5 +208,4 @@ class TestSnapchatComposer:
                 )
             assert has_upload, f'No video upload mechanism found: {result}'
         finally:
-            page.deleteLater()
-            profile.deleteLater()
+            close_webview(view, page, platform)

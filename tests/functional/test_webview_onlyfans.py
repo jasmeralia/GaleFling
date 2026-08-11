@@ -66,7 +66,7 @@ class TestOnlyFansComposer:
         """Verify OnlyFans home page loads in an authenticated state."""
         assert onlyfans_session == ONLYFANS_ACCOUNT_ID
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ONLYFANS_ACCOUNT_ID)
+        view, page, platform = create_webview(galefling_data_dir, ONLYFANS_ACCOUNT_ID)
         try:
             _ensure_authenticated_page(page)
 
@@ -91,13 +91,13 @@ class TestOnlyFansComposer:
                 'OnlyFans login form still present after authentication'
             )
         finally:
-            close_webview(view, page, profile)
+            close_webview(view, page, platform)
 
     def test_composer_accessible(self, galefling_data_dir, onlyfans_session):
         """Check if the composer is present and attempt text injection."""
         assert onlyfans_session == ONLYFANS_ACCOUNT_ID
         get_or_create_app()
-        view, page, profile = create_webview(galefling_data_dir, ONLYFANS_ACCOUNT_ID)
+        view, page, platform = create_webview(galefling_data_dir, ONLYFANS_ACCOUNT_ID)
         try:
             _ensure_authenticated_page(page)
             wait_ms(5000)
@@ -198,4 +198,4 @@ class TestOnlyFansComposer:
                 f'Text not injected: {inject_result}'
             )
         finally:
-            close_webview(view, page, profile)
+            close_webview(view, page, platform)

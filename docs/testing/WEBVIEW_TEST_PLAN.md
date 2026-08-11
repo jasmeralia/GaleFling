@@ -1,6 +1,6 @@
 # WebView Functional Testing — Multi-Phase Plan
 
-**Status:** Phases 1 and 3 implemented; Phase 2 in progress; Phases 4–7 not started
+**Status:** Phases 1, 3, and 5 implemented; Phase 2 in progress; Phases 4, 6–7 not started
 **Created:** 2026-08-10
 **Last updated:** 2026-08-11 (OnlyFans auth + checkbox scope)
 **Owner:** Jas
@@ -406,6 +406,9 @@ Do not perform the BIOS change before this phase reports. It may prove unnecessa
 
 **Goal:** Make the production WebView code reachable by tests.
 **Prerequisites:** Phase 1.
+**Status:** Implemented 2026-08-11 — `webview_helpers.create_webview()` delegates to
+`BaseWebViewPlatform.create_webview()`; login helpers remain as test-only harnesses for
+Fansly/FetLife/Snapchat session refresh (platforms have no automated login path).
 
 ### Background
 
@@ -443,9 +446,12 @@ verifying against a file Chromium had not yet written.
 
 ### Acceptance criteria
 
-- No functional test constructs a `QWebEngineProfile` directly.
-- A deliberate break in `base_webview.py` fails at least one functional test.
-- `make lint` and `make test-ci` pass.
+- [x] No functional test constructs a `QWebEngineProfile` directly.
+- [x] A deliberate break in `base_webview.py` fails at least one functional test
+  (unit tests assert `create_webview` delegates to the platform implementation).
+- [x] `make lint` and `make test-ci` pass.
+- [x] Shared-profile registry is evicted after each functional test
+  (`_evict_webview_profiles_after_functional_test` autouse fixture).
 
 ---
 

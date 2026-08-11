@@ -223,6 +223,18 @@ def fail_on_renderer_crash(request, monkeypatch):
     monitor.fail_if_crashed()
 
 
+@pytest.fixture(autouse=True)
+def _evict_webview_profiles_after_functional_test(request):
+    """Release shared WebEngine profiles so functional tests do not leak registry state."""
+    yield
+    if 'functional' not in request.node.keywords:
+        return
+    from src.platforms.base_webview import BaseWebViewPlatform
+
+    for account_id in list(BaseWebViewPlatform._profile_registry):
+        BaseWebViewPlatform._evict_profile(account_id)
+
+
 def _has_display() -> bool:
     """Return True if a real display is available (Windows native, X11, or Wayland)."""
     import sys

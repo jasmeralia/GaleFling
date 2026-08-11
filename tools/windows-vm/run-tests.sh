@@ -14,10 +14,6 @@ source "$script_dir/lib.sh"
 GUEST_PYTHON=${GUEST_PYTHON:-C:\\GaleFling-venv\\Scripts\\python.exe}
 GUEST_SHARE=${GUEST_SHARE:-Z:\\}
 GUEST_REPO=${GUEST_REPO:-C:\\GaleFling}
-# The host's .env carries a GALEFLING_DATA_DIR that only exists on the host, so
-# WebView tests would skip with "GALEFLING_DATA_DIR does not exist" rather than
-# testing anything.  Point them at the guest's own profile directory instead.
-GUEST_DATA_DIR=${GUEST_DATA_DIR:-C:\\Users\\$VM_USER\\AppData\\Roaming\\GaleFling}
 
 revert_first=0
 skip_sync=0
@@ -64,6 +60,15 @@ if [[ ${#pytest_args[@]} -eq 0 ]]; then
     pytest_args=(tests/functional -m functional)
 fi
 pytest_args+=(-v --no-header)
+
+# robocopy /MIR deletes whatever is in the destination but not the source, so a
+# destination equal to the source would mirror the live share onto itself.
+if [[ $skip_sync -eq 0 && "${GUEST_REPO%\\}" == "${GUEST_SHARE%\\}" ]]; then
+    printf 'GUEST_REPO must differ from GUEST_SHARE (%s): syncing a share onto\n' "$GUEST_SHARE" >&2
+    printf 'itself would mirror it with robocopy /MIR. Pass --no-sync to run\n' >&2
+    printf 'directly from the share instead.\n' >&2
+    exit 2
+fi
 
 if [[ $revert_first -eq 1 ]]; then
     "$script_dir/snapshot-vm.sh" revert "$BASELINE_SNAPSHOT"
@@ -115,10 +120,8 @@ $sync_block
 Set-Location $(ps_quote "$GUEST_REPO")
 \$env:GALEFLING_STRICT_FUNCTIONAL = '1'
 \$env:GALEFLING_FUNCTIONAL_ENV = $(ps_quote "${GUEST_SHARE}tests\\functional\\.env")
-# Set before load_dotenv runs; python-dotenv does not override a value that is
-# already present in the environment, so this wins over the host's .env entry.
-\$env:GALEFLING_DATA_DIR = $(ps_quote "$GUEST_DATA_DIR")
-New-Item -ItemType Directory -Force -Path $(ps_quote "$GUEST_DATA_DIR") | Out-Null
+# GALEFLING_DATA_DIR is deliberately not set: the suite resolves the guest's own
+# %APPDATA%\\GaleFling, so no host path leaks in through the shared .env.
 & $(ps_quote "$GUEST_PYTHON") -m pytest -p no:cacheprovider$quoted_args
 exit \$LASTEXITCODE
 EOF

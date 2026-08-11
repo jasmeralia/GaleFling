@@ -199,13 +199,19 @@ in `docs/testing/FUNCTIONAL_TESTING.md`.
 
 Three things were learned building it that are worth keeping:
 
-- **Pytest cannot run from the `Z:` share.** The repository's `logs` entry is an
-  absolute Linux symlink that Windows cannot represent through VirtIO-FS, and pytest's
-  rootdir scan dies on it with `WinError 123` before collecting anything —
-  `--ignore` does not help, because the scan precedes filtering, and running from a
-  subdirectory does not help either, because pytest still walks up to the rootdir. The
-  guest therefore runs from a `C:\GaleFling` copy, re-synced with `robocopy /MIR` on
-  every run so it is never stale. This is why the finalizer created that copy.
+- **The guest runs from a `C:\GaleFling` copy, not the `Z:` share.** Originally this
+  was forced: the repository carried a `logs` symlink to an absolute Linux path that
+  Windows cannot represent through VirtIO-FS, and pytest's rootdir scan died on it with
+  `WinError 123` before collecting anything (`--ignore` does not help — the scan
+  precedes filtering — and nor does running from a subdirectory, since pytest still
+  walks up to the rootdir). That symlink was removed on 2026-08-11, and running from the
+  share no longer hits `WinError 123`. The copy is retained because it is proven and
+  because a share-rooted run was observed collecting the entire suite rather than the
+  requested subset, which is not yet explained. The copy is re-synced with
+  `robocopy /MIR` every run, so it is never stale. `--no-sync` plus
+  `GUEST_REPO='Z:\'` runs from the share for anyone wanting to revisit this; the script
+  refuses that combination without `--no-sync`, because mirroring the share onto itself
+  would point `robocopy /MIR` at its own source.
 - **Windows OpenSSH mangles a multi-line `-Command` payload** — it joins argv into a
   single command line, and the result silently runs nothing while still exiting 0. That
   failure is indistinguishable from a passing run. Use `-EncodedCommand` with base64
@@ -213,6 +219,11 @@ Three things were learned building it that are worth keeping:
 - **Credentials stay on the host.** The synced copy excludes `.env`; the run points
   `GALEFLING_FUNCTIONAL_ENV` at the copy on the `Z:` share instead, so credentials are
   never written to the guest disk where a later snapshot would preserve them.
+- **No absolute data-dir path belongs in `.env`.** That file is read by both the Linux
+  host and the Windows guest over the same share, so a path valid on one is wrong on
+  the other — which silently skipped every WebView test in the guest. The suite now
+  resolves each platform's own application data directory, and `GALEFLING_DATA_DIR` is
+  an override rather than a requirement.
 
 ### Acceptance criteria
 

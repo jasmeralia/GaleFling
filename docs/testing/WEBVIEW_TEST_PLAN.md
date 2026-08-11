@@ -1,7 +1,8 @@
 # WebView Functional Testing — Multi-Phase Plan
 
-**Status:** Phases 1 and 3 implemented; Phases 2, 4–7 not started
+**Status:** Phases 1 and 3 implemented; Phase 2 in progress; Phases 4–7 not started
 **Created:** 2026-08-10
+**Last updated:** 2026-08-11
 **Owner:** Jas
 **Tracks:** GitHub issue #1 (WebView2 migration), `debug_state.md`
 
@@ -22,7 +23,8 @@ acceptance criteria, and non-goals. Phases 1 and 2 are independent of each other
 of all hardware work. A phase may be handed to another agent by giving it this
 document plus the phase number.
 
-Phases 3–4 depend on hardware/BIOS changes only Jas can perform (Appendix A).
+Phase 4 depends on hardware/BIOS changes only Jas can perform (Appendix A). Phase 3 was
+completed without any BIOS change, as planned — the VM is GPU-less.
 
 ---
 
@@ -35,10 +37,10 @@ on any of it — these are point-in-time observations.
 |---|---|
 | Repo is on **Chromium 140**, not 134 | `QWebEngineProfile.httpUserAgent()` → `QtWebEngine/6.11.1 Chrome/140.0.0.0`; `requirements.txt` pins `PyQt6-WebEngine>=6.11.0` |
 | The bump was untested | Arrived via Dependabot batch `e54b858` (2026-05-07), "Bump the python-dependencies group with 18 updates" |
-| `www.snapchat.com/web/` did **not** crash the renderer | 45 s probe, offscreen, no `renderProcessTerminated`. **Logged out** — redirected to `/?original_referrer=none`, so the 8.3 MB bundle likely never executed. Not conclusive. |
+| `www.snapchat.com/web/` did **not** crash the renderer | 45 s probe, offscreen, no `renderProcessTerminated`. **Logged out** — redirected to `/?original_referrer=none`, so the 8.3 MB bundle likely never executed. Not conclusive. Superseded by the 2026-08-11 authenticated runs below. |
 | Hardware WebGL works from a non-interactive shell | `DISPLAY=:0` → `ANGLE (NVIDIA GeForce RTX 2080 SUPER, OpenGL 4.5.0)`; `WAYLAND_DISPLAY=wayland-0` → `ANGLE (… OpenGL ES 3.2)`; both WebGL 2.0 |
 | Qt cookie layout matches Windows | Probe profile contains `Cookies` (SQLite), `Service Worker/`, `Session Storage/`, `Network Persistent State` |
-| CI never ran functional tests | `.github/workflows/release.yml:77` → `make test-cov` → `pytest -m "not functional"` |
+| CI never ran functional tests | `.github/workflows/release.yml:77` → `make test-ci` → `pytest -m "not functional"` (`test-cov` is now a deprecated alias for it) |
 
 **Issue #1's central premise is stale.** It states "there is no newer PyQt6-WebEngine
 version to upgrade to." Six Chromium majors have landed since. Phase 2 exists to
@@ -56,10 +58,11 @@ determine whether the WebView2 migration is still necessary before anyone starts
 
 `pytest.skip` appears ~20 times across `tests/functional/test_webview_*.py` for
 conditions that are defects, not environment gaps. The worst case is
-`test_webview_snapchat.py:95`: a renderer crash makes `run_js` return `None`, which
-is caught and reported as `pytest.skip('JS execution unavailable — needs real
-display with WebGL')`. **The blocker in issue #1 currently classifies itself as an
-environment limitation and the suite stays green.**
+`test_webview_snapchat.py::test_video_upload_accessible`: a renderer crash makes
+`run_js` return `None`, which is caught and reported as
+`pytest.skip('JS execution unavailable — needs real display with WebGL')`.
+**The blocker in issue #1 currently classifies itself as an environment limitation and
+the suite stays green.**
 
 These skips were added to protect CI, but CI was never at risk — the `functional`
 marker already deselects every one of these tests.
@@ -86,12 +89,18 @@ marker already deselects every one of these tests.
 
 ### Acceptance criteria
 
-- `make test-ci` passes and collects zero functional tests.
-- `make test-functional` with credentials present and a deliberately broken selector
+- [x] `make test-ci` passes and collects zero functional tests.
+- [x] `make test-functional` with credentials present and a deliberately broken selector
   **fails**, and the failure names the selector.
-- Absent credentials still skip, with the platform named.
-- A renderer crash fails the test even if assertions would otherwise pass.
-- `make lint` and `make test-cov` pass.
+- [x] Absent credentials still skip, with the platform named.
+- [x] A renderer crash fails the test even if assertions would otherwise pass.
+- [x] `make lint` and `make test-ci` pass.
+
+Strict mode alone proved insufficient in one respect worth carrying forward: a test can
+still pass against an *error page* served from the expected URL. Snapchat returns HTTP
+429 from `web.snapchat.com` itself, which satisfied both "JS runs" and "URL matches".
+Assert that the application rendered — not merely that a document exists — before making
+any DOM claim.
 
 ### Non-goals
 
@@ -116,23 +125,61 @@ largest item on the roadmap.
 > spending much on crash debugging. Whether Snapchat is worth supporting on the web
 > path at all is the prior question.
 
+### Progress — 2026-08-11
+
+Two blockers were found and fixed before the crash question could even be asked. Both
+were in the test and platform code, not in Chromium.
+
+- **The suite never logged in.** `_ensure_session` checked the URL that `load_page`
+  returned, but a logged-out load still *finishes* on `web.snapchat.com` and is bounced
+  to the marketing page by client-side JS a moment later. The stale URL looked
+  authenticated, so login was skipped and every Snapchat test ran against a logged-out
+  page — reporting "requires a real display with WebGL" on a host whose WebGL works.
+  Fixed by checking the settled URL.
+- **The shipped platform loops.** `SnapchatPlatform._on_url_changed` rewrites
+  `www.snapchat.com/web` navigations, but it runs *from* `urlChanged`, so each rewrite
+  re-enters the handler and `_visited_accounts_page` toggles instead of settling: SSO,
+  web app, SSO, web app, without end. A unit test driving the real handler through
+  Snapchat's bounce recorded **12 navigations for one page load**. Snapchat answers the
+  resulting request storm with **HTTP 429**, served from the web-app URL itself. Each
+  destination is now navigated to at most once per platform instance.
+
+With the login fix in place, **the authenticated web app rendered on Linux and no
+renderer crash occurred.** That is not yet a Phase 2 answer — it is one cycle, not ten,
+and the app was reached through the test helper rather than the shipped platform path.
+
+The 429s tracked the code path rather than elapsed time: the platform probe failed at
+09:05 and 09:10 while the helper path rendered cleanly at 09:08 and 09:09 in between.
+An hour of waiting changed nothing. That is why the loop, not throttling policy, is
+believed to be the cause — and it means the crash-loop of 82 renderer deaths recorded in
+issue #1 may itself be loop-shaped rather than a Chromium fault.
+
 ### Tasks
 
-1. Run with a **live session** — the logged-out probe is not a valid test, because
-   Snapchat bounces logged-out users away from the crashing bundle:
+1. Re-run against the **fixed platform path** and confirm the app renders without a 429.
+   Until that passes, nothing downstream is measuring Chromium.
+2. Run with a **live session** — the logged-out probe is not a valid test, because
+   Snapchat bounces logged-out users away from the crashing bundle. `GALEFLING_DATA_DIR`
+   no longer needs setting; the suite resolves the platform's own profile directory:
    ```bash
-   DISPLAY=:0 GALEFLING_STRICT_FUNCTIONAL=1 \
+   GALEFLING_STRICT_FUNCTIONAL=1 ./scripts/run-with-desktop-session.sh \
      .venv/bin/python -m pytest tests/functional/test_webview_snapchat.py -m functional -v
    ```
-2. Drive the full SSO flow via `login_snapchat` in `tests/functional/webview_helpers.py:479`
+3. Drive the full SSO flow via `login_snapchat` in `tests/functional/webview_helpers.py`
    so the `web.snapchat.com/#ticket=<token>` redirect executes — that is the path that
    crash-looped 82 times in the recorded session.
-3. Instrument `renderProcessTerminated` with status, exit code, URL, and time since
+4. Instrument `renderProcessTerminated` with status, exit code, URL, and time since
    `loadFinished`. The historical signature is `STATUS_ACCESS_VIOLATION` /
    `-1073741819` at ~1200 ms (variance < 20 ms).
-4. Repeat ≥10 cycles — the original was highly reproducible, so a single clean run
-   proves little.
-5. Record the result in this document and on issue #1.
+5. Repeat ≥10 cycles — the original was highly reproducible, so a single clean run
+   proves little. Space the cycles: rapid repetition is what triggered the 429s above.
+6. Record the result in this document and on issue #1.
+
+> **Rate limiting is a real constraint on this phase.** Snapchat throttles per session
+> or account, and a throttled response is served *from the web-app URL* with an HTTP
+> status code as the document title. The tests now detect that explicitly, but plan for
+> far fewer attempts than a normal debugging loop would use, and prefer one thorough
+> DOM inspection over repeated pass/fail runs.
 
 ### Acceptance criteria
 
@@ -308,8 +355,8 @@ Do not perform the BIOS change before this phase reports. It may prove unnecessa
 
 ### Background
 
-`tests/functional/webview_helpers.py` (604 lines) builds its own `QWebEngineProfile`,
-its own page, and its own login JS. `src/platforms/base_webview.py` (950 lines) does
+`tests/functional/webview_helpers.py` (~700 lines) builds its own `QWebEngineProfile`,
+its own page, and its own login JS. `src/platforms/base_webview.py` (~1130 lines) does
 all of it differently — a class-level `_profile_registry` for Cloudflare fingerprint
 stability, `_LoggingWebEnginePage`, `renderProcessTerminated` handlers,
 `SESSION_EXPIRED_SELECTORS`, and platform-specific timing constants.
@@ -320,11 +367,20 @@ code the tests do not touch: the checkbox fix is
 the abort is dialog/profile lifecycle in `src/gui/settings_dialog.py` (never invoked).
 The tests create a fresh profile per test where the app deliberately shares one.
 
+**This is no longer hypothetical.** On 2026-08-11 the Snapchat redirect loop was found
+precisely because the two paths disagreed: the shipped `SnapchatPlatform` was rate
+limited on every attempt while the helper path rendered the app cleanly, minutes apart.
+A defect serious enough to trigger HTTP 429 sat in code the functional suite has never
+executed. Two further defects that same day were in shipped code the suite does not
+reach — the WebView profile falling back to off-the-record, and `import_session`
+verifying against a file Chromium had not yet written.
+
 ### Tasks
 
 1. Replace `webview_helpers.create_webview` with the real
    `BaseWebViewPlatform.create_webview()`, patching `get_app_data_dir` to the test
-   data directory (the pattern already used in `test_webview_sessions.py:57`).
+   data directory (the `patch('src.platforms.base_webview.get_app_data_dir', ...)`
+   pattern already used in `test_webview_sessions.py`).
 2. Retire the duplicate login JS in favour of the platform classes' own logic.
    Keep `load_page`, `run_js`, `wait_ms` — those are genuine test utilities.
 3. Confirm the shared-profile registry behaves under test (it is process-lifetime
@@ -334,7 +390,7 @@ The tests create a fresh profile per test where the app deliberately shares one.
 
 - No functional test constructs a `QWebEngineProfile` directly.
 - A deliberate break in `base_webview.py` fails at least one functional test.
-- `make lint` and `make test-cov` pass.
+- `make lint` and `make test-ci` pass.
 
 ---
 
@@ -400,10 +456,21 @@ Update issue #1 with the Chromium 140 finding, the Phase 2 result, and the off-t
 profile fix from Phase 6's notes. Decide whether the WebView2 migration proceeds,
 narrows, or closes. Do not begin the migration before this phase.
 
-Two of issue #1's premises have already moved: it assumes PyQt6-WebEngine 6.10 /
-Chromium 134 is the newest available (the repo is on Chromium 140), and the session
-persistence defect had a concrete Qt-side cause that is now fixed rather than being
-inherent to Qt WebEngine. Weigh both before concluding the migration is necessary.
+Three of issue #1's premises have already moved:
+
+1. It assumes PyQt6-WebEngine 6.10 / Chromium 134 is the newest available. The repo is
+   on Chromium 140.
+2. The session-persistence defect had a concrete Qt-side cause — the view falling back
+   to an off-the-record profile — which is fixed, rather than being inherent to Qt
+   WebEngine.
+3. Snapchat's 82-renderer-death crash-loop is loop-shaped, and a genuine navigation loop
+   has since been found and fixed in `SnapchatPlatform._on_url_changed`. Whether that
+   accounts for the crashes is unproven, but the crash count should not be treated as
+   evidence against Qt until Phase 2 re-tests against the fixed path.
+
+Weigh all three before concluding the migration is necessary. Note also that Snapchat
+has no real composer on the web path at all, so a favourable crash result does not by
+itself make Snapchat usable.
 
 Per repo convention, ask before adding references that create cross-links on
 third-party trackers.

@@ -16,6 +16,19 @@ VM for target-platform confirmation.
 Windows remains the primary target platform. Linux does not replace Windows testing;
 it narrows the gap so Windows testing can be targeted and infrequent.
 
+### Status of the three defect classes
+
+| Class | Status as of 2026-08-11 |
+|---|---|
+| Sessions not persisting | **Root-caused and fixed.** Every WebView ran in an off-the-record profile, because `setPage()` does not pass ownership to Python and the page was garbage-collected, so no cookie database was ever written. Retest remaining reports before assuming they survive. Durability across a process boundary is still unproven — see Phase 6. |
+| Checkbox clicks not registering | **Changed shape.** The 2FA checkbox that motivated it is unreachable: GaleFling no longer logs in to OnlyFans at all. The injected fix is generic and still applies to composer checkboxes, which is where Phase 6 should now aim. |
+| Renderer crashes | **Open.** A genuine navigation loop was found and fixed in `SnapchatPlatform`, which may account for some of the recorded crash-looping. Phase 2 must re-test against the fixed path. |
+
+OnlyFans authentication changed materially in the same period: its login form is gated
+by reCAPTCHA Enterprise, which rejects embedded browsers regardless of credentials, so
+the embedded-login path was removed and sessions are now imported from a normal browser.
+Anything in this plan that assumes GaleFling can log in to OnlyFans is obsolete.
+
 ## How to use this document
 
 Each phase is self-contained: goal, prerequisites, tasks with explicit file paths,
@@ -219,9 +232,9 @@ Three of the four known defect classes need no GPU at all:
 
 | Defect | Needs GPU? | Rationale |
 |---|---|---|
-| Snapchat renderer crash | No | Issue #1 states `--disable-gpu` does not prevent it |
-| OnlyFans checkbox clicks | No | Blink hit-tests the layout tree, not the compositor |
-| Session persistence | No | SQLite cookie flush on shutdown |
+| Snapchat renderer crash | No in principle | Issue #1 states `--disable-gpu` does not prevent it. **In practice the GPU-less VM cannot test it**: WebGL is blocklisted there, so Snapchat bounces to the marketing page and the bundle never runs. Needs Phase 4 or a Linux host. |
+| OnlyFans checkbox clicks | No | Blink hit-tests the layout tree, not the compositor. Target composer checkboxes — the 2FA form is unreachable now that OnlyFans login is import-only. |
+| Session persistence | No | SQLite cookie flush on shutdown. Root cause since found and fixed; note the flush is lazy (20–35 s), so a test polling the database immediately reports a false negative. |
 | `VSyncService`/`QDxgi` abort | Unknown | DXGI runs under WARP — test rather than assume |
 
 ### Delivered
@@ -363,9 +376,11 @@ stability, `_LoggingWebEnginePage`, `renderProcessTerminated` handlers,
 
 The tests validate a reimplementation. Every defect under investigation lives in the
 code the tests do not touch: the checkbox fix is
-`src/platforms/onlyfans.py:_inject_2fa_checkbox_fix` (never invoked by any test), and
-the abort is dialog/profile lifecycle in `src/gui/settings_dialog.py` (never invoked).
-The tests create a fresh profile per test where the app deliberately shares one.
+`src/platforms/onlyfans.py:_inject_2fa_checkbox_fix` (never invoked by any test — and
+now misnamed, since the 2FA form it was written for is unreachable, though the script
+itself patches every checkbox on every page), and the abort is dialog/profile lifecycle
+in `src/gui/settings_dialog.py` (never invoked). The tests create a fresh profile per
+test where the app deliberately shares one.
 
 **This is no longer hypothetical.** On 2026-08-11 the Snapchat redirect loop was found
 precisely because the two paths disagreed: the shipped `SnapchatPlatform` was rate
@@ -417,8 +432,10 @@ false negative.
 `test_webview_sessions.py` asserts only that a cookie file exists and is non-empty.
 That cannot detect "sessions not persisted." The real test is **multi-process**:
 
-1. Subprocess A logs in and exits **cleanly** (Chromium flushes cookies to SQLite
-   asynchronously on shutdown — a prime suspect).
+1. Subprocess A establishes a session and exits **cleanly** (Chromium flushes cookies to
+   SQLite asynchronously on shutdown — a prime suspect). For OnlyFans this means
+   importing an `auth.json`, not logging in; `import_session()` is a convenient way to
+   seed any platform's profile deterministically.
 2. Assert cookies on disk.
 3. Subprocess B starts cold, asserts `has_valid_session()`, then loads a real page
    and asserts it stays authenticated.
@@ -437,9 +454,10 @@ decorator `<span>` and icon elements absorb the click before it reaches the hidd
 `<input>`.
 
 The OnlyFans 2FA checkbox is no longer reachable, since GaleFling no longer logs in to
-OnlyFans (see below); target the composer's checkboxes instead. The injected fix is
-generic — it patches every `input[type="checkbox"]` on every page — so the composer
-exercises the same code path the 2FA form used to.
+OnlyFans (see "Status of the three defect classes" above); target the composer's
+checkboxes instead. The injected fix is generic — it patches every
+`input[type="checkbox"]` on every page — so the composer exercises the same code path
+the 2FA form used to.
 
 ### Acceptance criteria
 

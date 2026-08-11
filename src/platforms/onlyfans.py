@@ -78,54 +78,6 @@ class OnlyFansPlatform(BaseWebViewPlatform):
         });
     }
 
-    // Intercept fetch and XHR calls to auth/2FA endpoints so we can confirm that the
-    // remember-me field value actually reaches the server, not just the visual element.
-    if (!window._gl_auth_hooked) {
-        window._gl_auth_hooked = true;
-        var AUTH_URL_RE = /\/(login|two.?factor|2fa|auth|verify)/i;
-        var SENSITIVE_KEY_RE = /pass|password|secret/i;
-
-        function sanitiseBody(body) {
-            if (!body) { return '(empty)'; }
-            try {
-                var parsed = typeof body === 'string' ? JSON.parse(body) : body;
-                if (parsed && typeof parsed === 'object') {
-                    var safe = {};
-                    Object.keys(parsed).forEach(function (k) {
-                        safe[k] = SENSITIVE_KEY_RE.test(k) ? '***' : parsed[k];
-                    });
-                    return JSON.stringify(safe);
-                }
-            } catch (e) { /* not JSON */ }
-            return String(body).substring(0, 200);
-        }
-
-        var origFetch = window.fetch;
-        window.fetch = function (resource, init) {
-            var urlStr = typeof resource === 'string' ? resource
-                : (resource && resource.url) ? resource.url : String(resource);
-            if (AUTH_URL_RE.test(urlStr)) {
-                console.log('[GaleFling] OF auth fetch url=' + urlStr
-                    + ' body=' + sanitiseBody(init && init.body));
-            }
-            return origFetch.apply(this, arguments);
-        };
-
-        var origXhrOpen = XMLHttpRequest.prototype.open;
-        var origXhrSend = XMLHttpRequest.prototype.send;
-        XMLHttpRequest.prototype.open = function (method, url) {
-            this._gl_url = url;
-            return origXhrOpen.apply(this, arguments);
-        };
-        XMLHttpRequest.prototype.send = function (body) {
-            if (this._gl_url && AUTH_URL_RE.test(this._gl_url)) {
-                console.log('[GaleFling] OF auth XHR url=' + this._gl_url
-                    + ' body=' + sanitiseBody(body));
-            }
-            return origXhrSend.apply(this, arguments);
-        };
-    }
-
     function syncVisual(input) {
         // Sync the visual fill colour after Vue has had a chance to re-render.
         // We read input.checked in a Promise tick so we see Vue's accepted state,

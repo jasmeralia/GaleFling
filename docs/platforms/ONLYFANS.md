@@ -10,7 +10,21 @@ Any OnlyFans creator account works. GaleFling supports **1 OnlyFans account**.
 
 OnlyFans uses session cookies stored in a persistent WebView profile. There are no API keys to enter.
 
-### Step 1: Log In via GaleFling
+### Recommended: Import a session from your browser
+
+Logging in inside GaleFling's embedded browser no longer works reliably. OnlyFans gates its
+login form with reCAPTCHA Enterprise, which rejects the embedded Qt WebEngine browser
+regardless of credentials. Instead, log in with a normal browser, export the session, and
+import it.
+
+See **[ONLYFANS_SESSION_IMPORT.md](ONLYFANS_SESSION_IMPORT.md)** for the full procedure.
+
+Once imported, posting works exactly as before — OnlyFans' own site composes and publishes
+the post inside GaleFling.
+
+### Legacy: Log In via GaleFling
+
+This path remains available but is expected to fail at the captcha step:
 
 1. Open GaleFling and go to **Settings > Accounts > OnlyFans**.
 2. Click **Log In**. An embedded browser opens `onlyfans.com`.
@@ -27,24 +41,27 @@ OnlyFans renders its 2FA "remember me" checkbox using Vue.js custom components t
 
 OnlyFans sessions expire periodically. Unlike most platforms, OnlyFans does **not redirect to a login URL** when the session expires — it renders an inline login form at the same URL. GaleFling detects this by checking the DOM for login form selectors (`.b-loginreg__form`, `input[type="password"]`).
 
-When your session expires, GaleFling will show a "session expired" warning. Repeat Step 1 to re-establish the session.
+When your session expires, GaleFling will show a "session expired" warning. Export a fresh
+`auth.json` from your browser and re-import it to re-establish the session.
 
 ## Media Restrictions
+
+The maximum file sizes below are GaleFling-imposed limits, not values published by OnlyFans.
 
 ### Images
 
 | Constraint | Limit |
 |---|---|
-| Formats | JPEG, PNG, WEBP |
-| Max dimensions | 4096 × 4096 px |
+| Formats | JPEG, PNG, GIF |
+| Max dimensions | 10000 × 10000 px |
 | Max file size | 50 MB |
-| Max attachments | 4 images per post |
+| Max attachments | 40 images per post |
 
 ### Videos
 
 | Constraint | Limit |
 |---|---|
-| Formats | MP4, MOV |
+| Formats | MP4, MOV, M4V, MPEG, WMV, AVI, WEBM, MKV |
 | Max dimensions | 3840 × 2160 px (4K) |
 | Max file size | 5120 MB (5 GB) |
 | Max duration | Not enforced by GaleFling |

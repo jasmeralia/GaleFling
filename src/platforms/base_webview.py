@@ -1,5 +1,8 @@
 """Abstract base class for WebView-based social media platforms."""
 
+# WebEngine process flags must be set before importing Qt WebEngine modules.
+# ruff: noqa: E402
+
 import contextlib
 import json
 import logging
@@ -8,7 +11,21 @@ import sqlite3
 import time
 from pathlib import Path
 
-from PyQt6.QtCore import QEventLoop, QTimer, QUrl
+from src.core.webview_environment import (
+    disable_conditional_passkey_ui,
+)
+from src.core.webview_session_import import (
+    ImportedSession,
+    effective_user_agent,
+    save_session_metadata,
+)
+
+# Platform classes are also imported directly by tests and support tooling that
+# bypass the application entry point. Keep the process-wide policy consistent.
+disable_conditional_passkey_ui()
+
+from PyQt6.QtCore import QDateTime, QEventLoop, QTimer, QUrl
+from PyQt6.QtNetwork import QNetworkCookie
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication, QWidget
@@ -125,6 +142,7 @@ class BaseWebViewPlatform(BasePlatform):
         key = account_id or 'default'
         if key not in cls._profile_registry:
             profile = QWebEngineProfile(storage_path.name, None)
+            profile.setHttpUserAgent(effective_user_agent(storage_path, profile.httpUserAgent()))
             profile.setPersistentStoragePath(str(storage_path))
             profile.setPersistentCookiesPolicy(
                 QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
@@ -140,6 +158,83 @@ class BaseWebViewPlatform(BasePlatform):
         Session Cookies) so the next login window starts with a fresh context.
         """
         cls._profile_registry.pop(account_id or 'default', None)
+
+    def import_session(self, session: ImportedSession) -> tuple[bool, str | None]:
+        """Import a browser-exported session into this account's WebEngine profile."""
+        storage_path = self._get_profile_storage_path()
+        try:
+            save_session_metadata(storage_path, session)
+        except OSError:
+            return (
+                False,
+                'GaleFling could not save the imported session. '
+                'Check that the application data folder is writable and try again.',
+            )
+
+        if not self.COOKIE_DOMAINS:
+            return False, 'This platform does not support session import.'
+
+        key = self._account_id or 'default'
+        if key in self._profile_registry:
+            self._evict_profile(self._account_id)
+            self._profile = None
+
+        profile = self._get_or_create_profile(self._account_id, storage_path)
+        self._profile = profile
+        profile.setHttpUserAgent(session.user_agent)
+
+        expiration = QDateTime.currentDateTimeUtc().addDays(365)
+        base_domain = self.COOKIE_DOMAINS[0].lstrip('.')
+        domain = f'.{base_domain}'
+        # Derive the origin from the platform rather than hard-coding one, so
+        # this base-class helper stays correct for every WebView platform.
+        origin = QUrl(f'https://{base_domain}/')
+        cookie_store = profile.cookieStore()
+        if cookie_store is None:
+            return (
+                False,
+                'GaleFling could not access the browser cookie store. '
+                'Restart GaleFling and try the import again.',
+            )
+        for name, value in session.cookies.items():
+            cookie = QNetworkCookie(name.encode('utf-8'), value.encode('utf-8'))
+            cookie.setDomain(domain)
+            cookie.setPath('/')
+            cookie.setSecure(True)
+            cookie.setHttpOnly(True)
+            cookie.setExpirationDate(expiration)
+            cookie_store.setCookie(cookie, origin)
+
+        imported = False
+        loop = QEventLoop()
+        poll_timer = QTimer()
+        poll_timer.setInterval(100)
+        timeout = QTimer()
+        timeout.setSingleShot(True)
+
+        def _check_session() -> None:
+            nonlocal imported
+            if self.has_valid_session():
+                imported = True
+                loop.quit()
+
+        poll_timer.timeout.connect(_check_session)
+        timeout.timeout.connect(loop.quit)
+        poll_timer.start()
+        timeout.start(5000)
+        _check_session()
+        if not imported:
+            loop.exec()
+        poll_timer.stop()
+        timeout.stop()
+
+        if imported:
+            return True, None
+        return (
+            False,
+            'GaleFling could not verify the imported session. '
+            'The export may be stale; log in again and export a fresh auth.json file.',
+        )
 
     def create_webview(self, parent: QWidget | None = None) -> QWebEngineView:
         """Create a QWebEngineView backed by the shared persistent profile."""

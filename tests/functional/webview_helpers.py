@@ -9,10 +9,13 @@ import contextlib
 import json
 from pathlib import Path
 
-from PyQt6.QtCore import QEventLoop, QTimer, QUrl
+from PyQt6.QtCore import QEventLoop, Qt, QTimer, QUrl
+from PyQt6.QtTest import QTest
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication
+
+from src.core.webview_environment import chrome_compatible_user_agent
 
 
 def get_or_create_app():
@@ -107,6 +110,7 @@ def create_webview(data_dir: Path, account_id: str):
     # QWebEngineProfile).  A different name creates a fresh Chromium context with
     # no Cloudflare session state, causing re-challenges on protected sites.
     profile = QWebEngineProfile(account_id, None)
+    profile.setHttpUserAgent(chrome_compatible_user_agent(profile.httpUserAgent()))
     profile.setPersistentStoragePath(str(storage))
     profile.setPersistentCookiesPolicy(
         QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
@@ -134,6 +138,46 @@ def close_webview(view: QWebEngineView, page: QWebEnginePage, profile: QWebEngin
 def has_cookie_db(data_dir: Path, account_id: str) -> bool:
     """Check whether a cookie database exists for the given account."""
     return (data_dir / 'webprofiles' / account_id / 'Cookies').exists()
+
+
+def type_into_web_input(page: QWebEnginePage, selector: str, value: str) -> bool:
+    """Type into a WebView field using trusted Qt keyboard events.
+
+    Current reactive login forms can reject values assigned by JavaScript. The
+    credential value intentionally never crosses the JavaScript boundary.
+    """
+    focused = run_js(
+        page,
+        f"""
+        (function() {{
+            var input = document.querySelector({json.dumps(selector)});
+            if (!input) return false;
+            input.focus();
+            input.select();
+            return true;
+        }})();
+        """,
+    )
+    if not focused:
+        return False
+
+    wait_ms(200)
+    target = QApplication.focusWidget()
+    if target is None:
+        return False
+    QTest.keyClick(target, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+    QTest.keyClick(target, Qt.Key.Key_Backspace)
+    QTest.keyClicks(target, value, delay=5)
+    return True
+
+
+def submit_focused_web_form() -> bool:
+    """Submit the focused WebView form using a trusted Return key event."""
+    target = QApplication.focusWidget()
+    if target is None:
+        return False
+    QTest.keyClick(target, Qt.Key.Key_Return)
+    return True
 
 
 # ── Per-platform login helpers ───────────────────────────────────────
@@ -335,7 +379,10 @@ def login_onlyfans(
         """
         (function() {
             var form = document.querySelector('.b-loginreg__form, .b-login-wrapper');
-            var emailInput = document.querySelector('input[type="email"]');
+            var emailInput = document.querySelector(
+                'input[name="email"], input[autocomplete*="username"], '
+                + 'input[type="email"]'
+            );
             var passwordInput = document.querySelector('input[type="password"]');
             return {
                 hasForm: !!(form || emailInput),
@@ -349,40 +396,45 @@ def login_onlyfans(
         # No login form detected — session appears active
         return True
 
-    # Fill email and password
-    result = run_js(
-        page,
-        f"""
-        (function() {{
-            var emailInput = document.querySelector(
-                '.b-loginreg__form input[type="email"], '
-                + 'input[name="email"], input[type="email"]'
-            );
-            var passwordInput = document.querySelector(
-                '.b-loginreg__form input[type="password"], '
-                + 'input[name="password"], input[type="password"]'
-            );
-            if (!emailInput || !passwordInput) return {{found: false}};
-            emailInput.focus();
-            document.execCommand('insertText', false, {json.dumps(email)});
-            emailInput.dispatchEvent(new Event('input', {{bubbles: true}}));
-            passwordInput.focus();
-            document.execCommand('insertText', false, {json.dumps(password)});
-            passwordInput.dispatchEvent(new Event('input', {{bubbles: true}}));
-            var submitBtn = document.querySelector(
-                '.b-loginreg__form button[type="submit"], '
-                + '.b-loginreg__submit, button[type="submit"]'
-            );
-            if (submitBtn) submitBtn.click();
-            return {{found: true}};
-        }})();
-        """,
+    # OnlyFans ignores synthetic input events. Use trusted keyboard events and
+    # keep credentials out of the JavaScript execution boundary.
+    email_selector = (
+        '.b-loginreg__form input[name="email"], input[name="email"], '
+        'input[autocomplete*="username"], input[type="email"]'
     )
-    if not isinstance(result, dict) or not result.get('found'):
+    password_selector = (
+        '.b-loginreg__form input[type="password"], input[name="password"], input[type="password"]'
+    )
+    if not type_into_web_input(page, email_selector, email):
+        return False
+    if not type_into_web_input(page, password_selector, password):
+        return False
+    if not submit_focused_web_form():
         return False
 
-    # Wait for credential submission to process
-    wait_ms(8000)
+    # Wait for credential submission to reach either 2FA or the signed-in page.
+    for _ in range(20):
+        login_state = run_js(
+            page,
+            """
+            (function() {
+                return {
+                    hasPassword: !!document.querySelector('input[type="password"]'),
+                    hasCode: !!document.querySelector(
+                        'input[name="code"], input[autocomplete="one-time-code"], '
+                        + 'input[type="text"][maxlength="6"], '
+                        + '.b-2fa input[type="text"], .b-2fa input[type="number"], '
+                        + 'input[placeholder*="code" i], input[placeholder*="2fa" i]'
+                    )
+                };
+            })();
+            """,
+        )
+        if isinstance(login_state, dict) and (
+            login_state.get('hasCode') or not login_state.get('hasPassword')
+        ):
+            break
+        wait_ms(1000)
 
     # Check for TOTP / 2FA prompt
     totp_check = run_js(
@@ -434,31 +486,27 @@ def login_onlyfans(
             """,
         )
 
-        totp_result = run_js(
-            page,
-            f"""
-            (function() {{
-                var codeInput = document.querySelector(
-                    'input[name="code"], input[autocomplete="one-time-code"], '
-                    + 'input[type="text"][maxlength="6"], '
-                    + '.b-2fa input[type="text"], .b-2fa input[type="number"], '
-                    + 'input[placeholder*="code" i], input[placeholder*="2fa" i]'
-                );
-                if (!codeInput) return {{found: false}};
-                codeInput.focus();
-                document.execCommand('insertText', false, {json.dumps(code)});
-                codeInput.dispatchEvent(new Event('input', {{bubbles: true}}));
-                var submitBtn = document.querySelector(
-                    '.b-2fa button[type="submit"], button[type="submit"]'
-                );
-                if (submitBtn) submitBtn.click();
-                return {{found: true}};
-            }})();
-            """,
+        code_selector = (
+            'input[name="code"], input[autocomplete="one-time-code"], '
+            'input[type="text"][maxlength="6"], '
+            '.b-2fa input[type="text"], .b-2fa input[type="number"], '
+            'input[placeholder*="code" i], input[placeholder*="2fa" i]'
         )
-        if not isinstance(totp_result, dict) or not totp_result.get('found'):
+        if not type_into_web_input(page, code_selector, code):
             return False
-        wait_ms(5000)
+        if not submit_focused_web_form():
+            return False
+        for _ in range(20):
+            still_logging_in = run_js(
+                page,
+                """!!document.querySelector(
+                    '.b-loginreg__form, .b-login-wrapper, input[type="password"], '
+                    + 'input[name="code"], input[autocomplete="one-time-code"]'
+                )""",
+            )
+            if not still_logging_in:
+                break
+            wait_ms(1000)
 
     # Confirm no login form remains
     final_check = run_js(

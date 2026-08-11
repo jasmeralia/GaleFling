@@ -131,6 +131,17 @@ class DummyProfile:
         self.storage_path = ''
         self.policy = None
         self.deleted = False
+        # Mirrors Qt's default, which carries the QtWebEngine product token.
+        self.user_agent = (
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) '
+            'QtWebEngine/6.11.1 Chrome/140.0.0.0 Safari/537.36'
+        )
+
+    def httpUserAgent(self):  # noqa: N802
+        return self.user_agent
+
+    def setHttpUserAgent(self, value):  # noqa: N802
+        self.user_agent = value
 
     def setPersistentStoragePath(self, value):  # noqa: N802
         self.storage_path = value
@@ -556,6 +567,10 @@ def test_base_webview_create_webview_and_navigation_signals(monkeypatch, tmp_pat
     assert platform.get_webview() is view
     assert platform._profile is not None
     assert Path(platform._profile.storage_path).parts[-2:] == ('webprofiles', 'acct1')
+    # With no imported session, the profile falls back to the normalized user
+    # agent: the QtWebEngine product token is stripped, Chrome's is preserved.
+    assert 'QtWebEngine/' not in platform._profile.user_agent
+    assert 'Chrome/140.0.0.0' in platform._profile.user_agent
 
     page.loadStarted.emit()
     page.loadProgress.emit(50)

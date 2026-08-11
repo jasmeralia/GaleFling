@@ -594,6 +594,15 @@ class SettingsDialog(QDialog):
             )
             actions.addWidget(open_login_btn)
 
+            if platform_id == 'onlyfans':
+                import_session_btn = QPushButton('Import Session from auth.json...')
+                import_session_btn.clicked.connect(
+                    lambda _=False, pid=platform_id, aid=account_id: self._import_webview_session(
+                        pid, aid
+                    )
+                )
+                actions.addWidget(import_session_btn)
+
             reset_session_btn = QPushButton('Reset Session Cookies')
             reset_session_btn.clicked.connect(
                 lambda _=False, pid=platform_id, aid=account_id: self._reset_webview_session(
@@ -1326,6 +1335,56 @@ class SettingsDialog(QDialog):
         # Keep platform alive so its QWebEngineProfile is not GC'd before
         # Chromium's background cookie writer flushes the session to disk.
         self._pending_login_platform = platform
+
+    def _import_webview_session(self, platform_id: str, account_id: str):
+        specs = PLATFORM_SPECS_MAP.get(platform_id)
+        if specs is None:
+            QMessageBox.warning(self, 'Unsupported Platform', 'This platform is not supported.')
+            return
+        platform = self._create_webview_platform(platform_id, account_id)
+        if platform is None:
+            QMessageBox.warning(self, 'Unsupported Platform', 'This platform is not supported.')
+            return
+
+        get_logger().info(
+            'User selected Settings > OnlyFans > Import Session from auth.json',
+            extra={'platform_id': platform_id, 'account_id': account_id},
+        )
+        path_str, _ = QFileDialog.getOpenFileName(
+            self,
+            'Import OnlyFans Session',
+            '',
+            'JSON Files (*.json);;All Files (*)',
+        )
+        if not path_str:
+            return
+
+        from src.core.webview_session_import import SessionImportError, load_auth_json_file
+
+        try:
+            session = load_auth_json_file(Path(path_str))
+        except SessionImportError as exc:
+            QMessageBox.warning(self, 'Import Failed', str(exc))
+            return
+
+        ok, error = platform.import_session(session)
+        if ok:
+            QMessageBox.information(
+                self,
+                'Session Imported',
+                'The OnlyFans session was imported and verified successfully.',
+            )
+            return
+
+        QMessageBox.warning(
+            self,
+            'Session Verification Failed',
+            error
+            or (
+                'The imported session could not be verified. The export may be stale; '
+                'log in again and export a fresh auth.json file.'
+            ),
+        )
 
     def _reset_webview_session(self, platform_id: str, account_id: str):
         specs = PLATFORM_SPECS_MAP.get(platform_id)

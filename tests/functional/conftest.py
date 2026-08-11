@@ -163,6 +163,10 @@ def pytest_configure(config):
     global _qapp
     load_dotenv(ENV_PATH)
 
+    from src.core.webview_environment import disable_conditional_passkey_ui
+
+    disable_conditional_passkey_ui()
+
     # Only initialise WebEngine / Chromium when functional tests are actually
     # being collected.  Unit tests must not depend on GPU availability.
     if not _is_collecting_functional_tests(config):

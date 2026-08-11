@@ -175,7 +175,7 @@ _FACEBOOK_SCOPES = (
 )
 
 _AUTH_URLS: dict[str, str] = {
-    'meta_threads': 'https://api.instagram.com/oauth/authorize',
+    'meta_threads': 'https://threads.net/oauth/authorize',
     'meta_instagram': 'https://www.instagram.com/oauth/authorize',
     'meta_facebook_page': 'https://www.facebook.com/dialog/oauth',
 }
@@ -185,7 +185,7 @@ _SCOPES: dict[str, str] = {
     'meta_facebook_page': _FACEBOOK_SCOPES,
 }
 _TOKEN_ENDPOINTS: dict[str, str] = {
-    'meta_threads': 'https://api.instagram.com/oauth/access_token',
+    'meta_threads': 'https://graph.threads.net/oauth/access_token',
     'meta_instagram': 'https://api.instagram.com/oauth/access_token',
     'meta_facebook_page': f'https://graph.facebook.com/{_FB_GRAPH_VERSION}/oauth/access_token',
 }

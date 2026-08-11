@@ -178,7 +178,7 @@ def test_build_auth_url_threads():
     flow = MetaOAuthFlow('meta_threads', 'THREADS_APP_ID', 'secret')
     url = flow.build_auth_url('http://localhost:8765/oauth/callback', 'my_state')
     parsed, params = _parse_url(url)
-    assert parsed.netloc == 'api.instagram.com'
+    assert parsed.netloc == 'threads.net'
     assert params['client_id'] == 'THREADS_APP_ID'
     assert params['state'] == 'my_state'
     assert 'threads_basic' in params['scope']
@@ -239,7 +239,7 @@ def test_exchange_code_threads(mock_post):
     result = flow.exchange_code('THE_CODE', 'http://localhost:8765/oauth/callback')
     assert result['access_token'] == 'SHORT_TOKEN'
     call_kwargs = mock_post.call_args
-    assert call_kwargs[0][0] == 'https://api.instagram.com/oauth/access_token'
+    assert call_kwargs[0][0] == 'https://graph.threads.net/oauth/access_token'
     assert call_kwargs[1]['data']['code'] == 'THE_CODE'
     assert call_kwargs[1]['data']['client_id'] == 'APP_ID'
 

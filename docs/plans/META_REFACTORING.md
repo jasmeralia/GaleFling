@@ -89,7 +89,8 @@ configuration, lifecycle policy, and CloudFormation stack details.
 **App:** GaleFling Threads
 **API:** Threads API
 **Base URL:** `https://graph.threads.net/v1.0/`
-**Auth path:** Threads OAuth (via `api.instagram.com/oauth/authorize` with Threads scopes)
+**Auth path:** Threads OAuth (via `threads.net/oauth/authorize` with Threads scopes; code is
+exchanged at `graph.threads.net/oauth/access_token`)
 
 Relevant capabilities:
 - text posts (500 character limit)

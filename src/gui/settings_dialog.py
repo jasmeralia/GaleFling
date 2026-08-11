@@ -34,6 +34,7 @@ from src.core.config_manager import ConfigManager
 from src.core.credential_importer import ImportResult, import_credentials
 from src.core.logger import get_logger
 from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
+from src.platforms.meta_instagram import MetaInstagramPlatform
 from src.platforms.meta_threads import MetaThreadsPlatform
 from src.platforms.twitter import TwitterPlatform
 from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
@@ -316,6 +317,13 @@ class SettingsDialog(QDialog):
         self._meta_tab_widget = widget
         layout = QVBoxLayout(widget)
 
+        # Per-provider sections; populated by _refresh_meta_status
+        self._meta_provider_groups: dict[str, QGroupBox] = {}
+        for provider, display_name, _max, _ids in self._META_PROVIDERS:
+            group = QGroupBox(display_name)
+            layout.addWidget(group)
+            self._meta_provider_groups[provider] = group
+
         # App credentials — editable per provider without re-importing all platforms
         app_creds_group = QGroupBox('App Credentials')
         app_creds_layout = QVBoxLayout(app_creds_group)
@@ -355,13 +363,6 @@ class SettingsDialog(QDialog):
             }
             app_creds_layout.addWidget(section)
         layout.addWidget(app_creds_group)
-
-        # Per-provider sections; populated by _refresh_meta_status
-        self._meta_provider_groups: dict[str, QGroupBox] = {}
-        for provider, display_name, _max, _ids in self._META_PROVIDERS:
-            group = QGroupBox(display_name)
-            layout.addWidget(group)
-            self._meta_provider_groups[provider] = group
 
         # OAuth relay URI setting
         relay_group = QGroupBox('OAuth Relay')
@@ -445,49 +446,84 @@ class SettingsDialog(QDialog):
             cred_status = (
                 'App credentials: configured'
                 if has_app_creds
-                else 'App credentials: not configured — enter above or import via Settings → Advanced'
+                else 'App credentials: not configured — enter below or import via Settings → Advanced'
             )
             cred_label = QLabel(f'<i>{cred_status}</i>')
             group_layout.addWidget(cred_label)
 
             connected_accounts = self._auth_manager.get_accounts_for_platform(provider)
 
-            for account in connected_accounts:
+            if connected_accounts:
+                for account in connected_accounts:
+                    row_widget = QWidget()
+                    row = QHBoxLayout(row_widget)
+                    row.setContentsMargins(0, 0, 0, 0)
+                    creds = self._auth_manager.get_account_credentials(account.account_id)
+                    name = account.profile_name or account.account_id
+                    expires_note = ''
+                    if creds:
+                        expires_at = creds.get('expires_at') or creds.get('user_token_expires_at')
+                        if expires_at:
+                            expires_note = f' — expires {expires_at[:10]}'
+                    account_label = name
+                    if _max_accounts > 1:
+                        try:
+                            slot_num = candidate_ids.index(account.account_id) + 1
+                            account_label = f'Account {slot_num}: {name}'
+                        except ValueError:
+                            pass
+                    row.addWidget(QLabel(f'{account_label}{expires_note}'))
+                    row.addStretch()
+                    test_btn = QPushButton('Test Connection')
+                    test_btn.clicked.connect(
+                        lambda checked, aid=account.account_id, p=provider: (
+                            self._test_meta_account_connection(aid, p)
+                        )
+                    )
+                    row.addWidget(test_btn)
+                    disconnect_btn = QPushButton('Disconnect')
+                    disconnect_btn.setProperty('account_id', account.account_id)
+                    disconnect_btn.clicked.connect(
+                        lambda checked, aid=account.account_id: self._disconnect_meta_account(aid)
+                    )
+                    row.addWidget(disconnect_btn)
+                    group_layout.addWidget(row_widget)
+            else:
                 row_widget = QWidget()
                 row = QHBoxLayout(row_widget)
                 row.setContentsMargins(0, 0, 0, 0)
-                creds = self._auth_manager.get_account_credentials(account.account_id)
-                name = account.profile_name or account.account_id
-                expires_note = ''
-                if creds:
-                    expires_at = creds.get('expires_at') or creds.get('user_token_expires_at')
-                    if expires_at:
-                        expires_note = f' — expires {expires_at[:10]}'
-                row.addWidget(QLabel(f'{name}{expires_note}'))
+                row.addWidget(QLabel('<i>No accounts connected.</i>'))
                 row.addStretch()
                 test_btn = QPushButton('Test Connection')
-                test_btn.clicked.connect(
-                    lambda checked, aid=account.account_id, p=provider: (
-                        self._test_meta_account_connection(aid, p)
-                    )
-                )
+                test_btn.setEnabled(False)
                 row.addWidget(test_btn)
                 disconnect_btn = QPushButton('Disconnect')
-                disconnect_btn.setProperty('account_id', account.account_id)
-                disconnect_btn.clicked.connect(
-                    lambda checked, aid=account.account_id: self._disconnect_meta_account(aid)
-                )
+                disconnect_btn.setEnabled(False)
                 row.addWidget(disconnect_btn)
                 group_layout.addWidget(row_widget)
 
-            if not connected_accounts:
-                group_layout.addWidget(QLabel('<i>No accounts connected.</i>'))
-
-            # Connect button — pick first unused candidate ID
+            # Connect button — enabled while an account slot remains
             used_ids = {a.account_id for a in connected_accounts}
             next_id = next((cid for cid in candidate_ids if cid not in used_ids), None)
             can_connect = has_app_creds and next_id is not None
-            connect_btn = QPushButton(f'Connect {display_name} Account')
+            if _max_accounts > 1:
+                if connected_accounts and can_connect:
+                    slots_hint = QLabel(
+                        f'<i>{len(connected_accounts)} of {_max_accounts} accounts connected. '
+                        f'You can connect one more.</i>'
+                    )
+                elif connected_accounts:
+                    slots_hint = QLabel(f'<i>Maximum of {_max_accounts} accounts connected.</i>')
+                else:
+                    slots_hint = QLabel(f'<i>Up to {_max_accounts} accounts can be connected.</i>')
+                slots_hint.setWordWrap(True)
+                group_layout.addWidget(slots_hint)
+
+            if connected_accounts and _max_accounts > 1:
+                connect_label = f'Connect Another {display_name} Account'
+            else:
+                connect_label = f'Connect {display_name} Account'
+            connect_btn = QPushButton(connect_label)
             connect_btn.setEnabled(can_connect)
             connect_btn.clicked.connect(
                 lambda checked, p=provider, aid=next_id, gcf=get_app_cred_fns[provider]: (
@@ -516,9 +552,13 @@ class SettingsDialog(QDialog):
         get_logger().info(f'User selected Settings > Meta > Test Connection {account_id}')
         account = self._auth_manager.get_account(account_id)
         profile_name = account.profile_name if account else ''
-        platform: MetaThreadsPlatform | MetaFacebookPagePlatform
+        platform: MetaThreadsPlatform | MetaInstagramPlatform | MetaFacebookPagePlatform
         if provider_id == 'meta_threads':
             platform = MetaThreadsPlatform(
+                self._auth_manager, account_id=account_id, profile_name=profile_name
+            )
+        elif provider_id == 'meta_instagram':
+            platform = MetaInstagramPlatform(
                 self._auth_manager, account_id=account_id, profile_name=profile_name
             )
         elif provider_id == 'meta_facebook_page':

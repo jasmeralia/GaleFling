@@ -571,6 +571,102 @@ def test_settings_dialog_meta_app_credentials_clear_one_provider(qtbot, tmp_path
     assert dialog._meta_app_credential_edits['meta_instagram']['app_secret'].text() == ''
 
 
+def test_settings_dialog_meta_connect_allows_second_account_with_clear_ux(
+    qtbot, tmp_path, monkeypatch
+):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    auth.save_meta_threads_app_credentials('th_id', 'th_secret')
+    auth.add_account(
+        AccountConfig(
+            platform_id='meta_threads',
+            account_id='meta_threads_1',
+            profile_name='Primary',
+        )
+    )
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    from PyQt6.QtWidgets import QLabel, QPushButton
+
+    group = dialog._meta_provider_groups['meta_threads']
+    connect_btns = [
+        btn for btn in group.findChildren(QPushButton) if btn.text().startswith('Connect')
+    ]
+    assert len(connect_btns) == 1
+    assert connect_btns[0].text() == 'Connect Another Threads Account'
+    assert connect_btns[0].isEnabled()
+
+    hint_texts = [label.text() for label in group.findChildren(QLabel)]
+    assert any('1 of 2 accounts connected' in text for text in hint_texts)
+    assert any('Account 1: Primary' in text for text in hint_texts)
+
+
+def test_settings_dialog_meta_connect_disabled_when_single_account_slot_full(
+    qtbot, tmp_path, monkeypatch
+):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    auth.save_meta_facebook_app_credentials('fb_id', 'fb_secret')
+    auth.add_account(
+        AccountConfig(
+            platform_id='meta_facebook_page',
+            account_id='meta_facebook_page_1',
+            profile_name='Page Owner',
+        )
+    )
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    from PyQt6.QtWidgets import QPushButton
+
+    group = dialog._meta_provider_groups['meta_facebook_page']
+    connect_btns = [
+        btn for btn in group.findChildren(QPushButton) if btn.text().startswith('Connect')
+    ]
+    assert len(connect_btns) == 1
+    assert connect_btns[0].text() == 'Connect Facebook Page Account'
+    assert not connect_btns[0].isEnabled()
+
+
+def test_settings_dialog_meta_instagram_test_connection(qtbot, tmp_path, monkeypatch):
+    from unittest.mock import patch
+
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    auth.save_account_credentials(
+        'meta_instagram_1',
+        {'access_token': 'tok', 'user_id': '123', 'provider': 'meta_instagram'},
+    )
+    auth.add_account(
+        AccountConfig(
+            platform_id='meta_instagram',
+            account_id='meta_instagram_1',
+            profile_name='iguser',
+        )
+    )
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    messages: list[tuple] = []
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.QMessageBox.information',
+        lambda *args, **_kwargs: messages.append(args),
+    )
+
+    with patch('src.platforms.meta_instagram.requests.get') as mock_get:
+        mock_response = mock_get.return_value
+        mock_response.status_code = 200
+        mock_response.json.return_value = {'username': 'iguser'}
+        dialog._test_meta_account_connection('meta_instagram_1', 'meta_instagram')
+
+    assert messages
+    assert messages[0][1] == 'Connection OK'
+
+
 def test_settings_dialog_reset_webview_session_cookies(qtbot, tmp_path, monkeypatch):
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)

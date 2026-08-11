@@ -53,6 +53,7 @@ def _delete_post(access_token: str, post_id: str) -> None:
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestMetaThreadsConnection:
     def test_authenticate(self, meta_threads_credentials):
         from src.platforms.meta_threads import MetaThreadsPlatform
@@ -90,6 +91,7 @@ class TestMetaThreadsConnection:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestMetaThreadsTextPost:
     def test_text_post(self, meta_threads_credentials):
         """Post a text-only thread and verify success."""
@@ -121,6 +123,7 @@ class TestMetaThreadsTextPost:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestMetaThreadsImagePost:
     """Single-image Threads posts via the Threads API + S3 staging."""
 
@@ -167,6 +170,7 @@ class TestMetaThreadsImagePost:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestMetaThreadsVideoPost:
     """Video Threads posts via the Threads API + S3 staging."""
 
@@ -193,6 +197,7 @@ class TestMetaThreadsVideoPost:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestMetaThreadsCarouselPost:
     """Multi-item carousel Threads posts via the Threads API + S3 staging."""
 

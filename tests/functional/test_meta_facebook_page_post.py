@@ -27,6 +27,7 @@ def _make_auth(creds: dict):
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestMetaFacebookPageConnection:
     def test_authenticate(self, meta_facebook_credentials):
         from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
@@ -58,6 +59,7 @@ class TestMetaFacebookPageConnection:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestMetaFacebookPageTextPost:
     def test_text_post(self, meta_facebook_credentials):
         """Post a text-only update to the Facebook Page and verify success."""
@@ -86,6 +88,7 @@ class TestMetaFacebookPageTextPost:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestMetaFacebookPagePhotoPost:
     def test_photo_post(self, meta_facebook_credentials, sample_jpeg):
         """Upload a single photo to the Facebook Page and verify success."""
@@ -118,6 +121,7 @@ class TestMetaFacebookPagePhotoPost:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestMetaFacebookPageVideoPost:
     def test_video_post(self, meta_facebook_credentials, sample_video):
         """Upload a video to the Facebook Page and verify success."""

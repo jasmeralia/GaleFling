@@ -74,7 +74,7 @@ jobs:
         run: make lint
 
       - name: Test with coverage
-        run: make test-cov
+        run: make test-ci
 
       - name: Upload coverage
         uses: codecov/codecov-action@v7

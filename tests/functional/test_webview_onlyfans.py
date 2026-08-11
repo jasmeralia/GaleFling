@@ -14,6 +14,7 @@ import uuid
 
 import pytest
 
+from tests.functional.conftest import fail_or_skip
 from tests.functional.webview_helpers import (
     create_webview,
     get_or_create_app,
@@ -30,8 +31,8 @@ def _ensure_session(page, credentials: dict) -> None:
     """Verify we have a valid OnlyFans session, logging in if needed.
 
     Loads the OnlyFans home page, checks for the inline login form, and
-    calls login_onlyfans if the session has expired. Calls pytest.skip if
-    login cannot be completed.
+    calls login_onlyfans if the session has expired. Reports a strict-mode
+    failure if login cannot be completed.
     """
     ok, final_url = load_page(page, 'https://onlyfans.com/', timeout_ms=20000)
     assert ok, f'Page load failed: {final_url}'
@@ -59,10 +60,11 @@ def _ensure_session(page, credentials: dict) -> None:
             credentials.get('totp_secret'),
         )
         if not success:
-            pytest.skip('OnlyFans login failed — check credentials or TOTP secret in .env')
+            fail_or_skip('OnlyFans login failed — check credentials or TOTP secret in .env')
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestOnlyFansComposer:
     """OnlyFans: verify page loads and attempt composer interaction."""
 
@@ -170,10 +172,11 @@ class TestOnlyFansComposer:
 
             if not result.get('composerFound'):
                 platform = os.environ.get('QT_QPA_PLATFORM', 'default')
-                pytest.skip(
+                fail_or_skip(
                     f'OnlyFans composer not found after click attempt '
                     f'(platform={platform}, '
-                    f'editables={result.get("editableCount", 0)}). '
+                    f'editables={result.get("editableCount", 0)}, '
+                    'selector=div[contenteditable="true"].b-make-post__text). '
                     'May require full browser rendering.'
                 )
 

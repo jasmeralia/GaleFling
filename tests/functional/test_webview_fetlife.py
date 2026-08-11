@@ -15,6 +15,7 @@ import uuid
 
 import pytest
 
+from tests.functional.conftest import fail_or_skip
 from tests.functional.webview_helpers import (
     create_webview,
     get_or_create_app,
@@ -32,26 +33,27 @@ def _ensure_session(page, credentials: dict) -> None:
 
     Navigates to the text composer page (which redirects to /login when the
     session is expired) and calls login_fetlife if authentication is required.
-    Calls pytest.skip if login cannot be completed.
+    Reports a strict-mode failure if login cannot be completed.
     """
     ok, final_url = load_page(page, 'https://fetlife.com/posts/new?source=Feed')
     if not ok:
-        pytest.skip(f'FetLife page load failed: {final_url}')
+        fail_or_skip(f'FetLife page load failed: {final_url}')
 
     if '/login' in final_url.lower():
         success = login_fetlife(page, credentials['email'], credentials['password'])
         if not success:
-            pytest.skip('FetLife login failed — check credentials in .env')
+            fail_or_skip('FetLife login failed — check credentials in .env')
         # After login, navigate back to the composer
         ok, final_url = load_page(page, 'https://fetlife.com/posts/new?source=Feed')
         if not ok or '/login' in final_url.lower():
-            pytest.skip('FetLife composer unreachable after login')
+            fail_or_skip('FetLife composer unreachable after login')
 
 
 @pytest.mark.functional
 class TestFetLifeTextPost:
     """FetLife text post: inject text, submit form, capture URL, delete."""
 
+    @pytest.mark.non_mutating
     def test_composer_loads(self, galefling_data_dir, fetlife_credentials):
         """Verify the text composer page loads in an authenticated state."""
         get_or_create_app()
@@ -65,6 +67,7 @@ class TestFetLifeTextPost:
             page.deleteLater()
             profile.deleteLater()
 
+    @pytest.mark.non_mutating
     def test_text_injection(self, galefling_data_dir, fetlife_credentials):
         """Verify text can be injected into the ProseMirror editor."""
         get_or_create_app()
@@ -94,6 +97,7 @@ class TestFetLifeTextPost:
             page.deleteLater()
             profile.deleteLater()
 
+    @pytest.mark.mutating
     def test_text_post_submit_and_delete(self, galefling_data_dir, fetlife_credentials):
         """Submit a text post, capture the URL, then attempt deletion."""
         get_or_create_app()
@@ -233,6 +237,7 @@ class TestFetLifeTextPost:
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestFetLifePictureComposer:
     """FetLife picture composer: verify page loads and elements are present."""
 
@@ -285,6 +290,7 @@ class TestFetLifePictureComposer:
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestFetLifeVideoComposer:
     """FetLife video composer: verify page loads and elements are present."""
 

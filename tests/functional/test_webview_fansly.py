@@ -11,6 +11,7 @@ import uuid
 
 import pytest
 
+from tests.functional.conftest import fail_or_skip
 from tests.functional.webview_helpers import (
     create_webview,
     get_or_create_app,
@@ -27,7 +28,7 @@ def _ensure_session(page, credentials: dict) -> None:
     """Verify we have a valid Fansly session, logging in if needed.
 
     Loads the Fansly home page and calls login_fansly if the session has
-    expired. Calls pytest.skip if login cannot be completed.
+    expired. Reports a strict-mode failure if login cannot be completed.
     """
     ok, final_url = load_page(page, 'https://fansly.com/', timeout_ms=20000)
     assert ok, f'Page load failed: {final_url}'
@@ -38,7 +39,7 @@ def _ensure_session(page, credentials: dict) -> None:
     if '/login' in final_url.lower():
         success = login_fansly(page, credentials['email'], credentials['password'])
         if not success:
-            pytest.skip('Fansly login failed — check credentials in .env')
+            fail_or_skip('Fansly login failed — check credentials in .env')
         return
 
     # Also check for login form that may appear without a URL redirect
@@ -53,10 +54,11 @@ def _ensure_session(page, credentials: dict) -> None:
     if login_check:
         success = login_fansly(page, credentials['email'], credentials['password'])
         if not success:
-            pytest.skip('Fansly login failed — check credentials in .env')
+            fail_or_skip('Fansly login failed — check credentials in .env')
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestFanslyTextInjection:
     """Fansly text injection: verify text can be entered into the composer."""
 

@@ -1,6 +1,7 @@
-"""Functional test configuration — credential loading and skip-if-missing fixtures."""
+"""Functional test configuration — credentials and strict failure reporting."""
 
 import os
+from functools import wraps
 
 import pytest
 from dotenv import load_dotenv
@@ -9,6 +10,117 @@ ENV_PATH = os.path.join(os.path.dirname(__file__), '.env')
 
 # Module-level reference to QApplication to prevent garbage collection.
 _qapp = None
+_STRICT_FUNCTIONAL = False
+
+
+def _strict_functional_enabled() -> bool:
+    """Return whether functional defects should fail instead of skip."""
+    return bool(os.environ.get('GALEFLING_STRICT_FUNCTIONAL'))
+
+
+@pytest.fixture(scope='session', autouse=True)
+def strict_functional() -> bool:
+    """Report whether this functional test session uses strict outcomes."""
+    global _STRICT_FUNCTIONAL
+    _STRICT_FUNCTIONAL = _strict_functional_enabled()
+    return _STRICT_FUNCTIONAL
+
+
+def fail_or_skip(reason: str) -> None:
+    """Fail in strict mode, retaining the legacy skip behavior otherwise."""
+    if _STRICT_FUNCTIONAL:
+        pytest.fail(reason, pytrace=False)
+    pytest.skip(reason)
+
+
+class _RendererCrashMonitor:
+    """Record renderer terminations from every WebEngine page seen by a test."""
+
+    def __init__(self) -> None:
+        self._page_ids: set[int] = set()
+        self.crashes: list[str] = []
+
+    def watch(self, page) -> None:
+        """Attach to a page once, if it exposes the renderer termination signal."""
+        page_id = id(page)
+        if page_id in self._page_ids:
+            return
+
+        signal = getattr(page, 'renderProcessTerminated', None)
+        if signal is None:
+            return
+
+        self._page_ids.add(page_id)
+
+        def on_terminated(status, exit_code, watched_page=page) -> None:
+            status_name = getattr(status, 'name', str(status))
+            try:
+                url = watched_page.url().toString()
+            except RuntimeError:
+                url = '<page deleted>'
+            self.crashes.append(
+                f'status={status_name}, exit_code={exit_code}, url={url or "<empty>"}'
+            )
+
+        signal.connect(on_terminated)
+
+    def fail_if_crashed(self) -> None:
+        """Fail the current test when a watched renderer terminated."""
+        if self.crashes:
+            pytest.fail(
+                'WebEngine renderer process terminated: ' + '; '.join(self.crashes),
+                pytrace=False,
+            )
+
+
+@pytest.fixture(autouse=True)
+def fail_on_renderer_crash(request, monkeypatch):
+    """Fail a functional test if any WebEngine renderer terminates during it."""
+    monitor = _RendererCrashMonitor()
+
+    # Existing WebView tests import create_webview directly, so wrap the alias in
+    # the test module and attach before the helper returns control to the test.
+    create_webview = getattr(request.module, 'create_webview', None)
+    if callable(create_webview):
+
+        @wraps(create_webview)
+        def monitored_create_webview(*args, **kwargs):
+            result = create_webview(*args, **kwargs)
+            if isinstance(result, tuple) and len(result) > 1:
+                monitor.watch(result[1])
+            return result
+
+        monkeypatch.setattr(request.module, 'create_webview', monitored_create_webview)
+
+    # Also discover pages created outside the shared helper. The timer runs as
+    # soon as a WebEngine test enters a Qt event loop.
+    timer = None
+    try:
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+        from PyQt6.QtWidgets import QApplication
+
+        def watch_open_views() -> None:
+            app = QApplication.instance()
+            if app is None:
+                return
+            for widget in app.allWidgets():
+                if isinstance(widget, QWebEngineView):
+                    monitor.watch(widget.page())
+
+        watch_open_views()
+        timer = QTimer()
+        timer.setInterval(50)
+        timer.timeout.connect(watch_open_views)
+        timer.start()
+    except ImportError:
+        pass
+
+    yield
+
+    if timer is not None:
+        timer.stop()
+    monitor.fail_if_crashed()
 
 
 def _has_display() -> bool:
@@ -83,6 +195,27 @@ def pytest_configure(config):
             _qapp = QApplication(['galefling_functional_tests'])
     except ImportError:
         pass
+
+
+def pytest_collection_modifyitems(items) -> None:
+    """Require every functional test to declare exactly one side-effect group."""
+    errors = []
+    for item in items:
+        if item.get_closest_marker('functional') is None:
+            continue
+        groups = [
+            name
+            for name in ('non_mutating', 'mutating')
+            if item.get_closest_marker(name) is not None
+        ]
+        if len(groups) != 1:
+            rendered = ', '.join(groups) if groups else 'none'
+            errors.append(f'{item.nodeid} ({rendered})')
+    if errors:
+        pytest.exit(
+            'Functional tests must have exactly one side-effect marker:\n' + '\n'.join(errors),
+            returncode=4,
+        )
 
 
 # ── Helper to create a small test image on disk ─────────────────────

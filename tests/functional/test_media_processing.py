@@ -25,6 +25,8 @@ from src.utils.constants import (
     TWITTER_SPECS,
 )
 
+pytestmark = pytest.mark.non_mutating
+
 # ── Image processing tests ───────────────────────────────────────────
 
 

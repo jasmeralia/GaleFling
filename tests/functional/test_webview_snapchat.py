@@ -12,6 +12,7 @@ import os
 
 import pytest
 
+from tests.functional.conftest import fail_or_skip
 from tests.functional.webview_helpers import (
     create_webview,
     get_or_create_app,
@@ -36,7 +37,7 @@ def _ensure_session(page, credentials: dict) -> None:
     """Verify we have a valid Snapchat session, logging in if needed.
 
     Loads web.snapchat.com and calls login_snapchat if the session has
-    expired.  Calls pytest.skip if login cannot be completed.
+    expired. Reports a strict-mode failure if login cannot be completed.
 
     Note: Snapchat now redirects web.snapchat.com → www.snapchat.com/web/;
     both are accepted as authenticated endpoints.
@@ -48,10 +49,11 @@ def _ensure_session(page, credentials: dict) -> None:
     if not _is_snapchat_web(final_url) and not _is_snapchat_web(page.url().toString()):
         success, reason = login_snapchat(page, credentials['username'], credentials['password'])
         if not success:
-            pytest.skip(f'Snapchat login failed — {reason}')
+            fail_or_skip(f'Snapchat login failed — {reason}')
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestSnapchatComposer:
     """Snapchat: verify page loads and video upload mechanism is accessible."""
 
@@ -65,7 +67,7 @@ class TestSnapchatComposer:
             result = run_js(page, 'document.title')
             if result is None:
                 platform = os.environ.get('QT_QPA_PLATFORM', 'default')
-                pytest.skip(
+                fail_or_skip(
                     f'Snapchat JS execution failed (platform={platform}). '
                     'Requires a real display with WebGL — try running with '
                     'DISPLAY=:0 or xvfb-run.'
@@ -74,7 +76,7 @@ class TestSnapchatComposer:
             if not _is_snapchat_web(current_url):
                 # Snapchat may redirect away from /web when WebGL is unavailable.
                 qt_platform = os.environ.get('QT_QPA_PLATFORM', 'default')
-                pytest.skip(
+                fail_or_skip(
                     f'Snapchat redirected away from web app (platform={qt_platform}, '
                     f'url={current_url}). Requires a real display with WebGL.'
                 )
@@ -92,7 +94,7 @@ class TestSnapchatComposer:
             # Verify JS execution works (requires real display with WebGL)
             title = run_js(page, 'document.title')
             if title is None:
-                pytest.skip('JS execution unavailable — needs real display with WebGL')
+                fail_or_skip('JS execution unavailable — needs real display with WebGL')
 
             # Wait for SPA to fully render
             wait_ms(3000)
@@ -132,7 +134,7 @@ class TestSnapchatComposer:
                 result.get('fileInputCount', 0) > 0 or result.get('uploadTriggerCount', 0) > 0
             )
             if not has_upload:
-                pytest.skip(
+                fail_or_skip(
                     f'Snapchat video upload mechanism not found in DOM '
                     f'(fileInputs={result.get("fileInputCount", 0)}, '
                     f'uploadTriggers={result.get("uploadTriggerCount", 0)}). '

@@ -7,6 +7,7 @@ from atproto import Client as BskyClient
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestBlueskyConnection:
     """Auth and connection tests — run first to fail fast on bad credentials."""
 
@@ -32,6 +33,7 @@ class TestBlueskyConnection:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestBlueskyTextPost:
     """Text-only posting and deletion."""
 
@@ -105,6 +107,7 @@ class TestBlueskyTextPost:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestBlueskyImagePost:
     """Image upload and posting."""
 
@@ -181,6 +184,7 @@ class TestBlueskyImagePost:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestBlueskyVideoPost:
     """Video upload and posting."""
 

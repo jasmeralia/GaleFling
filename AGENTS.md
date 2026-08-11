@@ -96,6 +96,12 @@ galefling/
   and `snapshot-vm.sh` for routine lifecycle operations. `stop-vm.sh` is graceful
   unless `--force` is explicitly supplied; snapshot reversion discards newer guest
   changes.
+- Run functional tests in the VM with `make test-functional-win-vm`
+  (`PYTEST_ARGS="..."` for a subset, `-clean` variant to revert first). Tests execute
+  from a `C:\GaleFling` copy that is re-synced each run, because pytest cannot scan the
+  VirtIO-FS share — the repository's `logs` symlink breaks its rootdir walk. Credentials
+  are read from the share via `GALEFLING_FUNCTIONAL_ENV` and must never be written to
+  the guest disk or captured in a snapshot.
 - The host repository is shared to Windows as `Z:` through VirtIO-FS. WinFsp is a
   guest dependency for that mount, not an application dependency.
 - The configured baseline snapshot defaults to `clean-loggedout` and must contain

@@ -1,7 +1,6 @@
 # WebView Functional Testing — Multi-Phase Plan
 
-**Status:** Phase 1 implemented; Phase 3 provisioning done, test dispatch outstanding;
-Phases 2, 4–7 not started
+**Status:** Phases 1 and 3 implemented; Phases 2, 4–7 not started
 **Created:** 2026-08-10
 **Owner:** Jas
 **Tracks:** GitHub issue #1 (WebView2 migration), `debug_state.md`
@@ -181,42 +180,48 @@ resource sizing live in a gitignored `vm.env`; only `vm.env.example` is tracked.
 baseline snapshot name defaults to `clean-loggedout` and must contain no authenticated
 platform sessions. See `tools/windows-vm/README.md`.
 
-### Next steps — automated test dispatch
+### Automated test dispatch — done
 
-The VM can be created, started and snapshotted; nothing yet *runs tests* in it. That is
-the remaining work, and it is the gate for the Windows half of Phase 6.
+`make test-functional-win-vm` runs the suite in the guest over SSH and exits with the
+guest's own pytest exit code; `make test-functional-win-vm-clean` reverts to the
+baseline snapshot first. Both accept `PYTEST_ARGS="..."` to run a single test or apply
+`-k`. The implementation is `tools/windows-vm/run-tests.sh`; the workflow is documented
+in `docs/testing/FUNCTIONAL_TESTING.md`.
 
-1. **`make test-functional-win-vm`.** Mirror the shape of the existing
-   `test-functional-cmd` PowerShell dispatch (`Makefile:93`); only the transport
-   changes, to SSH. Read connection details from `vm.env` — never hard-code a host, key
-   path or user. Start the VM if it is not already running, and surface the guest's
-   pytest exit code as the target's own so a guest failure fails the make target.
-2. **Run from `Z:`, not a copy.** The guest should execute the working tree over
-   VirtIO-FS so there is no sync step and no risk of testing a stale checkout. Confirm
-   pytest's cache and coverage writes behave over VirtIO-FS; if they do not, redirect
-   them to a guest-local path rather than copying the tree.
-3. **Snapshot hygiene per run.** Add an opt-in flag (e.g. `REVERT=1`) that reverts to
-   `clean-loggedout` before the run, so persistence tests start from identical state —
-   the capability that makes the VM worth having. Default to *not* reverting, since a
-   revert discards any session the developer logged in by hand.
-4. **Credentials in the guest.** `tests/functional/.env` must reach the guest without
-   being committed or copied into the snapshot. Prefer reading it over the `Z:` share at
-   run time so it lives only on the host. Never bake credentials into a snapshot — a
-   snapshot is a file that outlives the session and gets reverted to repeatedly.
-5. **Establish the credential-free baseline first.** `test_media_processing.py` needs no
-   credentials; make it pass in the guest before wiring anything that does. That
-   separates "the dispatch works" from "the credentials work."
-6. **Document the workflow** in `docs/testing/FUNCTIONAL_TESTING.md`, including how to
-   run a single test in the guest — the loop for actually debugging something.
+Three things were learned building it that are worth keeping:
+
+- **Pytest cannot run from the `Z:` share.** The repository's `logs` entry is an
+  absolute Linux symlink that Windows cannot represent through VirtIO-FS, and pytest's
+  rootdir scan dies on it with `WinError 123` before collecting anything —
+  `--ignore` does not help, because the scan precedes filtering, and running from a
+  subdirectory does not help either, because pytest still walks up to the rootdir. The
+  guest therefore runs from a `C:\GaleFling` copy, re-synced with `robocopy /MIR` on
+  every run so it is never stale. This is why the finalizer created that copy.
+- **Windows OpenSSH mangles a multi-line `-Command` payload** — it joins argv into a
+  single command line, and the result silently runs nothing while still exiting 0. That
+  failure is indistinguishable from a passing run. Use `-EncodedCommand` with base64
+  UTF-16LE.
+- **Credentials stay on the host.** The synced copy excludes `.env`; the run points
+  `GALEFLING_FUNCTIONAL_ENV` at the copy on the `Z:` share instead, so credentials are
+  never written to the guest disk where a later snapshot would preserve them.
 
 ### Acceptance criteria
 
-- `make test-functional-win-vm` runs the suite in the guest from a Linux shell, with
+- [x] `make test-functional-win-vm` runs the suite in the guest from a Linux shell, with
   no interactive steps and no window on the host desktop.
-- A failing guest test fails the make target on the host.
-- `virsh snapshot-revert` returns the guest to `clean-loggedout` in under 60 s.
-- `tests/functional/test_media_processing.py` (no credentials needed) passes in the guest.
-- No credential value is written into the VM image or any snapshot.
+- [x] A failing guest test fails the make target on the host (verified: guest exit 4 →
+  `make ... Error 4`).
+- [x] `tests/functional/test_media_processing.py` (no credentials needed) passes in the
+  guest — 27 passed.
+- [x] No credential value is written into the VM image or any snapshot.
+- [ ] `virsh snapshot-revert` returns the guest to `clean-loggedout` in under 60 s —
+  `--revert` is implemented but has not been timed against a real snapshot.
+
+### Remaining
+
+- Time a `--revert` run and confirm the 60 s target.
+- Run the credential-backed platform tests in the guest; only the credential-free
+  media-processing suite has been exercised so far.
 
 ### Non-goals
 

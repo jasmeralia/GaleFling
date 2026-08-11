@@ -6,7 +6,22 @@ from functools import wraps
 import pytest
 from dotenv import load_dotenv
 
-ENV_PATH = os.path.join(os.path.dirname(__file__), '.env')
+
+def _resolve_env_path() -> str:
+    """Return the credential file path, honouring an explicit override.
+
+    The Windows VM runs the suite from a copy of the repository because pytest
+    cannot scan the VirtIO-FS share, but credentials deliberately stay on the
+    host share rather than being written to the guest disk (where a snapshot
+    would preserve them).  The override lets the two live in different places.
+    """
+    override = os.environ.get('GALEFLING_FUNCTIONAL_ENV')
+    if override:
+        return override
+    return os.path.join(os.path.dirname(__file__), '.env')
+
+
+ENV_PATH = _resolve_env_path()
 
 # Module-level reference to QApplication to prevent garbage collection.
 _qapp = None

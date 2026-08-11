@@ -376,3 +376,48 @@ def test_fetlife_build_result_confirmed_with_url():
     assert result.success is True
     assert result.post_url == 'https://fetlife.com/users/123/statuses/456'
     assert result.url_captured is True
+
+
+def test_snapchat_redirect_interception_terminates(monkeypatch):
+    """The www.snapchat.com/web interception must not navigate indefinitely.
+
+    Snapchat bounces the web app between web.snapchat.com and
+    www.snapchat.com/web. Each bounce re-enters _on_url_changed, which issues
+    another navigation, so an unbounded rewrite turns one page load into a
+    request loop — which Snapchat answers with HTTP 429.
+    """
+    import src.platforms.snapchat as snapchat_mod
+
+    loads: list[str] = []
+
+    class _View:
+        def load(self, url):
+            loads.append(url.toString())
+
+    class _ImmediateTimer:
+        @staticmethod
+        def singleShot(_delay, callback):  # noqa: N802
+            callback()
+
+    monkeypatch.setattr(snapchat_mod, 'QTimer', _ImmediateTimer)
+
+    platform = SnapchatPlatform(account_id='snapchat_1')
+    platform._view = _View()
+    monkeypatch.setattr(type(platform).__bases__[0], '_on_url_changed', lambda self, url: None)
+
+    # Replay the bounce Snapchat actually performs, following each navigation
+    # the platform requests, for far more rounds than a healthy flow needs.
+    from PyQt6.QtCore import QUrl
+
+    current = 'https://web.snapchat.com/'
+    for _ in range(12):
+        platform._on_url_changed(QUrl(current))
+        platform._on_url_changed(QUrl('https://www.snapchat.com/web/'))
+        if not loads:
+            break
+        current = loads[-1]
+
+    assert len(loads) < 6, (
+        f'redirect interception issued {len(loads)} navigations for one page load; '
+        f'it is looping: {loads[:6]}'
+    )

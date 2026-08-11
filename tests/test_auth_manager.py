@@ -80,6 +80,23 @@ def test_meta_facebook_app_credentials_round_trip(tmp_path, monkeypatch):
     assert manager.has_meta_facebook_app_credentials() is True
 
 
+def test_meta_app_credentials_clear_only_affects_target_provider(tmp_path, monkeypatch):
+    manager = _make_auth(tmp_path, monkeypatch)
+
+    manager.save_meta_threads_app_credentials('th_id', 'th_secret')
+    manager.save_meta_instagram_app_credentials('ig_id', 'ig_secret')
+    manager.save_meta_facebook_app_credentials('fb_id', 'fb_secret')
+
+    manager.clear_meta_instagram_app_credentials()
+
+    assert manager.has_meta_instagram_app_credentials() is False
+    assert manager.has_meta_threads_app_credentials() is True
+    assert manager.has_meta_facebook_app_credentials() is True
+    assert not (tmp_path / 'meta_instagram_app_auth.json').exists()
+    assert (tmp_path / 'meta_threads_app_auth.json').exists()
+    assert (tmp_path / 'meta_facebook_app_auth.json').exists()
+
+
 def test_twitter_oauth2_credentials_independent_of_oauth1(tmp_path, monkeypatch):
     manager = _make_auth(tmp_path, monkeypatch)
 

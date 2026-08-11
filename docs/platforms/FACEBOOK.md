@@ -144,7 +144,7 @@ before retrying.
 | Problem | Solution |
 |---|---|
 | `Invalid Scopes: <name>` on the authorization screen | A requested permission, or one of its documented dependencies, is unavailable to the app. Meta names the dependency even when the request did not contain it. See [Required Permissions](#required-permissions) above and [META_APPS.md](META_APPS.md#scopes-request-only-what-is-used). |
-| Connect button is disabled | Import Meta app credentials first via **Settings > Advanced > Import Credentials**. |
+| Connect button is disabled | Enter app credentials in **Settings > Meta > App Credentials**, or import them via **Settings > Advanced > Import Credentials**. |
 | Page list is empty after authorizing | Your Facebook account may not administer any Pages, or the Page is in a restricted or deactivated state — a deactivated Page must be reactivated before it appears. Verify Page admin access in Facebook. |
 | `FB-AUTH-EXPIRED` error when posting | Your Page token was invalidated (password change or permission revocation). Go to **Settings > Meta** and reconnect the Facebook Page. |
 | `FB-AUTH-INVALID` error when posting | The token or Page ID is incorrect. Disconnect and reconnect. |

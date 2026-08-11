@@ -8,7 +8,9 @@ Requires GALEFLING_DATA_DIR and SNAPCHAT_USERNAME / SNAPCHAT_PASSWORD in .env.
 If the session cookie is still valid the login flow is skipped.
 """
 
+import json
 import os
+import re
 
 import pytest
 
@@ -25,12 +27,45 @@ from tests.functional.webview_helpers import (
 ACCOUNT_ID = 'snapchat_1'
 
 
+# A rendered Snapchat app has thousands of nodes; an error page has a handful.
+_MIN_RENDERED_NODES = 50
 _SNAPCHAT_WEB_HOSTS = ('web.snapchat.com', 'www.snapchat.com/web')
 
 
 def _is_snapchat_web(url: str) -> bool:
     """Return True if *url* is the Snapchat web app (either domain variant)."""
     return any(s in url for s in _SNAPCHAT_WEB_HOSTS)
+
+
+def _assert_app_rendered(page) -> None:
+    """Fail unless the Snapchat web application actually rendered.
+
+    Snapchat serves error pages from the web-app URL itself — a rate-limited
+    request returns an HTTP status code as the document title with a handful of
+    DOM nodes. Those satisfy a plain "URL looks right, JS runs" check, so
+    without this the suite reports a throttled session as a working one and
+    every DOM assertion afterwards silently measures the error page instead.
+    """
+    state = run_js(
+        page,
+        """
+        JSON.stringify({
+            title: document.title,
+            nodes: document.querySelectorAll('*').length
+        })
+        """,
+    )
+    if not state:
+        return
+    parsed = json.loads(state)
+    title = (parsed.get('title') or '').strip()
+    nodes = parsed.get('nodes') or 0
+    if re.fullmatch(r'\d{3}', title) or nodes < _MIN_RENDERED_NODES:
+        fail_or_skip(
+            f'Snapchat served an error page instead of the web app '
+            f'(title={title!r}, nodes={nodes}). A 429 title means the session or '
+            f'account is being rate limited — wait before retrying.'
+        )
 
 
 def _ensure_session(page, credentials: dict) -> None:
@@ -84,6 +119,7 @@ class TestSnapchatComposer:
                     f'Snapchat redirected away from web app (platform={qt_platform}, '
                     f'url={current_url}). Requires a real display with WebGL.'
                 )
+            _assert_app_rendered(page)
         finally:
             page.deleteLater()
             profile.deleteLater()
@@ -102,6 +138,7 @@ class TestSnapchatComposer:
 
             # Wait for SPA to fully render
             wait_ms(3000)
+            _assert_app_rendered(page)
 
             result = run_js(
                 page,

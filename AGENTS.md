@@ -61,6 +61,7 @@ galefling/
 ├── resources/
 ├── build/
 ├── infrastructure/
+├── tools/windows-vm/       # Portable libvirt Windows test-VM harness
 ├── docs/
 └── AGENTS.md
 ```
@@ -82,6 +83,26 @@ galefling/
 - Keep lint/tests green as the default quality gate.
 - Use `make deps` to set up the `.venv` and install dependencies; all `make` targets use the venv Python automatically.
 
+## Windows WebView Test VM
+
+- Reusable VM scripts and answer-file templates live in `tools/windows-vm/`.
+- Copy `tools/windows-vm/vm.env.example` to the gitignored `vm.env` for local paths
+  and resource settings. `GALEFLING_VM_CONFIG` may point to a config elsewhere.
+- Keep the actual SSH keypair in `~/.ssh`; store only `SSH_PRIVATE_KEY` and
+  `SSH_PUBLIC_KEY` paths in `vm.env`.
+- Never commit `vm.env`, Windows license keys, VM passwords, ISOs, installers,
+  generated answer files, generated unattended ISOs, or VM disk images.
+- Use `create-vm.sh`/`finish-vm.sh` for provisioning and `start-vm.sh`, `stop-vm.sh`,
+  and `snapshot-vm.sh` for routine lifecycle operations. `stop-vm.sh` is graceful
+  unless `--force` is explicitly supplied; snapshot reversion discards newer guest
+  changes.
+- The host repository is shared to Windows as `Z:` through VirtIO-FS. WinFsp is a
+  guest dependency for that mount, not an application dependency.
+- The configured baseline snapshot defaults to `clean-loggedout` and must contain
+  no authenticated platform sessions.
+- See `tools/windows-vm/README.md` and `docs/testing/WEBVIEW_TEST_PLAN.md` for the
+  complete setup and testing workflow.
+
 ## Additional Documentation
 - `docs/ARCHITECTURE_OVERVIEW.md` — deeper architecture and subsystem behavior
 - `docs/MEDIA_PROCESSING.md` — image/video processing and conversion behavior
@@ -90,3 +111,4 @@ galefling/
 - `docs/platforms/<PLATFORM>.md` — per-platform credential setup, limits, and quirks
 - `docs/testing/RELEASE_TESTING.md` — recommended manual pre-release testing scenarios
 - `docs/testing/FUNCTIONAL_TESTING.md` — functional test setup, credentials, and troubleshooting
+- `tools/windows-vm/README.md` — Windows 11 libvirt test-VM setup and lifecycle

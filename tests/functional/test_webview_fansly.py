@@ -11,7 +11,9 @@ import uuid
 
 import pytest
 
+from tests.functional.conftest import fail_or_skip
 from tests.functional.webview_helpers import (
+    close_webview,
     create_webview,
     get_or_create_app,
     load_page,
@@ -27,7 +29,7 @@ def _ensure_session(page, credentials: dict) -> None:
     """Verify we have a valid Fansly session, logging in if needed.
 
     Loads the Fansly home page and calls login_fansly if the session has
-    expired. Calls pytest.skip if login cannot be completed.
+    expired. Reports a strict-mode failure if login cannot be completed.
     """
     ok, final_url = load_page(page, 'https://fansly.com/', timeout_ms=20000)
     assert ok, f'Page load failed: {final_url}'
@@ -35,28 +37,26 @@ def _ensure_session(page, credentials: dict) -> None:
     # Wait for Cloudflare challenge + SPA hydration before checking state
     wait_ms(5000)
 
-    if '/login' in final_url.lower():
-        success = login_fansly(page, credentials['email'], credentials['password'])
-        if not success:
-            pytest.skip('Fansly login failed — check credentials in .env')
-        return
-
-    # Also check for login form that may appear without a URL redirect
+    # Fansly serves its public landing page at / without a URL redirect. The
+    # logged-out navigation shell is therefore as authoritative as the form.
     login_check = run_js(
         page,
         """
         (function() {
-            return !!document.querySelector('input[type="password"]');
+            return !!document.querySelector(
+                'input[type="password"], .nav-content-wrapper.not-logged-in'
+            );
         })();
         """,
     )
-    if login_check:
+    if '/login' in final_url.lower() or login_check:
         success = login_fansly(page, credentials['email'], credentials['password'])
         if not success:
-            pytest.skip('Fansly login failed — check credentials in .env')
+            fail_or_skip('Fansly login failed — check credentials in .env')
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestFanslyTextInjection:
     """Fansly text injection: verify text can be entered into the composer."""
 
@@ -70,9 +70,12 @@ class TestFanslyTextInjection:
             assert '/login' not in page.url().toString().lower(), (
                 f'Still on login page after authentication: {page.url().toString()}'
             )
+            assert not run_js(
+                page,
+                "!!document.querySelector('.nav-content-wrapper.not-logged-in')",
+            ), 'Fansly public landing page still visible after authentication'
         finally:
-            page.deleteLater()
-            profile.deleteLater()
+            close_webview(view, page, profile)
 
     def test_text_injection(self, galefling_data_dir, fansly_credentials):
         """Verify text can be injected into the Fansly textarea."""
@@ -102,5 +105,4 @@ class TestFanslyTextInjection:
             assert result.get('found'), 'Textarea not found'
             assert test_text in result.get('value', ''), f'Text not injected: {result}'
         finally:
-            page.deleteLater()
-            profile.deleteLater()
+            close_webview(view, page, profile)

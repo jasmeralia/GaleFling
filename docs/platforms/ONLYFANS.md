@@ -10,41 +10,58 @@ Any OnlyFans creator account works. GaleFling supports **1 OnlyFans account**.
 
 OnlyFans uses session cookies stored in a persistent WebView profile. There are no API keys to enter.
 
-### Step 1: Log In via GaleFling
+### Import a session from your browser
 
-1. Open GaleFling and go to **Settings > Accounts > OnlyFans**.
-2. Click **Log In**. An embedded browser opens `onlyfans.com`.
-3. Complete the OnlyFans login flow (email/password + 2FA if enabled).
-4. Once the OnlyFans home page loads, GaleFling detects the session and closes the login window.
+**GaleFling cannot log you in to OnlyFans directly.** OnlyFans gates its login form with
+reCAPTCHA Enterprise, which rejects embedded browsers regardless of whether the credentials
+are correct — so GaleFling does not offer a login window for OnlyFans at all.
 
-Your session cookies are stored in an isolated profile directory under `%APPDATA%\GaleFling\webprofiles\onlyfans_1\`.
+Instead, log in with your normal browser, export the session to an `auth.json` file, and
+import it from **Settings > OnlyFans > Import Session from auth.json**.
 
-### 2FA Checkbox Fix
+See **[ONLYFANS_SESSION_IMPORT.md](ONLYFANS_SESSION_IMPORT.md)** for the full procedure.
 
-OnlyFans renders its 2FA "remember me" checkbox using Vue.js custom components that can block click events in an embedded WebView. GaleFling automatically injects a script that fixes pointer events and click forwarding on these checkboxes, so 2FA should work normally.
+Once imported, posting works exactly as before — OnlyFans' own site composes and publishes
+the post inside GaleFling. Your session is stored in an isolated profile directory under
+`%APPDATA%\GaleFling\webprofiles\onlyfans_1\`.
+
+### Checkbox Fix
+
+OnlyFans renders checkboxes using Vue.js custom components whose decorator elements can
+absorb clicks before they reach the underlying input. GaleFling injects a script that
+restores pointer events and forwards clicks on these components, so checkboxes in the
+composer behave normally.
 
 ### Session Expiry
 
 OnlyFans sessions expire periodically. Unlike most platforms, OnlyFans does **not redirect to a login URL** when the session expires — it renders an inline login form at the same URL. GaleFling detects this by checking the DOM for login form selectors (`.b-loginreg__form`, `input[type="password"]`).
 
-When your session expires, GaleFling will show a "session expired" warning. Repeat Step 1 to re-establish the session.
+When your session expires, GaleFling will show a "session expired" warning. Export a fresh
+`auth.json` from your browser and re-import it to re-establish the session.
+
+Note that GaleFling verifies an import against Chromium's live cookie store, but its own
+"session valid" check reads Chromium's on-disk cookie database, which is only written every
+30 seconds or so. A successful import may therefore still report "session expired" for about
+half a minute afterwards.
 
 ## Media Restrictions
+
+The maximum file sizes below are GaleFling-imposed limits, not values published by OnlyFans.
 
 ### Images
 
 | Constraint | Limit |
 |---|---|
-| Formats | JPEG, PNG, WEBP |
-| Max dimensions | 4096 × 4096 px |
+| Formats | JPEG, PNG, GIF |
+| Max dimensions | 10000 × 10000 px |
 | Max file size | 50 MB |
-| Max attachments | 4 images per post |
+| Max attachments | 40 images per post |
 
 ### Videos
 
 | Constraint | Limit |
 |---|---|
-| Formats | MP4, MOV |
+| Formats | MP4, MOV, M4V, MPEG, WMV, AVI, WEBM, MKV |
 | Max dimensions | 3840 × 2160 px (4K) |
 | Max file size | 5120 MB (5 GB) |
 | Max duration | Not enforced by GaleFling |
@@ -68,8 +85,11 @@ When your session expires, GaleFling will show a "session expired" warning. Repe
 
 | Problem | Solution |
 |---|---|
-| "Session expired" immediately after logging in | Cloudflare may be blocking the headless session check. Try posting directly and confirming in the WebView panel. |
-| 2FA checkbox not clickable | GaleFling injects a fix for this automatically. If it still fails, try clicking the checkbox directly in the WebView panel. |
+| "Session expired" right after a successful import | Expected for up to ~30 seconds while Chromium writes its cookie database to disk. Re-check after a moment. |
+| Import reports the cookies were rejected | The `auth.json` is malformed or was edited by hand. Export a fresh one. |
+| Import succeeds but OnlyFans still shows a login form | The exported session is no longer valid. Log out and back in with your browser — re-exporting without a fresh login reuses the same dead session — then export and import again. |
+| No login button on the OnlyFans tab | Intentional. OnlyFans rejects embedded-browser logins, so sessions must be imported. |
+| Checkbox not clickable | GaleFling injects a fix for this automatically. If it still fails, try clicking the checkbox directly in the WebView panel. |
 | Composer not found | The SPA may need more time to hydrate. Run on Windows for the best chance of full rendering. |
-| `WV-SESSION-EXPIRED` in results | Session cookies expired. Log in again via Settings. |
-| Cloudflare challenge loop | Clear the OnlyFans WebView profile (Settings > Accounts > OnlyFans > Clear Session) and log in again. |
+| `WV-SESSION-EXPIRED` in results | Session cookies expired. Export a fresh `auth.json` and re-import it via Settings. |
+| Cloudflare challenge loop | Clear the OnlyFans WebView profile (Settings > Accounts > OnlyFans > Clear Session) and import a fresh session. |

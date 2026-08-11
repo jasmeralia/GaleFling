@@ -1,5 +1,8 @@
 """Abstract base class for WebView-based social media platforms."""
 
+# WebEngine process flags must be set before importing Qt WebEngine modules.
+# ruff: noqa: E402
+
 import contextlib
 import json
 import logging
@@ -8,8 +11,23 @@ import sqlite3
 import time
 from pathlib import Path
 
-from PyQt6.QtCore import QEventLoop, QTimer, QUrl
-from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
+from src.core.webview_environment import (
+    disable_conditional_passkey_ui,
+)
+from src.core.webview_session_import import (
+    ImportedSession,
+    effective_user_agent,
+    load_session_metadata,
+    save_session_metadata,
+)
+
+# Platform classes are also imported directly by tests and support tooling that
+# bypass the application entry point. Keep the process-wide policy consistent.
+disable_conditional_passkey_ui()
+
+from PyQt6.QtCore import QDateTime, QEventLoop, QTimer, QUrl
+from PyQt6.QtNetwork import QNetworkCookie
+from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineScript
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication, QWidget
 
@@ -17,6 +35,8 @@ from src.core.logger import get_logger
 from src.platforms.base import BasePlatform
 from src.utils.constants import PostResult
 from src.utils.helpers import get_app_data_dir
+
+_SESSION_TOKEN_SCRIPT_NAME = 'galefling_session_token'
 
 
 class BaseWebViewPlatform(BasePlatform):
@@ -99,6 +119,7 @@ class BaseWebViewPlatform(BasePlatform):
         self._account_id = account_id
         self._profile_name = profile_name
         self._view: QWebEngineView | None = None
+        self._page: QWebEnginePage | None = None
         self._profile: QWebEngineProfile | None = None
         self._captured_post_url: str | None = None
         self._post_confirmed = False
@@ -125,12 +146,54 @@ class BaseWebViewPlatform(BasePlatform):
         key = account_id or 'default'
         if key not in cls._profile_registry:
             profile = QWebEngineProfile(storage_path.name, None)
+            profile.setHttpUserAgent(effective_user_agent(storage_path, profile.httpUserAgent()))
             profile.setPersistentStoragePath(str(storage_path))
             profile.setPersistentCookiesPolicy(
                 QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
             )
+            cls._install_session_token_script(profile, storage_path)
             cls._profile_registry[key] = profile
         return cls._profile_registry[key]
+
+    @classmethod
+    def _install_session_token_script(
+        cls, profile: 'QWebEngineProfile', storage_path: 'Path'
+    ) -> None:
+        """Seed the site's device token into localStorage for an imported session.
+
+        The OnlyFans web app reads ``bcTokenSha`` from localStorage and sends it
+        as the ``x-bc`` header on every API call. Cookies alone are not enough:
+        without the token that the session was issued against, the site's own
+        JavaScript is treated as an anonymous client and renders a login form
+        even though the session cookies are present and valid.
+        """
+        metadata = load_session_metadata(storage_path)
+        token = (metadata or {}).get('x_bc')
+        if not token or not cls.COOKIE_DOMAINS:
+            return
+        scripts = profile.scripts()
+        if scripts is None:
+            return
+        for existing in scripts.find(_SESSION_TOKEN_SCRIPT_NAME):
+            scripts.remove(existing)
+
+        host = json.dumps(cls.COOKIE_DOMAINS[0].lstrip('.'))
+        js = f"""
+(function () {{
+    try {{
+        if (window.location.hostname.indexOf({host}) === -1) {{ return; }}
+        window.localStorage.setItem('bcTokenSha', {json.dumps(token)});
+    }} catch (e) {{ /* storage unavailable on this origin */ }}
+}})();
+"""
+
+        script = QWebEngineScript()
+        script.setName(_SESSION_TOKEN_SCRIPT_NAME)
+        script.setSourceCode(js)
+        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        script.setRunsOnSubFrames(False)
+        scripts.insert(script)
 
     @classmethod
     def _evict_profile(cls, account_id: str) -> None:
@@ -140,6 +203,104 @@ class BaseWebViewPlatform(BasePlatform):
         Session Cookies) so the next login window starts with a fresh context.
         """
         cls._profile_registry.pop(account_id or 'default', None)
+
+    @staticmethod
+    def _wait_ms(milliseconds: int) -> None:
+        """Pump the Qt event loop for the given duration."""
+        loop = QEventLoop()
+        QTimer.singleShot(milliseconds, loop.quit)
+        loop.exec()
+
+    def import_session(self, session: ImportedSession) -> tuple[bool, str | None]:
+        """Import a browser-exported session into this account's WebEngine profile."""
+        storage_path = self._get_profile_storage_path()
+        try:
+            save_session_metadata(storage_path, session)
+        except OSError:
+            return (
+                False,
+                'GaleFling could not save the imported session. '
+                'Check that the application data folder is writable and try again.',
+            )
+
+        if not self.COOKIE_DOMAINS:
+            return False, 'This platform does not support session import.'
+
+        key = self._account_id or 'default'
+        if key in self._profile_registry:
+            self._evict_profile(self._account_id)
+            self._profile = None
+            self._view = None
+            self._page = None
+
+        profile = self._get_or_create_profile(self._account_id, storage_path)
+        self._profile = profile
+        profile.setHttpUserAgent(session.user_agent)
+
+        # Chromium only initialises a profile's storage backend once a page
+        # exists for it.  Without one, setCookie() writes into a context that is
+        # never flushed to disk, so the cookies vanish and verification below
+        # fails even though the export is perfectly good.  The view is never
+        # shown; it exists purely to bring the browser context up.
+        if self._page is None:
+            self.create_webview()
+        if self._page is not None:
+            self._page.load(QUrl('about:blank'))
+            self._wait_ms(1000)
+
+        expiration = QDateTime.currentDateTimeUtc().addDays(365)
+        base_domain = self.COOKIE_DOMAINS[0].lstrip('.')
+        domain = f'.{base_domain}'
+        # Derive the origin from the platform rather than hard-coding one, so
+        # this base-class helper stays correct for every WebView platform.
+        origin = QUrl(f'https://{base_domain}/')
+        cookie_store = profile.cookieStore()
+        if cookie_store is None:
+            return (
+                False,
+                'GaleFling could not access the browser cookie store. '
+                'Restart GaleFling and try the import again.',
+            )
+        # Force the store to bind to its on-disk backend before writing, so the
+        # injected cookies join the persisted set rather than a transient one.
+        cookie_store.loadAllCookies()
+        self._wait_ms(500)
+
+        # Verify against the live cookie store, NOT has_valid_session(): that
+        # reads the Chromium SQLite file, which is only flushed roughly every
+        # 30 seconds.  Polling the file here would time out on a perfectly valid
+        # export and tell the user it was stale — the worst possible advice,
+        # since acting on it burns another session.
+        accepted: set[str] = set()
+        expected = set(session.cookies)
+        connection = cookie_store.cookieAdded.connect(
+            lambda cookie: accepted.add(bytes(cookie.name()).decode('utf-8', 'replace'))
+        )
+
+        for name, value in session.cookies.items():
+            cookie = QNetworkCookie(name.encode('utf-8'), value.encode('utf-8'))
+            cookie.setDomain(domain)
+            cookie.setPath('/')
+            cookie.setSecure(True)
+            cookie.setHttpOnly(True)
+            cookie.setExpirationDate(expiration)
+            cookie_store.setCookie(cookie, origin)
+
+        deadline = time.monotonic() + 5.0
+        while not expected.issubset(accepted) and time.monotonic() < deadline:
+            self._wait_ms(100)
+
+        with contextlib.suppress(TypeError, RuntimeError):
+            cookie_store.cookieAdded.disconnect(connection)
+
+        if expected.issubset(accepted):
+            return True, None
+        rejected = sorted(expected - accepted)
+        return (
+            False,
+            'GaleFling could not install the session cookies '
+            f'({", ".join(rejected)}). Export auth.json again and re-import it.',
+        )
 
     def create_webview(self, parent: QWidget | None = None) -> QWebEngineView:
         """Create a QWebEngineView backed by the shared persistent profile."""
@@ -154,6 +315,12 @@ class BaseWebViewPlatform(BasePlatform):
         self._configure_webview_page(page)
         self._view = QWebEngineView(parent)
         self._view.setPage(page)
+        # Hold a reference to the page for the platform's lifetime.  setPage()
+        # does not transfer ownership to Python, so without this the page is
+        # garbage-collected as soon as create_webview() returns and the view
+        # silently falls back to Qt's default off-the-record profile — which
+        # never writes cookies to disk, so no session would ever persist.
+        self._page = page
 
         # Connect WebView lifecycle and navigation monitoring
         page.urlChanged.connect(self._on_url_changed)

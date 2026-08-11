@@ -56,6 +56,7 @@ def _delete_media(access_token: str, media_id: str) -> None:
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestInstagramConnection:
     """Auth and connection tests — run first to fail fast on bad credentials."""
 
@@ -98,6 +99,7 @@ class TestInstagramConnection:
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestInstagramValidation:
     """Pre-post validation — errors returned before any network I/O."""
 
@@ -126,6 +128,7 @@ class TestInstagramValidation:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestInstagramImagePost:
     """Single-image feed posts via the Instagram Graph API + S3 staging."""
 
@@ -172,6 +175,7 @@ class TestInstagramImagePost:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestInstagramVideoPost:
     """Video feed posts via the Instagram Graph API + S3 staging."""
 
@@ -198,6 +202,7 @@ class TestInstagramVideoPost:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestInstagramCarouselPost:
     """Multi-image carousel posts via the Instagram Graph API + S3 staging."""
 

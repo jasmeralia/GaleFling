@@ -74,3 +74,6 @@ build/build/
 # Local credentials and tool config (never commit)
 tests/functional/creds_import.json
 .mcp.json
+
+# Local Windows VM paths and credentials
+/tools/windows-vm/vm.env

@@ -1,5 +1,8 @@
 """GaleFling - Application entry point."""
 
+# WebEngine process flags must be set before importing Qt WebEngine modules.
+# ruff: noqa: E402
+
 import contextlib
 import faulthandler
 import os
@@ -10,6 +13,11 @@ from datetime import datetime
 
 # Ensure src is importable when running from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.core.webview_environment import disable_conditional_passkey_ui
+
+# This process-wide Chromium policy must be set before Qt WebEngine starts.
+disable_conditional_passkey_ui()
 
 from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
 from PyQt6.QtGui import QIcon

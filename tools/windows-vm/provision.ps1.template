@@ -1,0 +1,87 @@
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+
+Start-Transcript -Path 'C:\galefling-provision.log' -Append
+
+function Get-VolumeRoot([string] $Label) {
+    $volume = Get-Volume -FileSystemLabel $Label -ErrorAction Stop | Select-Object -First 1
+    return "$($volume.DriveLetter):\"
+}
+
+$setupRoot = Get-VolumeRoot 'GALESETUP'
+$virtioVolume = Get-Volume | Where-Object { $_.FileSystemLabel -like 'virtio-win-*' } | Select-Object -First 1
+if (-not $virtioVolume) {
+    throw 'The virtio-win driver ISO is not mounted.'
+}
+$virtioRoot = "$($virtioVolume.DriveLetter):\"
+
+Write-Host 'Installing virtio guest tools.'
+$virtioInstaller = Join-Path $virtioRoot 'virtio-win-guest-tools.exe'
+Start-Process -FilePath $virtioInstaller -ArgumentList '/quiet', '/norestart' -Wait
+$virtioBlockDriver = Join-Path $virtioRoot 'viostor\w11\amd64\viostor.inf'
+& pnputil.exe /add-driver $virtioBlockDriver /install
+$virtioNetworkDriver = Join-Path $virtioRoot 'NetKVM\w11\amd64\netkvm.inf'
+& pnputil.exe /add-driver $virtioNetworkDriver /install
+$virtioBalloonDriver = Join-Path $virtioRoot 'Balloon\w11\amd64\balloon.inf'
+& pnputil.exe /add-driver $virtioBalloonDriver /install
+$virtioSerialDriver = Join-Path $virtioRoot 'vioserial\w11\amd64\vioser.inf'
+& pnputil.exe /add-driver $virtioSerialDriver /install
+$virtioFsDriver = Join-Path $virtioRoot 'viofs\w11\amd64\viofs.inf'
+& pnputil.exe /add-driver $virtioFsDriver /install
+$guestAgentInstaller = Join-Path $virtioRoot 'guest-agent\qemu-ga-x86_64.msi'
+Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', $guestAgentInstaller, '/qn', '/norestart' -Wait
+
+Write-Host 'Installing WinFsp.'
+$winFspInstaller = Join-Path $setupRoot 'winfsp.msi'
+Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', $winFspInstaller, '/qn', '/norestart' -Wait
+
+Write-Host 'Preparing the OpenSSH administrator key.'
+$sshDirectory = 'C:\ProgramData\ssh'
+New-Item -ItemType Directory -Force -Path $sshDirectory | Out-Null
+$authorizedKeys = Join-Path $sshDirectory 'administrators_authorized_keys'
+$publicKey = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('@@SSH_PUBLIC_KEY_B64@@'))
+[IO.File]::WriteAllText($authorizedKeys, $publicKey.Trim() + "`r`n", [Text.UTF8Encoding]::new($false))
+& icacls.exe $authorizedKeys /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null
+
+Write-Host 'Installing Python 3.12.'
+$pythonInstaller = Join-Path $setupRoot 'python-installer.exe'
+Start-Process -FilePath $pythonInstaller -ArgumentList '/quiet', 'InstallAllUsers=1', 'PrependPath=1', 'Include_launcher=1', 'Include_test=0' -Wait
+$python = 'C:\Program Files\Python312\python.exe'
+if (-not (Test-Path $python)) {
+    throw 'Python did not install at the expected path.'
+}
+
+Write-Host 'Configuring the virtiofs repository share.'
+$virtioFsDirectory = 'C:\Program Files\Virtio-Win\VioFS'
+New-Item -ItemType Directory -Force -Path $virtioFsDirectory | Out-Null
+Copy-Item -Force (Join-Path $virtioRoot 'viofs\w11\amd64\virtiofs.exe') (Join-Path $virtioFsDirectory 'virtiofs.exe')
+if (Get-Service -Name VirtioFsSvc -ErrorAction SilentlyContinue) {
+    & sc.exe stop VirtioFsSvc | Out-Null
+    & sc.exe delete VirtioFsSvc | Out-Null
+    Start-Sleep -Seconds 2
+}
+& sc.exe create VirtioFsSvc binPath= '"C:\Program Files\Virtio-Win\VioFS\virtiofs.exe"' start= auto depend= 'WinFsp.Launcher/VirtioFsDrv' | Out-Null
+& sc.exe start VirtioFsSvc | Out-Null
+
+$repoReady = $false
+for ($attempt = 0; $attempt -lt 30; $attempt++) {
+    if (Test-Path 'Z:\requirements.txt') {
+        $repoReady = $true
+        break
+    }
+    Start-Sleep -Seconds 2
+}
+
+if ($repoReady) {
+    Write-Host 'Creating the Windows virtual environment and installing GaleFling dependencies.'
+    & $python -m venv 'C:\GaleFling-venv'
+    & 'C:\GaleFling-venv\Scripts\python.exe' -m pip install --upgrade pip
+    & 'C:\GaleFling-venv\Scripts\python.exe' -m pip install -r 'Z:\requirements.txt' -r 'Z:\requirements-dev.txt'
+} else {
+    Write-Warning 'The virtiofs share did not mount as Z:. Python is installed; dependency setup remains pending.'
+}
+
+powercfg.exe /change standby-timeout-ac 0
+powercfg.exe /change hibernate-timeout-ac 0
+Set-Content -Path 'C:\galefling-provision-complete.txt' -Value (Get-Date -Format o)
+Stop-Transcript

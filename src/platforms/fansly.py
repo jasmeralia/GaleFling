@@ -7,7 +7,8 @@ from src.utils.constants import FANSLY_SPECS, PlatformSpecs
 class FanslyPlatform(BaseWebViewPlatform):
     """Fansly posting via embedded WebView (Cloudflare-protected)."""
 
-    COMPOSER_URL = 'https://fansly.com/'
+    LOGIN_URL = 'https://fansly.com/'
+    COMPOSER_URL = 'https://fansly.com/home'
     TEXT_SELECTOR = 'textarea'
     SUCCESS_URL_PATTERN = ''  # SPA — URL capture unlikely
     SUCCESS_SELECTOR = ''
@@ -18,6 +19,11 @@ class FanslyPlatform(BaseWebViewPlatform):
         'CloudFront-Policy',
         'CloudFront-Signature',
     ]
+    SESSION_EXPIRED_SELECTORS = [
+        '.nav-content-wrapper.not-logged-in',
+        'input[autocomplete="password"]',
+    ]
+    SESSION_EXPIRED_CHECK_DELAY_MS = 5000
     PREFILL_DELAY_MS = 1500  # Cloudflare challenge + SPA hydration
     POLL_INTERVAL_MS = 1000
 

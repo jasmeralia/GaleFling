@@ -44,7 +44,7 @@ Platform limits and capabilities are defined in `src/utils/constants.py` (`Platf
 | Threads | 1440 × 1440 | 8 MB | JPEG, PNG | 10 |
 | Facebook | 4096 × 4096 | 10 MB | JPEG, PNG | 1 |
 | Snapchat | — | — | — | — (video only) |
-| OnlyFans | 4096 × 4096 | 50 MB | JPEG, PNG, WEBP | 4 |
+| OnlyFans | 10000 × 10000 | 50 MB | JPEG, PNG, GIF | 40 |
 | Fansly | 4096 × 4096 | 50 MB | JPEG, PNG, WEBP | 4 |
 | FetLife | 4096 × 4096 | 20 MB | JPEG, PNG | 1 |
 
@@ -58,7 +58,7 @@ Platform limits and capabilities are defined in `src/utils/constants.py` (`Platf
 | Threads | MP4, MOV | 1920 × 1080 | 1 GB | 300 s |
 | Facebook | MP4, MOV | 1920 × 1080 | 10 GB | — |
 | Snapchat | MP4 | 1080 × 1920 | 50 MB | 60 s |
-| OnlyFans | MP4, MOV | 3840 × 2160 | 5120 MB | — |
+| OnlyFans | MP4, MOV, M4V, MPEG, WMV, AVI, WEBM, MKV | 3840 × 2160 | 5120 MB | — |
 | Fansly | MP4, MOV | 3840 × 2160 | 5120 MB | — |
 | FetLife | MP4 | 1920 × 1080 | 500 MB | — |
 

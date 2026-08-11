@@ -1,7 +1,7 @@
 """Functional tests for FetLife WebView posting.
 
 Tests the three FetLife composer types (text, picture, video):
-- Text: inject text into ProseMirror editor, submit, capture post URL
+- Text: inject text into the Lexxy editor, submit, capture post URL
 - Picture: verify file input and upload button are present
 - Video: verify file input and upload button are present
 
@@ -15,7 +15,9 @@ import uuid
 
 import pytest
 
+from tests.functional.conftest import fail_or_skip
 from tests.functional.webview_helpers import (
+    close_webview,
     create_webview,
     get_or_create_app,
     load_page,
@@ -27,31 +29,82 @@ from tests.functional.webview_helpers import (
 ACCOUNT_ID = 'fetlife_1'
 
 
+def _dismiss_maybe_later(page) -> bool:
+    """Dismiss FetLife's recurring post-login prompt when it appears."""
+    dismissed = run_js(
+        page,
+        """
+        (function() {
+            var candidates = Array.from(
+                document.querySelectorAll('button, a, [role="button"]')
+            );
+            var later = candidates.find(function(el) {
+                return (el.textContent || '').trim().toLowerCase() === 'maybe later';
+            });
+            if (!later) return false;
+            later.click();
+            return true;
+        })();
+        """,
+    )
+    if dismissed:
+        wait_ms(500)
+    return bool(dismissed)
+
+
+def _inject_lexxy_text(page, text: str):
+    """Set text through Lexxy's form-associated custom-element value API."""
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            var content = document.querySelector(
+                'div.lexxy-editor__content[contenteditable="true"][role="textbox"]'
+            );
+            var editor = content && content.closest('lexxy-editor');
+            if (!editor) return {{found: false}};
+            var paragraph = document.createElement('p');
+            paragraph.textContent = {json.dumps(text)};
+            editor.value = paragraph.outerHTML;
+            editor.dispatchEvent(new Event('input', {{bubbles: true}}));
+            editor.dispatchEvent(new Event('change', {{bubbles: true}}));
+            return {{
+                found: true,
+                content: content.textContent.substring(0, 150),
+                value: editor.value.substring(0, 200)
+            }};
+        }})();
+        """,
+    )
+
+
 def _ensure_session(page, credentials: dict) -> None:
     """Verify we have a valid FetLife session, logging in if needed.
 
     Navigates to the text composer page (which redirects to /login when the
     session is expired) and calls login_fetlife if authentication is required.
-    Calls pytest.skip if login cannot be completed.
+    Reports a strict-mode failure if login cannot be completed.
     """
     ok, final_url = load_page(page, 'https://fetlife.com/posts/new?source=Feed')
     if not ok:
-        pytest.skip(f'FetLife page load failed: {final_url}')
+        fail_or_skip(f'FetLife page load failed: {final_url}')
 
     if '/login' in final_url.lower():
         success = login_fetlife(page, credentials['email'], credentials['password'])
         if not success:
-            pytest.skip('FetLife login failed — check credentials in .env')
+            fail_or_skip('FetLife login failed — check credentials in .env')
         # After login, navigate back to the composer
         ok, final_url = load_page(page, 'https://fetlife.com/posts/new?source=Feed')
         if not ok or '/login' in final_url.lower():
-            pytest.skip('FetLife composer unreachable after login')
+            fail_or_skip('FetLife composer unreachable after login')
+    _dismiss_maybe_later(page)
 
 
 @pytest.mark.functional
 class TestFetLifeTextPost:
     """FetLife text post: inject text, submit form, capture URL, delete."""
 
+    @pytest.mark.non_mutating
     def test_composer_loads(self, galefling_data_dir, fetlife_credentials):
         """Verify the text composer page loads in an authenticated state."""
         get_or_create_app()
@@ -62,11 +115,11 @@ class TestFetLifeTextPost:
             assert '/login' not in final_url.lower(), f'Redirected to login: {final_url}'
             assert 'posts/new' in final_url, f'Unexpected URL: {final_url}'
         finally:
-            page.deleteLater()
-            profile.deleteLater()
+            close_webview(view, page, profile)
 
+    @pytest.mark.non_mutating
     def test_text_injection(self, galefling_data_dir, fetlife_credentials):
-        """Verify text can be injected into the ProseMirror editor."""
+        """Verify text can be injected into the Lexxy editor."""
         get_or_create_app()
         view, page, profile = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
@@ -75,25 +128,14 @@ class TestFetLifeTextPost:
 
             tag = uuid.uuid4().hex[:8]
             test_text = f'GaleFling functional test {tag}'
-            result = run_js(
-                page,
-                f"""
-                (function() {{
-                    var el = document.querySelector('div.tiptap.ProseMirror[contenteditable="true"]');
-                    if (!el) return {{found: false}};
-                    el.focus();
-                    document.execCommand('insertText', false, {json.dumps(test_text)});
-                    return {{found: true, content: el.textContent.substring(0, 100)}};
-                }})();
-                """,
-            )
+            result = _inject_lexxy_text(page, test_text)
             assert isinstance(result, dict), f'JS returned: {result}'
-            assert result.get('found'), 'ProseMirror editor not found'
+            assert result.get('found'), 'Lexxy editor not found'
             assert test_text in result.get('content', ''), f'Text not injected: {result}'
         finally:
-            page.deleteLater()
-            profile.deleteLater()
+            close_webview(view, page, profile)
 
+    @pytest.mark.mutating
     def test_text_post_submit_and_delete(self, galefling_data_dir, fetlife_credentials):
         """Submit a text post, capture the URL, then attempt deletion."""
         get_or_create_app()
@@ -106,19 +148,7 @@ class TestFetLifeTextPost:
             # Inject text
             tag = uuid.uuid4().hex[:8]
             test_text = f'GaleFling functional test {tag} — safe to delete'
-            inject_result = run_js(
-                page,
-                f"""
-                (function() {{
-                    var el = document.querySelector('div.tiptap.ProseMirror[contenteditable="true"]');
-                    if (!el) return {{found: false}};
-                    el.focus();
-                    document.execCommand('insertText', false, {json.dumps(test_text)});
-                    el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                    return {{found: true, content: el.textContent.substring(0, 150)}};
-                }})();
-                """,
-            )
+            inject_result = _inject_lexxy_text(page, test_text)
             assert isinstance(inject_result, dict) and inject_result.get('found'), (
                 f'Text injection failed: {inject_result}'
             )
@@ -163,8 +193,7 @@ class TestFetLifeTextPost:
                 print('  Manual cleanup needed — check recent posts')
 
         finally:
-            page.deleteLater()
-            profile.deleteLater()
+            close_webview(view, page, profile)
 
     @staticmethod
     def _attempt_delete(page):
@@ -233,6 +262,7 @@ class TestFetLifeTextPost:
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestFetLifePictureComposer:
     """FetLife picture composer: verify page loads and elements are present."""
 
@@ -251,13 +281,15 @@ class TestFetLifePictureComposer:
             assert ok, f'Page load failed: {final_url}'
             assert '/login' not in final_url.lower(), f'Session expired: {final_url}'
             wait_ms(2000)
+            _dismiss_maybe_later(page)
 
             result = run_js(
                 page,
                 """
                 (function() {
                     var fileInput = document.querySelector(
-                        'input[type="file"][name="picture[attachments]"]'
+                        'input[type="file"][accept*="image"], '
+                        + 'input[type="file"][name="picture[attachments][]"]'
                     );
                     var submitBtn = Array.from(
                         document.querySelectorAll('button[type="submit"]')
@@ -280,11 +312,11 @@ class TestFetLifePictureComposer:
                 'File input does not accept images'
             )
         finally:
-            page.deleteLater()
-            profile.deleteLater()
+            close_webview(view, page, profile)
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestFetLifeVideoComposer:
     """FetLife video composer: verify page loads and elements are present."""
 
@@ -301,13 +333,14 @@ class TestFetLifeVideoComposer:
             assert ok, f'Page load failed: {final_url}'
             assert '/login' not in final_url.lower(), f'Session expired: {final_url}'
             wait_ms(2000)
+            _dismiss_maybe_later(page)
 
             result = run_js(
                 page,
                 """
                 (function() {
                     var fileInput = document.querySelector(
-                        'input[type="file"][name="video[video]"]'
+                        'input[type="file"][accept*="video"]'
                     );
                     var submitBtn = Array.from(
                         document.querySelectorAll('button[type="submit"]')
@@ -330,5 +363,4 @@ class TestFetLifeVideoComposer:
                 'File input does not accept video'
             )
         finally:
-            page.deleteLater()
-            profile.deleteLater()
+            close_webview(view, page, profile)

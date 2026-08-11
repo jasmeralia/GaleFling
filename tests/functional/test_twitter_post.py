@@ -7,6 +7,7 @@ import tweepy
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestTwitterConnection:
     """Auth and connection tests — run first to fail fast on bad credentials."""
 
@@ -42,6 +43,7 @@ class TestTwitterConnection:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestTwitterTextPost:
     """Text-only posting and deletion."""
 
@@ -83,6 +85,7 @@ class TestTwitterTextPost:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestTwitterImagePost:
     """Image upload and posting."""
 
@@ -150,6 +153,7 @@ class TestTwitterImagePost:
 
 
 @pytest.mark.functional
+@pytest.mark.mutating
 class TestTwitterVideoPost:
     """Video upload and posting."""
 

@@ -14,7 +14,9 @@ import uuid
 
 import pytest
 
+from tests.functional.conftest import fail_or_skip
 from tests.functional.webview_helpers import (
+    close_webview,
     create_webview,
     get_or_create_app,
     load_page,
@@ -30,8 +32,8 @@ def _ensure_session(page, credentials: dict) -> None:
     """Verify we have a valid OnlyFans session, logging in if needed.
 
     Loads the OnlyFans home page, checks for the inline login form, and
-    calls login_onlyfans if the session has expired. Calls pytest.skip if
-    login cannot be completed.
+    calls login_onlyfans if the session has expired. Reports a strict-mode
+    failure if login cannot be completed.
     """
     ok, final_url = load_page(page, 'https://onlyfans.com/', timeout_ms=20000)
     assert ok, f'Page load failed: {final_url}'
@@ -59,10 +61,60 @@ def _ensure_session(page, credentials: dict) -> None:
             credentials.get('totp_secret'),
         )
         if not success:
-            pytest.skip('OnlyFans login failed — check credentials or TOTP secret in .env')
+            state = run_js(
+                page,
+                """
+                (function() {
+                    var email = document.querySelector(
+                        'input[name="email"], input[autocomplete*="username"]'
+                    );
+                    var password = document.querySelector('input[type="password"]');
+                    var code = document.querySelector(
+                        'input[name="code"], input[autocomplete="one-time-code"], '
+                        + 'input[type="text"][maxlength="6"]'
+                    );
+                    var submit = document.querySelector('button[type="submit"]');
+                    var resources = performance.getEntriesByType('resource').map(
+                        function(entry) { return entry.name; }
+                    );
+                    var turnstileResponse = document.querySelector(
+                        '[name="cf-turnstile-response"]'
+                    );
+                    return {
+                        webAuthnAvailable: typeof PublicKeyCredential !== 'undefined',
+                        hasPassword: !!password,
+                        hasCode: !!code,
+                        emailFilled: !!(email && email.value),
+                        passwordFilled: !!(password && password.value),
+                        submitDisabled: !!(submit && submit.disabled),
+                        submitLoading: !!(submit && submit.classList.contains('m-loading')),
+                        challengeFrames: document.querySelectorAll(
+                            'iframe[src*="challenge"], iframe[src*="turnstile"]'
+                        ).length,
+                        turnstileContainers: document.querySelectorAll(
+                            '.cf-turnstile, [data-sitekey]'
+                        ).length,
+                        turnstileResponseFilled: !!(
+                            turnstileResponse && turnstileResponse.value
+                        ),
+                        turnstileResources: resources.filter(function(url) {
+                            return url.indexOf('challenges.cloudflare.com') !== -1;
+                        }).length,
+                        loginRequests: resources.filter(function(url) {
+                            return url.indexOf('/users/login') !== -1;
+                        }).length,
+                        webauthnOptionRequests: resources.filter(function(url) {
+                            return url.indexOf('/webauthn/login/options') !== -1;
+                        }).length
+                    };
+                })();
+                """,
+            )
+            fail_or_skip(f'OnlyFans login failed; page state: {state}')
 
 
 @pytest.mark.functional
+@pytest.mark.non_mutating
 class TestOnlyFansComposer:
     """OnlyFans: verify page loads and attempt composer interaction."""
 
@@ -94,8 +146,7 @@ class TestOnlyFansComposer:
                 'OnlyFans login form still present after authentication'
             )
         finally:
-            page.deleteLater()
-            profile.deleteLater()
+            close_webview(view, page, profile)
 
     def test_composer_accessible(self, galefling_data_dir, onlyfans_credentials):
         """Check if the composer is present and attempt text injection."""
@@ -170,10 +221,11 @@ class TestOnlyFansComposer:
 
             if not result.get('composerFound'):
                 platform = os.environ.get('QT_QPA_PLATFORM', 'default')
-                pytest.skip(
+                fail_or_skip(
                     f'OnlyFans composer not found after click attempt '
                     f'(platform={platform}, '
-                    f'editables={result.get("editableCount", 0)}). '
+                    f'editables={result.get("editableCount", 0)}, '
+                    'selector=div[contenteditable="true"].b-make-post__text). '
                     'May require full browser rendering.'
                 )
 
@@ -200,5 +252,4 @@ class TestOnlyFansComposer:
                 f'Text not injected: {inject_result}'
             )
         finally:
-            page.deleteLater()
-            profile.deleteLater()
+            close_webview(view, page, profile)

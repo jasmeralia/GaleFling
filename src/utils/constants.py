@@ -52,6 +52,13 @@ class PlatformSpecs:
     supports_text_with_media: bool = True
     # Max media attachments per post (images; video is always 1)
     max_media_attachments: int = 1
+    # Whether the user can authenticate inside GaleFling's embedded browser.
+    # False for platforms whose login form is gated by a bot check that rejects
+    # embedded engines; those authenticate by importing a browser-exported
+    # session instead.
+    supports_embedded_login: bool = True
+    # Whether the platform can restore a session from an exported auth.json.
+    supports_session_import: bool = False
 
 
 @dataclass
@@ -135,11 +142,13 @@ SNAPCHAT_SPECS = PlatformSpecs(
     supports_text=False,
 )
 
+# GET https://onlyfans.com/api2/v2/init -> postMediaConfig (verified 2026-08-10)
 ONLYFANS_SPECS = PlatformSpecs(
     platform_name='OnlyFans',
-    max_image_dimensions=(4096, 4096),
+    max_image_dimensions=(10000, 10000),
     max_file_size_mb=50.0,
-    supported_formats=['JPEG', 'PNG', 'WEBP'],
+    # HEIC is deliberately omitted because this project's Pillow pipeline has no HEIC decoder.
+    supported_formats=['JPEG', 'PNG', 'GIF'],
     max_text_length=1000,
     platform_color='#00AFF0',
     api_type='webview',
@@ -147,10 +156,23 @@ ONLYFANS_SPECS = PlatformSpecs(
     max_accounts=1,
     requires_user_confirm=True,
     has_cloudflare=True,
-    supported_video_formats=['MP4', 'MOV'],
+    supported_video_formats=[
+        'MP4',
+        'MOV',
+        'M4V',
+        'MPEG',
+        'WMV',
+        'AVI',
+        'WEBM',
+        'MKV',
+    ],
     max_video_dimensions=(3840, 2160),
     max_video_file_size_mb=5120.0,
-    max_media_attachments=4,
+    max_media_attachments=40,
+    # OnlyFans gates its login form with reCAPTCHA Enterprise, which rejects the
+    # embedded browser regardless of credentials.  Sessions must be imported.
+    supports_embedded_login=False,
+    supports_session_import=True,
 )
 
 FANSLY_SPECS = PlatformSpecs(

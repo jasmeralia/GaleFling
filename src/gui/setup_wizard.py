@@ -32,7 +32,7 @@ from src.platforms.fetlife import FetLifePlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
 from src.platforms.twitter import TwitterPlatform
-from src.utils.constants import AccountConfig
+from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
 
 
 class WelcomePage(QWizardPage):
@@ -753,13 +753,27 @@ class WebViewPlatformSetupPage(QWizardPage):
 
         layout = QVBoxLayout(self)
 
-        info = QLabel(
-            f'{platform_name} uses an <b>embedded browser</b> for posting. '
-            f'You can log in now to save your session cookies, or skip and '
-            f'log in later when you post.<br><br>'
-            f'Enter a profile name below so you can identify this account, '
-            f'or leave blank to skip.'
-        )
+        specs = PLATFORM_SPECS_MAP.get(platform_id)
+        self._supports_embedded_login = specs is None or specs.supports_embedded_login
+
+        if self._supports_embedded_login:
+            info_text = (
+                f'{platform_name} uses an <b>embedded browser</b> for posting. '
+                f'You can log in now to save your session cookies, or skip and '
+                f'log in later when you post.<br><br>'
+                f'Enter a profile name below so you can identify this account, '
+                f'or leave blank to skip.'
+            )
+        else:
+            info_text = (
+                f'{platform_name} uses an <b>embedded browser</b> for posting, but '
+                f'blocks logging in from one. Log in with your normal browser, export '
+                f'the session to an auth.json file, then import it from '
+                f'<b>Settings &gt; {platform_name}</b> after setup.<br><br>'
+                f'Enter a profile name below so you can identify this account, '
+                f'or leave blank to skip.'
+            )
+        info = QLabel(info_text)
         info.setWordWrap(True)
         layout.addWidget(info)
         layout.addSpacing(8)
@@ -771,12 +785,14 @@ class WebViewPlatformSetupPage(QWizardPage):
         layout.addLayout(form)
         layout.addSpacing(8)
 
-        login_row = QHBoxLayout()
-        self._login_btn = QPushButton('Open Login Window')
-        self._login_btn.clicked.connect(self._open_login_window)
-        login_row.addWidget(self._login_btn)
-        login_row.addStretch()
-        layout.addLayout(login_row)
+        self._login_btn: QPushButton | None = None
+        if self._supports_embedded_login:
+            login_row = QHBoxLayout()
+            self._login_btn = QPushButton('Open Login Window')
+            self._login_btn.clicked.connect(self._open_login_window)
+            login_row.addWidget(self._login_btn)
+            login_row.addStretch()
+            layout.addLayout(login_row)
 
         self._status_label = QLabel('Login not detected')
         layout.addWidget(self._status_label)

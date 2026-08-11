@@ -14,9 +14,11 @@ PIP          := $(PY) -m pip
 VERSION_FILE := src/utils/_version.py
 POWERSHELL   := /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
 WIN_PYTHON   ?= py
+DESKTOP_SESSION_RUNNER := scripts/run-with-desktop-session.sh
 
-.PHONY: help venv deps version-file lint lintfix format test test-cov \
-        test-functional test-functional-xvfb test-functional-cmd \
+.PHONY: help venv deps version-file lint lintfix format test test-ci test-cov \
+        test-functional test-functional-non-mutating test-functional-mutating \
+        test-functional-linux test-functional-xvfb test-functional-cmd \
         venv-win build-wsl build-linux installer-wsl run clean
 
 help: ## Show this help
@@ -43,7 +45,7 @@ lint: ## Run ruff, mypy, and shellcheck
 	$(PY) -m ruff check src/ tests/ infrastructure/ scripts/
 	$(PY) -m ruff format --check src/ tests/ infrastructure/ scripts/
 	$(PY) -m mypy src/ scripts/release_info.py scripts/write_version.py
-	shellcheck infrastructure/deploy.sh build/linux/appimage/AppRun
+	shellcheck infrastructure/deploy.sh build/linux/appimage/AppRun $(DESKTOP_SESSION_RUNNER)
 
 lintfix: ## Auto-fix lint issues and format code
 	$(PY) -m ruff check --fix src/ tests/ infrastructure/ scripts/
@@ -54,7 +56,7 @@ format: lintfix  ## Alias for lintfix
 test: ## Run test suite (excludes functional)
 	QT_QPA_PLATFORM=offscreen $(PY) -m pytest tests/ -v -m "not functional"
 
-test-cov: ## Run tests with coverage (excludes functional)
+test-ci: ## Run the CI test suite with coverage (excludes functional)
 	QT_QPA_PLATFORM=offscreen $(PY) -m pytest tests/ -v -m "not functional" \
 		--cov=src \
 		--cov-report=term-missing \
@@ -63,8 +65,22 @@ test-cov: ## Run tests with coverage (excludes functional)
 		--junitxml=junit.xml \
 		-o junit_family=legacy
 
-test-functional: ## [Linux/WSL] Run functional tests directly (WebView tests skipped without display)
-	$(PY) -m pytest tests/functional/ -m functional -v --no-header
+test-cov: test-ci  ## Alias for test-ci (deprecated; kept for one release)
+
+test-functional: ## Run functional tests in strict mode
+	GALEFLING_STRICT_FUNCTIONAL=1 $(PY) -m pytest tests/functional/ -m functional -v --no-header
+
+test-functional-non-mutating: ## [Linux] Run strict tests that do not change platform state
+	GALEFLING_STRICT_FUNCTIONAL=1 $(DESKTOP_SESSION_RUNNER) \
+		$(PY) -m pytest tests/functional/ -m "functional and non_mutating" -v --no-header
+
+test-functional-mutating: ## [Linux] Run strict tests that create or change real posts
+	GALEFLING_STRICT_FUNCTIONAL=1 $(DESKTOP_SESSION_RUNNER) \
+		$(PY) -m pytest tests/functional/ -m "functional and mutating" -v --no-header
+
+test-functional-linux: ## [Linux] Run all strict functional tests on the live desktop
+	GALEFLING_STRICT_FUNCTIONAL=1 $(DESKTOP_SESSION_RUNNER) \
+		$(PY) -m pytest tests/functional/ -m functional -v --no-header
 
 test-functional-xvfb: ## [Linux/WSL] Run functional tests under Xvfb virtual display
 	xvfb-run -a $(PY) -m pytest tests/functional/ -m functional -v --no-header

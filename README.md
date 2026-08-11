@@ -71,3 +71,24 @@ Coming soon.
 ## For Developers
 
 Development docs are in `docs/CONTRIBUTING.md`.
+
+### Windows WebView Test VM
+
+The reusable libvirt/KVM harness for the Windows 11 functional-test VM lives in
+[`tools/windows-vm/`](tools/windows-vm/README.md). Copy `vm.env.example` to the
+gitignored `vm.env` and configure local paths there. Keep the actual SSH keypair in
+`~/.ssh`; `vm.env` stores only its private/public key paths.
+
+The harness can perform a fresh unattended installation or manage an existing VM:
+
+```bash
+tools/windows-vm/create-vm.sh
+tools/windows-vm/start-vm.sh
+tools/windows-vm/stop-vm.sh
+tools/windows-vm/snapshot-vm.sh list
+tools/windows-vm/snapshot-vm.sh revert clean-loggedout
+```
+
+Windows keys, passwords, ISOs, installers, generated answer files, and VM disks
+must remain outside the repository. See the harness README for prerequisites,
+configuration, safety behavior, and snapshot commands.

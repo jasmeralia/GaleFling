@@ -10,18 +10,37 @@ cp tests/functional/.env.example tests/functional/.env
 
 # 2. Edit tests/functional/.env with your real values
 
-# 3. Run functional tests (uses offscreen mode if no display)
-make test-functional PYTHON=.venv/bin/python
+# 3. Run every non-mutating test, including composer accessibility
+make test-functional-non-mutating
 
-# 4. Or with a virtual display for full WebGL support
+# 4. Run every functional test on the live Linux desktop (creates posts)
+make test-functional-linux
+
+# 5. Run mutating tests only (explicitly creates or changes real posts)
+make test-functional-mutating
+
+# 6. Or use the legacy lenient mode with a virtual display
 make test-functional-xvfb PYTHON=.venv/bin/python
 
-# 5. Or via cmd.exe for native Windows process (full GPU/display, best for WebView tests)
+# 7. Or via cmd.exe for native Windows process (full GPU/display, best for WebView tests)
 #    First-time setup: create the Windows venv (only needed once)
 make venv-win
 #    Then run tests
 make test-functional-cmd
 ```
+
+`test-functional-non-mutating`, `test-functional-mutating`, and
+`test-functional-linux` borrow the active KDE session's display environment from `plasmashell`,
+`kwin_wayland`, or `startplasma-wayland`. This supplies the live `DISPLAY`,
+`WAYLAND_DISPLAY`, `XAUTHORITY`, `XDG_RUNTIME_DIR`, and D-Bus session values when
+the command starts from SSH or tmux. Set `DESKTOP_SESSION_USER` if the graphical
+session belongs to a different user.
+
+> **Mutation warning:** `make test-functional-mutating` and
+> `make test-functional-linux` can create real posts. Some cleanup is best-effort
+> and may require manual deletion. `make test-functional-non-mutating` selects
+> composer discovery and unsent input checks, but never selects a test that calls
+> a real post-creation endpoint.
 
 > **WSL tip:** `make test-functional-cmd` invokes `cmd.exe` directly so pytest runs as a native Windows process with full GPU and display — same results as running on Windows natively. It uses a separate `.venv-win` directory because a WSL-created venv only has `bin/python`, not `Scripts/python.exe`. Run `make venv-win` once to create it. It uses the Windows Python Launcher (`py.exe`) by default, which ships with official Python installs and is more reliable than `python.exe` (which may redirect to the Microsoft Store). Override with `WIN_PYTHON` if needed, e.g. `make venv-win WIN_PYTHON="py -3.12"`.
 
@@ -47,8 +66,15 @@ make test-functional-cmd
 Windows has full GPU access, so WebView tests that need WebGL (Snapchat) work natively.
 
 ```powershell
-# All functional tests
+# All functional tests in strict mode
+$env:GALEFLING_STRICT_FUNCTIONAL = "1"
 .venv\Scripts\python -m pytest tests\functional\ -m functional -v --no-header
+
+# All non-mutating tests, including composer accessibility
+.venv\Scripts\python -m pytest tests\functional\ -m "functional and non_mutating" -v
+
+# Mutating tests only (creates, updates, or deletes real posts)
+.venv\Scripts\python -m pytest tests\functional\ -m "functional and mutating" -v
 
 # Specific platform only
 .venv\Scripts\python -m pytest tests\functional\test_webview_snapchat.py -m functional -v
@@ -75,6 +101,22 @@ GALEFLING_DATA_DIR=/mnt/c/Users/you/AppData/Roaming/GaleFling
 
 Easiest: export via **Settings > Advanced > Export Test Config** in GaleFling.
 
+## Functional Test Groups
+
+Every functional test belongs to exactly one side-effect group:
+
+- `non_mutating` includes media processing, local validation, authentication,
+  persisted-session checks, composer discovery, and unsent text injection. These
+  tests never call a real post-creation endpoint.
+- `mutating` includes every test that calls a platform post-creation endpoint,
+  including rejection tests whose requests are expected to fail. These tests may
+  create, update, or delete real posts.
+
+Collection fails if a functional test has neither marker or both markers. Run
+`make test-functional-non-mutating` for the side-effect-free suite. Tests that can
+change platform state require an explicit `make test-functional-mutating` or
+all-functional invocation.
+
 ## Display Modes and Platform Capabilities
 
 WebView tests behave differently depending on the display environment:
@@ -90,6 +132,26 @@ WebView tests behave differently depending on the display environment:
 **Windows is the recommended environment for full test coverage** because it has native GPU access required by Snapchat's WebGL-dependent web app.
 
 The conftest detects whether a display is available and only falls back to offscreen mode when one isn't. You can override this by setting `QT_QPA_PLATFORM=offscreen` explicitly.
+
+### Strict and lenient outcomes
+
+`GALEFLING_STRICT_FUNCTIONAL=1` makes environment and application defects fail the
+run instead of being reported as skips. This includes failed logins, missing DOM
+selectors, unavailable JavaScript, missing session databases, and WebEngine renderer
+terminations. Failure messages retain the original diagnostic, including the selector
+or platform state where available.
+
+Missing platform credentials remain legitimate skips in every mode. An absent or
+invalid `GALEFLING_DATA_DIR` also skips tests that require an existing GaleFling
+profile, because those tests cannot start without that external configuration.
+
+`make test-functional`, `make test-functional-non-mutating`,
+`make test-functional-mutating`, and `make test-functional-linux` enable strict
+mode. The three Linux desktop targets borrow the complete live graphical-session
+environment so QtWebEngine can use the desktop's hardware GPU. The compatibility
+targets `test-functional-xvfb` and `test-functional-cmd` keep their previous
+lenient behavior; set
+`GALEFLING_STRICT_FUNCTIONAL=1` explicitly when invoking pytest directly.
 
 ## Configuration
 
@@ -308,17 +370,20 @@ individual post, so manual cleanup may be needed.
 Functional tests are **excluded from CI** via the `functional` pytest marker:
 
 - `pyproject.toml` defines the marker
-- CI workflows pass `-m "not functional"` to pytest
-- `make test-cov` also excludes functional tests by default
-- `make test-functional` is the dedicated target for local runs
+- `make test-ci` runs the marker-excluded suite with coverage, JUnit, and coverage XML reports
+- the release workflow uses `make test-ci`
+- `make test-cov` is a deprecated alias for `make test-ci` for one release
+- `make test-functional` is the strict dedicated target for local runs
+- `make test-functional-non-mutating` selects every side-effect-free functional test
+- `make test-functional-mutating` explicitly selects tests that can change platform state
 
 ## Troubleshooting
 
 ### QWebEngineView crashes with "Fatal Python error: Aborted"
 The conftest.py creates a module-level QApplication to prevent garbage collection, and sets `QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox --disable-gpu --disable-software-rasterizer` when in offscreen mode. If you still see crashes, try running with a real display (`DISPLAY=:0` on WSL) or on native Windows.
 
-### WebView session tests skip with "No X cookie database found"
-The platform's cookie database doesn't exist in `GALEFLING_DATA_DIR/webprofiles/<platform>_1/Cookies`. The posting tests for all four WebView platforms will create the session automatically using the credentials in `.env`.
+### WebView session tests fail with "No X cookie database found"
+In strict mode, this means the platform's cookie database doesn't exist in `GALEFLING_DATA_DIR/webprofiles/<platform>_1/Cookies`. The posting tests for all four WebView platforms will create the session automatically using the credentials in `.env`. Lenient runs still report this condition as a skip.
 
 ### OnlyFans / Fansly / FetLife login fails during test
 Check that the credentials in `.env` are correct. For OnlyFans with 2FA, verify that `ONLYFANS_TOTP_SECRET` is set to the raw base32 seed (not a time-based code). If the account is locked or requires email verification, complete that step manually in the GaleFling app first.
@@ -330,7 +395,7 @@ FetLife redirects to `/posts` after submission instead of the individual post pa
 The test attempts to click the compose area to expand the editor. If it still can't find the composer, the SPA may need full browser rendering. Run on Windows for the best chance of success.
 
 ### Snapchat JS execution fails
-Snapchat's web app requires WebGL with a real GPU. This works on native Windows but not in WSL (even with WSLg) or offscreen mode. The test skips automatically with a diagnostic message.
+Snapchat's web app requires WebGL with a real GPU. This works on native Windows but not in WSL (even with WSLg) or offscreen mode. Strict runs fail with a diagnostic message; lenient runs skip.
 
 ### Tests pass on Windows but fail in WSL
 WebView platforms that depend on GPU rendering (Snapchat, some OnlyFans features) require native Windows. API-based platforms (Twitter, Bluesky, Instagram) and FetLife/Fansly work in both environments.

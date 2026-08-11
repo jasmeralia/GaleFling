@@ -286,13 +286,18 @@ class _ConnectionTestProgressDialog(QDialog):
             row_data['label'].setText(f'\u2718  {display_name}: {error_str}')
             platform = self._platforms.get(account_id)
             if error_str == 'WV-SESSION-EXPIRED' and isinstance(platform, BaseWebViewPlatform):
-                login_btn = QPushButton('Open Login Window')
-                login_btn.clicked.connect(
-                    lambda checked, p=platform, n=display_name: self._open_login(p, n)
-                )
-                row_data['row'].addWidget(login_btn)
-                row_data['login_btn'] = login_btn
-                self._webview_note.show()
+                if platform.get_specs().supports_embedded_login:
+                    login_btn = QPushButton('Open Login Window')
+                    login_btn.clicked.connect(
+                        lambda checked, p=platform, n=display_name: self._open_login(p, n)
+                    )
+                    row_data['row'].addWidget(login_btn)
+                    row_data['login_btn'] = login_btn
+                    self._webview_note.show()
+                else:
+                    row_data['label'].setText(
+                        f'✘  {display_name}: Session expired — import a new auth.json from Settings'
+                    )
         self._pending_count -= 1
         if self._pending_count <= 0:
             self._all_done()

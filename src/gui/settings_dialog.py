@@ -567,12 +567,20 @@ class SettingsDialog(QDialog):
         group = QGroupBox('Accounts')
         form = QFormLayout(group)
 
-        form.addRow(
-            QLabel(
+        if specs.supports_embedded_login:
+            intro = (
                 '<i>Log in via the embedded browser. Your session cookies are stored locally.</i>'
-            ),
-            QLabel(),
-        )
+            )
+        else:
+            intro = (
+                f'<i>{specs.platform_name} blocks logging in from an embedded browser. '
+                'Log in with your normal browser, export the session to an auth.json '
+                'file, then use <b>Import Session</b> below. Your session is stored '
+                'locally.</i>'
+            )
+        intro_label = QLabel(intro)
+        intro_label.setWordWrap(True)
+        form.addRow(intro_label, QLabel())
 
         for n in range(1, specs.max_accounts + 1):
             account_id = f'{platform_id}_{n}'
@@ -586,15 +594,16 @@ class SettingsDialog(QDialog):
             self._webview_profile_edits[account_id] = name_edit
 
             actions = QHBoxLayout()
-            open_login_btn = QPushButton('Open Login Window')
-            open_login_btn.clicked.connect(
-                lambda _=False, pid=platform_id, aid=account_id: self._open_webview_login_window(
-                    pid, aid
+            if specs.supports_embedded_login:
+                open_login_btn = QPushButton('Open Login Window')
+                open_login_btn.clicked.connect(
+                    lambda _=False, pid=platform_id, aid=account_id: (
+                        self._open_webview_login_window(pid, aid)
+                    )
                 )
-            )
-            actions.addWidget(open_login_btn)
+                actions.addWidget(open_login_btn)
 
-            if platform_id == 'onlyfans':
+            if specs.supports_session_import:
                 import_session_btn = QPushButton('Import Session from auth.json...')
                 import_session_btn.clicked.connect(
                     lambda _=False, pid=platform_id, aid=account_id: self._import_webview_session(

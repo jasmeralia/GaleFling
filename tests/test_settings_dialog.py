@@ -437,9 +437,17 @@ def test_settings_dialog_webview_tabs_show_login_and_reset_buttons(qtbot, tmp_pa
     reset_buttons = [
         btn for btn in dialog.findChildren(QPushButton) if btn.text() == 'Reset Session Cookies'
     ]
-    # snapchat has 2 accounts; onlyfans/fansly/fetlife each have 1
-    assert len(open_buttons) == 5
+    import_buttons = [
+        btn
+        for btn in dialog.findChildren(QPushButton)
+        if btn.text() == 'Import Session from auth.json...'
+    ]
+    # snapchat has 2 accounts; onlyfans/fansly/fetlife each have 1.  OnlyFans
+    # offers no login button because its login form rejects embedded browsers;
+    # it gets a session-import button instead.
+    assert len(open_buttons) == 4
     assert len(reset_buttons) == 5
+    assert len(import_buttons) == 1
 
 
 def test_settings_dialog_open_webview_login_window(qtbot, tmp_path, monkeypatch):

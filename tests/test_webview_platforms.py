@@ -119,6 +119,24 @@ def test_onlyfans_specs():
     ]
 
 
+def test_onlyfans_login_is_import_only():
+    """OnlyFans must not offer embedded login: reCAPTCHA Enterprise rejects it."""
+    specs = OnlyFansPlatform(account_id='onlyfans_1').get_specs()
+    assert specs.supports_embedded_login is False
+    assert specs.supports_session_import is True
+
+
+def test_other_webview_platforms_keep_embedded_login():
+    from src.platforms.fansly import FanslyPlatform
+    from src.platforms.fetlife import FetLifePlatform
+    from src.platforms.snapchat import SnapchatPlatform
+
+    for platform_cls in (FanslyPlatform, FetLifePlatform, SnapchatPlatform):
+        specs = platform_cls(account_id='acct_1').get_specs()
+        assert specs.supports_embedded_login is True, platform_cls.__name__
+        assert specs.supports_session_import is False, platform_cls.__name__
+
+
 def test_onlyfans_prefill_delay():
     assert OnlyFansPlatform.PREFILL_DELAY_MS == 1500
 

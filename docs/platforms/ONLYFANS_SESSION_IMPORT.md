@@ -51,6 +51,14 @@ The imported session is stored separately for each configured GaleFling account.
 Log in to OnlyFans again in the normal browser, create a new export, and import the new file. Avoid
 reusing an older export after logging out, changing the password, or revoking browser sessions.
 
+Importantly, **exporting again does not create a new session.** If the browser's session has already
+been invalidated, a fresh export simply captures the same dead session cookie, and the import will
+fail in exactly the same way. Log out of OnlyFans in the browser and log back in first, so a new
+session is issued, and only then export.
+
+OnlyFans also invalidates a session when a login attempt using it fails, so a session can stop
+working without you having logged out.
+
 ### “Session expired” appears immediately after import
 
 Confirm that the export was captured after a successful OnlyFans login. Then export it again and

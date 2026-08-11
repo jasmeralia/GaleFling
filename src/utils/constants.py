@@ -52,6 +52,13 @@ class PlatformSpecs:
     supports_text_with_media: bool = True
     # Max media attachments per post (images; video is always 1)
     max_media_attachments: int = 1
+    # Whether the user can authenticate inside GaleFling's embedded browser.
+    # False for platforms whose login form is gated by a bot check that rejects
+    # embedded engines; those authenticate by importing a browser-exported
+    # session instead.
+    supports_embedded_login: bool = True
+    # Whether the platform can restore a session from an exported auth.json.
+    supports_session_import: bool = False
 
 
 @dataclass
@@ -162,6 +169,10 @@ ONLYFANS_SPECS = PlatformSpecs(
     max_video_dimensions=(3840, 2160),
     max_video_file_size_mb=5120.0,
     max_media_attachments=40,
+    # OnlyFans gates its login form with reCAPTCHA Enterprise, which rejects the
+    # embedded browser regardless of credentials.  Sessions must be imported.
+    supports_embedded_login=False,
+    supports_session_import=True,
 )
 
 FANSLY_SPECS = PlatformSpecs(

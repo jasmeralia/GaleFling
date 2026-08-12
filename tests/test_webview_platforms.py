@@ -177,7 +177,38 @@ def test_fansly_specs():
     specs = p.get_specs()
     assert specs.platform_name == 'Fansly'
     assert specs.has_cloudflare is True
-    assert specs.max_text_length == 3000
+    # 2048 is the composer textarea's own maxlength, not a guess.
+    assert specs.max_text_length == 2048
+
+
+def test_bare_origin_login_url_does_not_match_every_page():
+    """A LOGIN_URL that is a bare origin must not classify the whole site as login.
+
+    Fansly's LOGIN_URL is https://fansly.com/, which prefix-matches every page on the
+    site. That made _is_login_redirect_url() true everywhere, so test_connection()
+    returned WV-SESSION-EXPIRED against a valid session and the connection test could
+    never pass.
+    """
+    fansly = FanslyPlatform(account_id='fansly_1')
+    assert fansly._is_login_redirect_url('https://fansly.com/') is True
+    assert fansly._is_login_redirect_url('https://fansly.com') is True
+    assert fansly._is_login_redirect_url('https://fansly.com/home') is False
+    assert fansly._is_login_redirect_url('https://fansly.com/messages') is False
+
+    # A LOGIN_URL with a real path keeps prefix matching.
+    fetlife = FetLifePlatform(account_id='fetlife_1')
+    assert fetlife._is_login_redirect_url('https://fetlife.com/login') is True
+    assert fetlife._is_login_redirect_url('https://fetlife.com/home') is False
+
+
+def test_fansly_submit_is_not_a_button():
+    """The composer's submit is a <div>Post</div>.
+
+    Recorded as a constant because a button-oriented lookup
+    (button[type=submit] / [role=button]) does not find it.
+    """
+    assert FanslyPlatform.TEXT_SUBMIT_LABEL == 'Post'
+    assert FanslyPlatform.MEDIA_FILE_SELECTOR == 'input[type="file"]'
 
 
 def test_fansly_prefill_delay():

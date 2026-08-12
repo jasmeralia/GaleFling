@@ -635,8 +635,19 @@ class BaseWebViewPlatform(BasePlatform):
 
         normalized = url_string.lower()
         login_url = self.LOGIN_URL.strip().lower()
-        if login_url and normalized.startswith(login_url):
-            return True
+        if login_url:
+            # Prefix matching is only meaningful when LOGIN_URL has a path of its own
+            # (e.g. https://fetlife.com/login).  A bare origin such as Fansly's
+            # https://fansly.com/ is a prefix of *every* page on the site, so prefix
+            # matching there classified the whole platform as a login page and made
+            # test_connection() report WV-SESSION-EXPIRED against a perfectly valid
+            # session.  For a bare origin only the landing page itself counts.
+            login_path = QUrl(login_url).path().strip('/')
+            if login_path:
+                if normalized.startswith(login_url):
+                    return True
+            elif normalized.rstrip('/') == login_url.rstrip('/'):
+                return True
 
         path_and_query = f'{candidate.path()}?{candidate.query()}#{candidate.fragment()}'.lower()
         return any(re.search(pattern, path_and_query) for pattern in self.LOGIN_URL_PATTERNS)

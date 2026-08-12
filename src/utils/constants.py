@@ -194,7 +194,12 @@ FANSLY_SPECS = PlatformSpecs(
     max_image_dimensions=(4096, 4096),
     max_file_size_mb=50.0,
     supported_formats=['JPEG', 'PNG', 'WEBP'],
-    max_text_length=3000,
+    # The composer's textarea declares maxlength=2048, so 2048 is what a user can
+    # actually type — verified against the live composer 2026-08-12. GaleFling injects
+    # programmatically, which bypasses maxlength, so a longer body would land in the
+    # box and be silently over the limit. Fansly's own accept list also includes GIF
+    # and audio, which GaleFling deliberately does not offer.
+    max_text_length=2048,
     platform_color='#0FABE5',
     api_type='webview',
     auth_method='session_cookie',

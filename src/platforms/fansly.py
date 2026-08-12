@@ -10,6 +10,12 @@ class FanslyPlatform(BaseWebViewPlatform):
     LOGIN_URL = 'https://fansly.com/'
     COMPOSER_URL = 'https://fansly.com/home'
     TEXT_SELECTOR = 'textarea'
+    # The composer's submit is a <div>Post</div>, not a button — it carries no
+    # type=submit and no role=button, so a button-oriented lookup will not find it.
+    # It only becomes usable once the textarea flips ng-invalid -> ng-valid.
+    TEXT_SUBMIT_LABEL = 'Post'
+    # Single multi-accept file input on the feed composer (images, video and audio).
+    MEDIA_FILE_SELECTOR = 'input[type="file"]'
     SUCCESS_URL_PATTERN = ''  # SPA — URL capture unlikely
     SUCCESS_SELECTOR = ''
     COOKIE_DOMAINS = ['fansly.com']

@@ -483,7 +483,7 @@ excluded from routine runs (`disabled_platform`). Image→video pipeline tests i
 
 **Priority gaps to close next** (tracked in Odoo task #166):
 
-1. **OnlyFans + Fansly mutating smoke tests** — submit a tagged post and delete, mirroring FetLife.
+1. **OnlyFans mutating smoke test** — submit a tagged post and verify it exists, mirroring FetLife and Fansly. (Fansly done.)
 2. **FetLife media upload in the post flow** — `_attach_media()`, `_certify_upload_consent()` and `_inject_media_caption()` exist and are covered by mutating tests, but nothing calls them outside tests; wiring them into `_do_prefill()` is task #417 Level B.
 3. **Media processing** — add resize/validation cases for Threads, Facebook Page, OnlyFans, and Fansly specs.
 4. **Second-account slots** — no functional test exercises `twitter_2`, `bluesky_alt`, `meta_instagram_2`, or `meta_threads_2`.
@@ -502,11 +502,12 @@ Snapchat session tests exist but are `disabled_platform` (excluded from routine 
 
 | Test case                    | FetLife | Fansly | OnlyFans |
 |------------------------------|---------|--------|----------|
-| Session / connection         | x       | -      | -        |
+| Session / connection         | x       | x      | -        |
 | Composer page loads          | x       | x      | x        |
+| Composer elements present    | x       | x      | -        |
 | Composer click expansion     | -       | -      | x        |
 | Text injection (platform)    | x       | x      | x        |
-| Text post submit + delete    | x       | -      | -        |
+| Text post creates a post     | x       | x      | -        |
 | Picture upload (real post)   | x       | -      | -        |
 | Video upload (real post)     | x       | -      | -        |
 | Picture attach via platform (no submit) | x | -  | -        |

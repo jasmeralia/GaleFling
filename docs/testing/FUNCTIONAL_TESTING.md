@@ -222,6 +222,27 @@ All credentials are read from `tests/functional/.env` (gitignored). Copy the tem
 cp tests/functional/.env.example tests/functional/.env
 ```
 
+#### Credential fixtures redact themselves
+
+Every `*_credentials` fixture returns a `RedactedCredentials` mapping (defined in
+`tests/functional/conftest.py`) rather than a plain `dict`. Subscripting works as
+normal — `creds['password']` still returns the password — but the mapping renders as
+`<RedactedCredentials: email, password>` instead of its values.
+
+This exists because **pytest prints every fixture argument in a failing test's
+traceback header**, using each value's `repr`. A credential fixture returning a plain
+dict therefore prints the live password on any failure, with nothing in the test doing
+the printing, and invisibly until something fails. That is how a Fansly password
+reached a session transcript and had to be rotated.
+
+Redacting at the value rather than the command line means it holds under `--tb=long`,
+`--showlocals`, and an f-string in an assertion message. **A new credential fixture
+must wrap its return value the same way** — `test_every_credential_fixture_returns_a_redacted_mapping`
+in `tests/test_functional_outcomes.py` fails if one forgets.
+
+Reading a credential into a string is still your responsibility: nothing stops
+`f'{creds["password"]}'`, and the rule against printing `.env` values is unchanged.
+
 ### Required Variables per Platform
 
 #### Bluesky (easiest — start here)

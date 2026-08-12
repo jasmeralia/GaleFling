@@ -49,6 +49,28 @@ def fail_or_skip(reason: str) -> None:
     pytest.skip(reason)
 
 
+class RedactedCredentials(dict):
+    """A credential mapping that cannot render its own values.
+
+    pytest prints every fixture argument in a failing test's traceback header, using
+    each value's ``repr``. A credential fixture returning a plain dict therefore prints
+    the live password on any failure — with nothing in the test doing the printing, and
+    invisibly until something fails. That is how a Fansly password reached a session
+    transcript on 2026-08-12 and had to be rotated.
+
+    Overriding ``repr`` fixes it at the value rather than at the command line: it holds
+    under ``--tb=long``, ``--showlocals``, an f-string in an assertion message, and any
+    future caller who never reads this docstring. Subclassing ``dict`` keeps
+    ``creds['password']`` working, so reading a value is still deliberate — only
+    *displaying the mapping* is neutered.
+    """
+
+    def __repr__(self) -> str:
+        return f'<{type(self).__name__}: {", ".join(sorted(self))}>'
+
+    __str__ = __repr__
+
+
 def mutating_post_tag() -> str:
     """Short unique tag embedded in live mutating post text for cleanup lookup."""
     return uuid.uuid4().hex[:8]
@@ -513,7 +535,7 @@ def twitter_credentials():
     creds = {k: os.environ.get(k) for k in keys}
     if not all(creds.values()):
         pytest.skip('Twitter credentials not configured')
-    return creds
+    return RedactedCredentials(creds)
 
 
 @pytest.fixture
@@ -524,7 +546,7 @@ def bluesky_credentials():
     }
     if not all(creds.values()):
         pytest.skip('Bluesky credentials not configured')
-    return creds
+    return RedactedCredentials(creds)
 
 
 @pytest.fixture
@@ -535,7 +557,7 @@ def instagram_credentials():
     }
     if not all(creds.values()):
         pytest.skip('Instagram credentials not configured')
-    return creds
+    return RedactedCredentials(creds)
 
 
 @pytest.fixture
@@ -551,7 +573,7 @@ def meta_aws_credentials():
     }
     if not all([creds['access_key_id'], creds['secret_access_key'], creds['bucket']]):
         pytest.skip('Meta AWS media staging credentials not configured')
-    return creds
+    return RedactedCredentials(creds)
 
 
 @pytest.fixture
@@ -589,7 +611,7 @@ def fansly_credentials():
     password = os.environ.get('FANSLY_PASSWORD')
     if not email or not password:
         pytest.skip('Fansly credentials not configured')
-    return {'email': email, 'password': password}
+    return RedactedCredentials({'email': email, 'password': password})
 
 
 @pytest.fixture
@@ -598,7 +620,7 @@ def fetlife_credentials():
     password = os.environ.get('FETLIFE_PASSWORD')
     if not email or not password:
         pytest.skip('FetLife credentials not configured')
-    return {'email': email, 'password': password}
+    return RedactedCredentials({'email': email, 'password': password})
 
 
 @pytest.fixture
@@ -609,7 +631,7 @@ def meta_threads_credentials():
     }
     if not all(creds.values()):
         pytest.skip('Meta Threads credentials not configured')
-    return creds
+    return RedactedCredentials(creds)
 
 
 @pytest.fixture
@@ -620,7 +642,7 @@ def meta_facebook_credentials():
     }
     if not all(creds.values()):
         pytest.skip('Meta Facebook Page credentials not configured')
-    return creds
+    return RedactedCredentials(creds)
 
 
 @pytest.fixture
@@ -629,4 +651,4 @@ def snapchat_credentials():
     password = os.environ.get('SNAPCHAT_PASSWORD')
     if not username or not password:
         pytest.skip('Snapchat credentials not configured')
-    return {'username': username, 'password': password}
+    return RedactedCredentials({'username': username, 'password': password})

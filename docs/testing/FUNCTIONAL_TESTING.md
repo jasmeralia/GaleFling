@@ -580,7 +580,11 @@ The mechanism that does work everywhere is Chromium's own file picker, via `choo
 3. `platform.open_media_picker()` issues a JS `input.click()`, which Chromium now allows.
 4. `_LoggingWebEnginePage.chooseFiles()` returns the staged path, and the page receives a genuine `change` event with a real `File`.
 
-`attach_via_file_picker()` wraps steps 1–4. Verified live on Fansly, where the `DataTransfer` path fails.
+`attach_via_file_picker()` wraps steps 1–4, and the mechanism itself is verified at the Qt level: `chooseFiles()` fires and Chromium accepts the returned path as a real selection.
+
+**It is still not enough for Fansly.** The picker fires, Chromium hands over a genuine selection, and Fansly's composer ignores it anyway — `media-upload-container` stays empty (0 children) for 20s+. Neither `DataTransfer` nor the picker attaches media there, so there are deliberately no Fansly media tests. Whatever its uploader binds to, it is not this input's change event; finding it needs fresh investigation, likely drag-and-drop or a wrapper component that never consults the input.
+
+> **A cautionary note on measuring this.** An earlier version of these tests "proved" the Fansly attach worked by counting elements matching `[class*="preview"]`. That count is dominated by the surrounding feed — it sits at ~81 with nothing attached and drifts by a couple as the feed updates. The same trap applies to `media-loading` (46 at baseline) and to a parent-walk scope from the composer textarea, which escapes into the feed after ~6 levels. Scope to `media-upload-container` and compare against a pristine-composer baseline before believing any counter.
 
 Two constraints learned the hard way:
 - **The activation target must be visible.** FetLife's `picture[caption]` textarea has zero size until a file is attached, so clicking it grants nothing. `trusted_click()` accepts a tuple of candidate selectors and skips any that are not rendered.

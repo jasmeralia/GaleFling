@@ -519,6 +519,8 @@ class TestFetLifeTextPost:
             wait_ms(3000)
 
             test_text = mutating_post_text()
+
+            print(f'\n  posting tag {test_text} — delete this if the run fails')
             platform._inject_text(test_text)
             wait_ms(1000)
 
@@ -657,6 +659,8 @@ class TestFetLifePicturePost:
             wait_ms(2000)
 
             tag = mutating_post_text()
+
+            print(f'\n  posting tag {tag} — delete this if the run fails')
             platform._image_path = sample_jpeg
 
             attach = _call_platform(platform._attach_media, sample_jpeg)
@@ -772,6 +776,8 @@ class TestFetLifeVideoPost:
             wait_ms(2000)
 
             tag = mutating_post_text()
+
+            print(f'\n  posting tag {tag} — delete this if the run fails')
             platform._image_path = sample_video
 
             attach = _call_platform(platform._attach_media, sample_video)

@@ -16,13 +16,19 @@ class FanslyPlatform(BaseWebViewPlatform):
     TEXT_SUBMIT_LABEL = 'Post'
     # Single multi-accept file input on the feed composer (images, video and audio).
     #
-    # NOTE: the inherited _attach_media() does NOT work here.  Fansly's Angular uploader
-    # ignores a synthetic DataTransfer + change event outright — verified 2026-08-12
-    # against the live composer: the input clears, and twelve seconds later the composer
-    # subtree is byte-identical (no preview, no app-media, textarea still ng-pristine
-    # ng-invalid).  It presumably requires a trusted file selection.  Attaching media
-    # here needs a QWebEnginePage.chooseFiles() override (task #417 Level B), which is
-    # the same mechanism recommended for FetLife.
+    # NOTE: media cannot currently be attached to this composer by any automated
+    # means we have found.  Verified 2026-08-12 against the live composer:
+    #
+    #   synthetic DataTransfer  ignored outright — the input clears and the composer
+    #                           subtree is byte-identical twelve seconds later.
+    #   chooseFiles() picker    the picker fires and Chromium hands over a genuine
+    #                           selection, yet media-upload-container stays empty
+    #                           (0 children, 14 bytes of innerHTML) for 20s+.
+    #
+    # Posting regardless publishes the caption with no media attached, so there are
+    # deliberately no Fansly media tests.  Whatever Fansly binds its uploader to, it is
+    # not this input's change event.  Finding it needs fresh investigation — likely
+    # drag-and-drop, or a wrapper component that never consults the input at all.
     MEDIA_FILE_SELECTOR = 'input[type="file"]'
     SUCCESS_URL_PATTERN = ''  # SPA — URL capture unlikely
     SUCCESS_SELECTOR = ''

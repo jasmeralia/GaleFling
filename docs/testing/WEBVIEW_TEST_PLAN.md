@@ -423,7 +423,7 @@ testing their own composer logic.
 | Bluesky, Twitter | Yes — `227348d` | Yes |
 | Meta (Instagram, Threads, Facebook Page) | Yes — `084909e` | Yes |
 | FetLife (WebView) | Yes | Yes — full suite, incl. mutating |
-| Fansly (WebView) | Yes — injection rerouted to `_inject_text()` | **No** |
+| Fansly (WebView) | Yes | Yes — incl. a mutating text post |
 | OnlyFans (WebView) | Yes — injection and selector rerouted | **No** |
 | Snapchat (WebView) | n/a — `disabled_platform` | n/a |
 

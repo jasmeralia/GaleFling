@@ -466,8 +466,8 @@ The tables above show what **is** tested. The gaps below map missing functional 
 | Gap | OnlyFans | Fansly | FetLife |
 |-----|----------|--------|---------|
 | Mutating post submit + delete | — | — | text only |
-| Media / image upload post | — | — | **covered** (mutating) |
-| Video upload post | — | — | **covered** (mutating) |
+| Media / image upload post | — | blocked (see below) | **covered** (mutating) |
+| Video upload post | — | blocked (see below) | **covered** (mutating) |
 | Media upload wired into post flow | — | — | — (task #417 Level B) |
 | Paid / schedule / tier UI flows | — | — | — |
 | Media processing functional tests | unit only | unit only | — |
@@ -569,6 +569,11 @@ OnlyFans cannot be logged in automatically during tests. Export `auth.json` from
 Fixed — but the failure mode is worth knowing. `BaseWebViewPlatform._evict_profile()` only drops the registry key; it does not destroy the `QWebEngineProfile` or release Chromium's lock on `webprofiles/<account_id>/`. When a test *fails*, pytest keeps the assertion traceback alive, and with it the test frame's `view` / `page` / `platform` locals — so unless teardown clears every reference itself, the profile survives, the next `create_webview()` builds a second profile on the same storage path, and every page load after that returns an empty URL while the process wedges at exit.
 
 `close_webview()` therefore clears `platform._profile` (not just `_view` / `_page`), pumps deferred deletes before evicting, and runs a `gc.collect()` pass. Functional tests also carry a hard `pytest-timeout` ceiling (`FUNCTIONAL_TEST_TIMEOUT_S`, thread method) so a wedged profile fails one test with stack dumps instead of stalling the run — a Chromium deadlock sits in C++ and never returns to Python, so nothing else can interrupt it.
+
+### Fansly media cannot be attached programmatically
+`FanslyPlatform` inherits `_attach_media()`, but **it does not work on Fansly** and there is deliberately no Fansly media test. Verified 2026-08-12 against the live composer: assigning a synthetic `DataTransfer` and dispatching `input`/`change` clears the file input and changes nothing else — twelve seconds later the composer subtree is byte-identical (no preview element, no `app-media`, textarea still `ng-pristine ng-invalid`). Fansly's Angular uploader appears to require a trusted file selection.
+
+This raises the priority of the `QWebEnginePage.chooseFiles()` approach recorded for task #417 Level B: for FetLife it is merely the better option (the base64 attach works but is size-bound); **for Fansly it is the only option**. Until then, Fansly media posting is untestable and unautomatable, and `test_composer_elements_present` covers only that the input exists.
 
 ### FetLife statuses are not auto-deleted — every mutating run leaves one
 `test_text_post_submit_and_delete` posts a real status and **cannot currently remove it**. It reports this rather than claiming success: the run prints `MANUAL CLEANUP NEEDED` with the tag. Delete it from your feed after a mutating run.

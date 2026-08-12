@@ -3,12 +3,15 @@
 # WebEngine process flags must be set before importing Qt WebEngine modules.
 # ruff: noqa: E402
 
+import base64
 import contextlib
 import json
 import logging
+import mimetypes
 import re
 import sqlite3
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from src.core.webview_environment import (
@@ -21,6 +24,7 @@ from src.core.webview_session_import import (
     save_session_metadata,
     session_recently_imported,
 )
+from src.utils.constants import VIDEO_EXTENSIONS
 
 # Platform classes are also imported directly by tests and support tooling that
 # bypass the application entry point. Keep the process-wide policy consistent.
@@ -90,6 +94,9 @@ class BaseWebViewPlatform(BasePlatform):
     # indicates an expired session (e.g. an inline login form).  Subclasses
     # that cannot rely on a URL redirect to signal session expiry should set
     # this list.  The check runs as a JS querySelector after loadFinished.
+    # Composer file-input selector for platforms with a single multi-accept input.
+    # Platforms with one composer per media type override get_media_file_selector().
+    MEDIA_FILE_SELECTOR: str = ''
     SESSION_EXPIRED_SELECTORS: list[str] = []
     # Milliseconds to wait after loadFinished before running the
     # SESSION_EXPIRED_SELECTORS DOM check.  Set this on platforms whose login
@@ -897,6 +904,109 @@ class BaseWebViewPlatform(BasePlatform):
         }})();
         """
         page.runJavaScript(js)
+
+    # ── Media attachment ────────────────────────────────────────────
+
+    def get_media_file_selector(self, path: 'Path | None' = None) -> str | None:
+        """Return the composer file-input selector for *path* (or the staged media).
+
+        Defaults to ``MEDIA_FILE_SELECTOR``. Platforms that use a different composer
+        per media type override this to route by extension.
+        """
+        return self.MEDIA_FILE_SELECTOR or None
+
+    def _attach_media(self, path: Path, callback: Callable[[dict], None] | None = None) -> None:
+        """Attach a local file to the open upload composer's file input.
+
+        The file is handed to the picker input via a synthetic ``DataTransfer`` so the
+        page's own change handlers run.  This reports only that the file was written and
+        the events dispatched — **not** that the form accepted it.  The picture composer
+        moves the file to a hidden ``picture[attachments][]`` field and clears the picker
+        asynchronously, so acceptance must be observed by polling
+        ``_media_attachment_state()`` rather than read back here.
+
+        The file is inlined into the script as base64, which bounds this to modest
+        media.  Wiring media upload into the automatic post flow (task #417 Level B)
+        should instead override ``QWebEnginePage.chooseFiles()`` and hand Chromium the
+        path directly — no size ceiling and a genuinely native file-picker path.
+        """
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+
+        selector = self.get_media_file_selector(path)
+        if not selector:
+            if callback:
+                callback({'dispatched': False, 'reason': 'platform declares no media file input'})
+            return
+        mime, _ = mimetypes.guess_type(str(path))
+        if not mime:
+            mime = 'video/mp4' if path.suffix.lower() in VIDEO_EXTENSIONS else 'image/jpeg'
+
+        try:
+            data_b64 = base64.b64encode(path.read_bytes()).decode('ascii')
+        except OSError as exc:
+            if callback:
+                callback({'dispatched': False, 'reason': f'could not read {path.name}: {exc}'})
+            return
+
+        js = f"""
+        (function() {{
+            var input = document.querySelector({json.dumps(selector)});
+            if (!input) return {{dispatched: false, reason: 'file input not found'}};
+            var binary = atob({json.dumps(data_b64)});
+            var bytes = new Uint8Array(binary.length);
+            for (var i = 0; i < binary.length; i++) {{
+                bytes[i] = binary.charCodeAt(i);
+            }}
+            var transfer = new DataTransfer();
+            transfer.items.add(
+                new File([bytes], {json.dumps(path.name)}, {{type: {json.dumps(mime)}}})
+            );
+            input.files = transfer.files;
+            input.dispatchEvent(new Event('input', {{bubbles: true}}));
+            input.dispatchEvent(new Event('change', {{bubbles: true}}));
+            return {{dispatched: true, fileName: {json.dumps(path.name)}}};
+        }})();
+        """
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
+
+    def _media_attachment_state(self, callback: Callable[[dict], None] | None = None) -> None:
+        """Report how many files the open upload form is currently holding.
+
+        Counts across every ``input[type="file"]`` on the page rather than the picker we
+        wrote to.  The picture composer hands the file to ``picture[attachments][]`` and
+        empties the picker, so inspecting the picker alone reports zero on success.
+        Poll this after ``_attach_media()`` — the hand-off is asynchronous.
+        """
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+
+        js = """
+        (function() {
+            var total = 0;
+            var holders = [];
+            document.querySelectorAll('input[type="file"]').forEach(function(el) {
+                if (el.files && el.files.length) {
+                    total += el.files.length;
+                    holders.push(el.name || el.id || '<unnamed>');
+                }
+            });
+            return {attached: total > 0, fileCount: total, holders: holders};
+        })();
+        """
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
 
     # ── URL capture ─────────────────────────────────────────────────
 

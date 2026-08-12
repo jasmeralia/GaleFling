@@ -72,6 +72,38 @@ def _read_composer_text(page) -> dict:
     )
 
 
+def _wait_for_attachment(platform, timeout_ms: int = 20000) -> dict:
+    """Poll until the composer reports a file attached."""
+    elapsed = 0
+    state: dict = {}
+    while elapsed < timeout_ms:
+        state = _call_platform(platform._media_attachment_state)
+        if state.get('attached'):
+            return state
+        wait_ms(500)
+        elapsed += 500
+    return state
+
+
+def _call_platform(method, *args, timeout_ms: int = 20000) -> dict:
+    """Call a platform method whose result arrives via an async runJavaScript callback."""
+    state: dict = {'done': False, 'value': None}
+
+    def callback(value):
+        state['done'] = True
+        state['value'] = value
+
+    method(*args, callback=callback)
+    elapsed = 0
+    while not state['done'] and elapsed < timeout_ms:
+        wait_ms(100)
+        elapsed += 100
+    value = state['value']
+    if isinstance(value, dict):
+        return value
+    return {'timed_out': not state['done'], 'raw': value}
+
+
 def _own_profile_href(page) -> str | None:
     """Resolve the logged-in account's profile path from the feed's own links."""
     return run_js(

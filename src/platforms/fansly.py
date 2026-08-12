@@ -15,6 +15,14 @@ class FanslyPlatform(BaseWebViewPlatform):
     # It only becomes usable once the textarea flips ng-invalid -> ng-valid.
     TEXT_SUBMIT_LABEL = 'Post'
     # Single multi-accept file input on the feed composer (images, video and audio).
+    #
+    # NOTE: the inherited _attach_media() does NOT work here.  Fansly's Angular uploader
+    # ignores a synthetic DataTransfer + change event outright — verified 2026-08-12
+    # against the live composer: the input clears, and twelve seconds later the composer
+    # subtree is byte-identical (no preview, no app-media, textarea still ng-pristine
+    # ng-invalid).  It presumably requires a trusted file selection.  Attaching media
+    # here needs a QWebEnginePage.chooseFiles() override (task #417 Level B), which is
+    # the same mechanism recommended for FetLife.
     MEDIA_FILE_SELECTOR = 'input[type="file"]'
     SUCCESS_URL_PATTERN = ''  # SPA — URL capture unlikely
     SUCCESS_SELECTOR = ''

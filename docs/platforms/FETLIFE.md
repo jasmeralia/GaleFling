@@ -74,10 +74,14 @@ FetLife sessions expire periodically (especially without "remember me"). When yo
 - **API type**: `webview` — you confirm the post in the embedded browser panel.
 - **Auth method**: Session cookies in isolated WebView profile (cookie check only — no live probe).
 - **Composer routing**: GaleFling navigates to a different URL depending on what is attached:
-  - Text only → `fetlife.com/posts/new`
+  - Text only → `fetlife.com/home` (the status composer on the feed)
   - Image → `fetlife.com/pictures/new`
   - Video → `fetlife.com/videos/new`
-- **Text pre-fill**: Uses FetLife's Lexxy editor (`div.lexxy-editor__content[contenteditable="true"][role="textbox"]`). Pre-fill delay is 200 ms (fast — traditional MPA pages load quickly).
+- **Text pre-fill**: Text posts are FetLife **statuses**, composed in the inline box on the feed (`textarea[name="body"]`, placeholder "What's on your kinky mind?", submit button **"Say It!"**). Pre-fill delay is 200 ms (fast — traditional MPA pages load quickly).
+
+  > **Not `/posts/new`.** That is the *writing* composer, and its form requires a `post[title]` field GaleFling has no input for. Submitting from there fails validation silently and bounces back to the feed, creating nothing — which is exactly what a passing-but-useless functional test looked like before 2026-08-11. The Lexxy editor belongs to that writing composer, not to statuses.
+
+- **Status length limit**: 690 characters — the limit FetLife displays in its own composer. It sets no `maxlength` on the textarea; the "Say It!" button simply disables past the cap (verified 2026-08-11: enabled at 690, disabled at 691).
 - **Recurring prompt**: If FetLife displays its post-login prompt again, GaleFling
   selects **Maybe Later** so the composer remains usable. The prompt is detected on
   every page load rather than assumed to be a one-time event.
@@ -90,11 +94,11 @@ FetLife sessions expire periodically (especially without "remember me"). When yo
   before they will submit. `FetLifePlatform._certify_upload_consent()` matches these by exact
   name — the picture form also carries `picture[is_avatar]`, which replaces the account avatar,
   so keyword matching over checkbox labels must never be used here.
-- **Success detection**: FetLife supports URL capture. Post URLs match the pattern `fetlife.com/users/<id>/(statuses|posts|pictures|videos)/<id>`.
+- **Success detection**: FetLife supports URL capture. Status permalinks use `fetlife.com/<username>/s/<id>` (e.g. `/Jasmeralia/s/11543410072`) — **not** `users/<id>/statuses/<id>`. Media posts use `fetlife.com/(users/<id>/)?(posts|pictures|videos)/<id>`. All forms are covered by `SUCCESS_URL_PATTERN`.
 
 ### Post Cleanup Note
 
-FetLife redirects to `/posts` (the feed) after a text post is submitted, rather than to the individual post page. This means manual cleanup of test posts may be needed — search your FetLife feed for any test content.
+Statuses are posted in place on the feed rather than navigating to the new status, so functional tests confirm success by finding the status's tag on the feed. Automated deletion of a status is best-effort and currently unproven — check your feed for the tag printed by the test run.
 
 ## Troubleshooting
 
@@ -104,4 +108,4 @@ FetLife redirects to `/posts` (the feed) after a text post is submitted, rather 
 | Text not pre-filled | Ensure the composer has fully loaded before GaleFling injects text. FetLife loads fast, but network latency can occasionally delay page render. |
 | `WV-SESSION-EXPIRED` in results | Session cookies expired. Log in again via Settings. |
 | Post goes to wrong composer | GaleFling routes based on attached media type. Detach media to get the text composer, or attach the correct media type. |
-| Post submitted but no URL captured | Text posts redirect to the feed (`/posts`) rather than the new post. This is a FetLife behavior, not a GaleFling bug. The post was still submitted. |
+| Post submitted but no URL captured | Statuses post in place on the feed rather than navigating to a permalink. Confirm the status actually appears on the feed — a bounce back to the feed is also what a *rejected* submit looks like, so a URL alone never proves a post was created. |

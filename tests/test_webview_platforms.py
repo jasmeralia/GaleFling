@@ -231,45 +231,39 @@ def test_fetlife_specs():
     specs = p.get_specs()
     assert specs.platform_name == 'FetLife'
     assert specs.has_cloudflare is False
-    assert specs.max_text_length is None
+    assert specs.max_text_length == 690
 
 
 def test_fetlife_composer_url():
-    assert FetLifePlatform.COMPOSER_URL == 'https://fetlife.com/posts/new?source=Feed'
+    assert FetLifePlatform.COMPOSER_URL == 'https://fetlife.com/home'
 
 
-def test_fetlife_uses_current_lexxy_editor():
-    assert FetLifePlatform.TEXT_SELECTOR == (
-        'div.lexxy-editor__content[contenteditable="true"][role="textbox"]'
-    )
+def test_fetlife_text_posts_target_the_status_composer():
+    """Text posts are statuses on the feed, not writings.
+
+    `/posts/new` is the writing composer and its form requires a `post[title]` that
+    GaleFling has no field for, so submitting there fails validation silently.
+    """
+    assert FetLifePlatform.TEXT_COMPOSER_URL == 'https://fetlife.com/home'
+    assert FetLifePlatform.TEXT_SELECTOR == 'textarea[name="body"]'
+    assert FetLifePlatform.TEXT_SUBMIT_LABEL == 'Say It!'
+    assert 'posts/new' not in FetLifePlatform.TEXT_COMPOSER_URL
 
 
-def test_fetlife_injects_text_through_lexxy_custom_element():
-    class RecordingPage:
-        def __init__(self):
-            self.js_calls = []
+def test_fetlife_injects_text_via_textarea_prototype_setter():
+    """A direct `.value =` assignment leaves "Say It!" disabled; the setter does not."""
+    platform, page = _fetlife_with_page()
 
-        def runJavaScript(self, script):  # noqa: N802 - mirrors Qt API
-            self.js_calls.append(script)
-
-    class RecordingView:
-        def __init__(self, page):
-            self._page = page
-
-        def page(self):
-            return self._page
-
-    platform = FetLifePlatform(account_id='fetlife_1')
-    page = RecordingPage()
-    platform._view = RecordingView(page)
-
-    platform._inject_text('Hello Lexxy')
+    platform._inject_text('Hello status')
 
     assert len(page.js_calls) == 1
     script = page.js_calls[0]
-    assert "closest('lexxy-editor')" in script
-    assert 'editor.value = paragraph.outerHTML' in script
-    assert 'Hello Lexxy' in script
+    assert 'HTMLTextAreaElement.prototype' in script
+    assert "'value'" in script
+    assert 'setter.call(box' in script
+    assert json.dumps(FetLifePlatform.TEXT_SELECTOR) in script
+    assert 'Hello status' in script
+    assert 'lexxy' not in script.lower()
 
 
 def test_fetlife_login_url():
@@ -339,7 +333,7 @@ def test_fetlife_selects_image_composer_url():
 def test_fetlife_selects_text_composer_url_for_text_only():
     p = FetLifePlatform(account_id='fetlife_1')
     p.prepare_post('hello', [])
-    assert p.get_composer_url() == 'https://fetlife.com/posts/new?source=Feed'
+    assert p.get_composer_url() == 'https://fetlife.com/home'
 
 
 class _RecordingPage:
@@ -465,7 +459,11 @@ def test_fetlife_success_url_pattern():
     assert re.search(pattern, 'https://fetlife.com/posts/67890')
     assert re.search(pattern, 'https://fetlife.com/pictures/67890')
     assert re.search(pattern, 'https://fetlife.com/videos/67890')
+    # Status permalinks use the username form, which is what a text post produces.
+    assert re.search(pattern, 'https://fetlife.com/Jasmeralia/s/11543410072')
     assert not re.search(pattern, 'https://fetlife.com/')
+    assert not re.search(pattern, 'https://fetlife.com/home')
+    assert not re.search(pattern, 'https://fetlife.com/posts/new?source=Feed')
 
 
 def test_fetlife_session_requires_auth_cookie(monkeypatch, tmp_path):

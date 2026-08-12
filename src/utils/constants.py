@@ -212,7 +212,11 @@ FETLIFE_SPECS = PlatformSpecs(
     max_image_dimensions=(4096, 4096),
     max_file_size_mb=20.0,
     supported_formats=['JPEG', 'PNG'],
-    max_text_length=None,
+    # Text posts are statuses, which FetLife caps at 690 characters — the limit it
+    # displays in its own composer.  It sets no `maxlength` on the textarea; the
+    # "Say It!" button simply disables past the cap (verified 2026-08-11: enabled at
+    # 690, disabled at 691).
+    max_text_length=690,
     platform_color='#D4001A',
     api_type='webview',
     auth_method='session_cookie',

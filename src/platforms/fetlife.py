@@ -18,12 +18,20 @@ class FetLifePlatform(BaseWebViewPlatform):
     """FetLife posting via embedded WebView (traditional MPA)."""
 
     LOGIN_URL = 'https://fetlife.com/login'
-    TEXT_COMPOSER_URL = 'https://fetlife.com/posts/new?source=Feed'
+    # Text posts are FetLife *statuses*, composed in the inline box on the feed —
+    # not writings.  `/posts/new` is the writing composer: its form requires a
+    # `post[title]` that GaleFling has no field for, so submitting from there
+    # silently fails validation and bounces back to the feed.
+    TEXT_COMPOSER_URL = 'https://fetlife.com/home'
     IMAGE_COMPOSER_URL = 'https://fetlife.com/pictures/new?source=Main+Navigation'
     VIDEO_COMPOSER_URL = 'https://fetlife.com/videos/new?source=Main+Navigation'
     COMPOSER_URL = TEXT_COMPOSER_URL
-    TEXT_SELECTOR = 'div.lexxy-editor__content[contenteditable="true"][role="textbox"]'
-    SUCCESS_URL_PATTERN = r'fetlife\.com/(?:users/\d+/(?:statuses|posts|pictures|videos)/\d+|(?:posts|pictures|videos)/\d+)'
+    TEXT_SELECTOR = 'textarea[name="body"]'
+    TEXT_SUBMIT_LABEL = 'Say It!'
+    # Status permalinks are /<username>/s/<id> (e.g. /Jasmeralia/s/11543410072) — not
+    # /users/<id>/statuses/<id>.  Verified against a live status on 2026-08-11; without
+    # the username form, URL capture never matches a text post.
+    SUCCESS_URL_PATTERN = r'fetlife\.com/(?:users/\d+/(?:statuses|posts|pictures|videos)/\d+|(?:posts|pictures|videos)/\d+|[A-Za-z0-9_.-]+/s/\d+)'
     SUCCESS_SELECTOR = ''
     COOKIE_DOMAINS = ['fetlife.com']
     AUTH_COOKIE_NAMES = ['_fl_sessionid', 'remember_user_token', '_fl_session_remember_me']
@@ -232,25 +240,29 @@ class FetLifePlatform(BaseWebViewPlatform):
         return FETLIFE_SPECS
 
     def _inject_text(self, text: str):
-        """Set text through Lexxy's form-associated custom-element API."""
+        """Fill the status composer's textarea on the feed.
+
+        Uses the ``HTMLTextAreaElement`` prototype setter so the value lands on the
+        real DOM property the page's Stimulus controller reads — the "Say It!" button
+        stays disabled otherwise.  Verified against the live composer: the button
+        enables for 1..690 characters and disables at 691.
+        """
         if not self._view:
             return
         page = self._view.page()
         if not page:
             return
-        selector = json.dumps(self.TEXT_SELECTOR)
-        escaped = json.dumps(text)
         page.runJavaScript(
             f"""
             (function() {{
-                const content = document.querySelector({selector});
-                const editor = content && content.closest('lexxy-editor');
-                if (!editor) return;
-                const paragraph = document.createElement('p');
-                paragraph.textContent = {escaped};
-                editor.value = paragraph.outerHTML;
-                editor.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                editor.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                const box = document.querySelector({json.dumps(self.TEXT_SELECTOR)});
+                if (!box) return;
+                const setter = Object.getOwnPropertyDescriptor(
+                    window.HTMLTextAreaElement.prototype, 'value'
+                ).set;
+                setter.call(box, {json.dumps(text)});
+                box.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                box.dispatchEvent(new Event('change', {{ bubbles: true }}));
             }})();
             """
         )

@@ -20,6 +20,7 @@ import pytest
 from src.platforms.fetlife import FetLifePlatform
 from tests.functional.conftest import fail_or_skip, mutating_post_tag, mutating_post_text
 from tests.functional.webview_helpers import (
+    _CONFIRM_DELETE_JS,
     attempt_delete_current_post,
     close_webview,
     create_webview,
@@ -67,19 +68,47 @@ def _dismiss_maybe_later(page) -> bool:
     return bool(dismissed)
 
 
-def _read_lexxy_text(page) -> dict:
-    """Read the Lexxy editor content after platform text injection."""
+def _read_status_text(page) -> dict:
+    """Read the status composer textarea after platform text injection."""
     return run_js(
         page,
-        """
-        (function() {
-            var content = document.querySelector(
-                'div.lexxy-editor__content[contenteditable="true"][role="textbox"]'
-            );
-            if (!content) return {found: false};
-            return {found: true, content: content.textContent.substring(0, 200)};
-        })();
+        f"""
+        (function() {{
+            var box = document.querySelector({json.dumps(FetLifePlatform.TEXT_SELECTOR)});
+            if (!box) return {{found: false}};
+            var say = Array.from(document.querySelectorAll('button, input[type="submit"]'))
+                .find(function(b) {{
+                    return ((b.textContent || b.value || '').trim()
+                        === {json.dumps(FetLifePlatform.TEXT_SUBMIT_LABEL)});
+                }});
+            return {{
+                found: true,
+                content: box.value.substring(0, 200),
+                submitFound: !!say,
+                submitDisabled: say ? !!say.disabled : null
+            }};
+        }})();
         """,
+    )
+
+
+def _status_exists_in_feed(page, tag: str) -> dict:
+    """Whether a status carrying *tag* is present on the current page."""
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            var body = document.body ? document.body.innerText : '';
+            var idx = body.indexOf({json.dumps(tag)});
+            return {{
+                found: idx !== -1,
+                url: location.href,
+                context: idx === -1 ? null
+                    : body.substring(Math.max(0, idx - 60), idx + 60)
+            }};
+        }})();
+        """,
+        timeout_ms=10000,
     )
 
 
@@ -191,6 +220,63 @@ def _upload_form_state(page, composer_path: str) -> dict:
     )
 
 
+def _delete_status_by_tag(page, tag: str) -> dict:
+    """Delete the feed status carrying *tag* via its own dropdown Delete entry.
+
+    Scoped to the ``<article>`` that owns the tag, so no other status can be removed.
+    The tag text sits in a leaf ``<p>`` several levels below the article, and only the
+    article carries the controls — walking to the *deepest* node containing the tag
+    finds an element with no controls at all.
+
+    **This does not currently work, and the test reports that honestly.** Investigated
+    against a live status on 2026-08-11: the Delete entry is an ``<a href="#0">`` whose
+    only payload is a ``data`` attribute that stringifies to ``[object Object]`` — no
+    ``data-method``, no ``data-turbo-confirm``, no delete endpoint, and the status
+    permalink page (``/<username>/s/<id>``) offers the same control rather than a form.
+    The handler is bound in JavaScript, so a synthetic ``.click()`` never reaches it and
+    no confirmation dialog is raised.
+
+    Automating it needs a *trusted* click — ``QTest.mouseClick`` at the element's
+    viewport coordinates, opening the "More options" dropdown first. That is exactly the
+    pattern ``docs/testing/WEBVIEW_TEST_PLAN.md`` Phase 6 prescribes for telling "our JS
+    set the property" apart from "a user's click reached the control", and is the right
+    next step. Until then, mutating runs leave a status behind and print its tag.
+    """
+    run_js(page, 'window.confirm = function() { return true; };')
+    clicked = run_js(
+        page,
+        f"""
+        (function() {{
+            var leaf = Array.from(document.querySelectorAll('*')).filter(function(el) {{
+                return el.children.length === 0
+                    && (el.textContent || '').indexOf({json.dumps(tag)}) !== -1;
+            }})[0];
+            if (!leaf) return {{clicked: false, reason: 'status not on page'}};
+            var host = leaf.closest('article');
+            if (!host) return {{clicked: false, reason: 'no article ancestor for the status'}};
+            var del = Array.from(host.querySelectorAll('a, button, [role="button"]')).find(
+                function(c) {{ return (c.textContent || '').trim().toLowerCase() === 'delete'; }}
+            );
+            if (!del) return {{clicked: false, reason: 'no Delete entry in the article'}};
+            del.click();
+            return {{clicked: true}};
+        }})();
+        """,
+    )
+    if not (isinstance(clicked, dict) and clicked.get('clicked')):
+        return {'deleted': False, 'detail': clicked}
+
+    wait_ms(2000)
+    confirm = run_js(page, _CONFIRM_DELETE_JS)
+    wait_ms(2500)
+
+    # Only the status leaving the feed counts as deleted.
+    load_page(page, TEXT_COMPOSER_URL, timeout_ms=20000)
+    wait_ms(3000)
+    gone = not _status_exists_in_feed(page, tag).get('found')
+    return {'deleted': gone, 'confirm': confirm}
+
+
 def _click_submit_button(page, label_fragments: str | list[str]) -> dict:
     """Click a submit control matching one of *label_fragments* (case-insensitive)."""
     if isinstance(label_fragments, str):
@@ -291,7 +377,12 @@ class TestFetLifeTextPost:
             _ensure_session(page, fetlife_credentials)
             final_url = page.url().toString()
             assert '/login' not in final_url.lower(), f'Redirected to login: {final_url}'
-            assert 'posts/new' in final_url, f'Unexpected URL: {final_url}'
+
+            composer = _read_status_text(page)
+            assert composer.get('found'), f'Status composer textarea not found: {composer}'
+            assert composer.get('submitFound'), (
+                f'"{FetLifePlatform.TEXT_SUBMIT_LABEL}" button not found: {composer}'
+            )
         finally:
             close_webview(view, page, platform)
 
@@ -308,7 +399,7 @@ class TestFetLifeTextPost:
             platform._inject_text(test_text)
             wait_ms(500)
 
-            result = _read_lexxy_text(page)
+            result = _read_status_text(page)
             assert isinstance(result, dict), f'JS returned: {result}'
             assert result.get('found'), 'Lexxy editor not found'
             assert test_text in result.get('content', ''), f'Text not injected: {result}'
@@ -317,7 +408,13 @@ class TestFetLifeTextPost:
 
     @pytest.mark.mutating
     def test_text_post_submit_and_delete(self, galefling_data_dir, fetlife_credentials):
-        """Submit a text post, capture the URL when possible, then attempt deletion."""
+        """Post a status, prove it exists on the feed, then attempt deletion.
+
+        The post-condition is deliberately the status appearing on the feed, not a URL
+        change.  FetLife stays on / returns to the feed either way, so asserting on the
+        URL cannot distinguish a published status from a rejected submit — an earlier
+        version of this test passed while creating nothing at all.
+        """
         get_or_create_app()
         view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
@@ -326,33 +423,44 @@ class TestFetLifeTextPost:
 
             test_text = mutating_post_text()
             platform._inject_text(test_text)
-            wait_ms(500)
+            wait_ms(1000)
 
-            inject_check = _read_lexxy_text(page)
+            inject_check = _read_status_text(page)
             assert inject_check.get('found') and test_text in inject_check.get('content', ''), (
                 f'Text injection failed: {inject_check}'
             )
-
-            wait_ms(500)
-            submit_result = _click_submit_button(
-                page,
-                ['Express Yourself', 'Post', 'Share', 'Publish'],
+            assert inject_check.get('submitFound'), (
+                f'"{FetLifePlatform.TEXT_SUBMIT_LABEL}" button not found: {inject_check}'
             )
+            assert not inject_check.get('submitDisabled'), (
+                f'"{FetLifePlatform.TEXT_SUBMIT_LABEL}" still disabled after injection — '
+                f'the composer did not register the text: {inject_check}'
+            )
+
+            submit_result = _click_submit_button(page, FetLifePlatform.TEXT_SUBMIT_LABEL)
             assert isinstance(submit_result, dict) and submit_result.get('clicked'), (
                 f'Submit failed: {submit_result}'
             )
 
             wait_ms(8000)
-            post_url = page.url().toString()
-            assert 'posts/new' not in post_url, f'Still on composer after submit: {post_url}'
+            posted = _status_exists_in_feed(page, test_text)
+            if not posted.get('found'):
+                load_page(page, TEXT_COMPOSER_URL, timeout_ms=20000)
+                wait_ms(3000)
+                posted = _status_exists_in_feed(page, test_text)
+            assert posted.get('found'), (
+                f'Status {test_text} is not on the feed after submit — nothing was posted: {posted}'
+            )
 
+            print(f'\n  FetLife status posted (tag {test_text})')
+            post_url = page.url().toString()
             if POST_URL_PATTERN.search(post_url):
-                print(f'\n  FetLife post created: {post_url}')
                 delete_outcome = attempt_delete_current_post(page)
-                print(f'  Delete attempt: {delete_outcome}')
             else:
-                print(f'\n  FetLife post submitted (redirected to: {post_url})')
-                print(f'  Manual cleanup needed — search feed for tag: {test_text}')
+                delete_outcome = _delete_status_by_tag(page, test_text)
+            print(f'  Delete attempt: {delete_outcome}')
+            if not delete_outcome.get('deleted'):
+                print(f'  MANUAL CLEANUP NEEDED — status {test_text} is still on the feed')
         finally:
             close_webview(view, page, platform)
 

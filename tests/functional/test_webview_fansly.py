@@ -13,6 +13,7 @@ import pytest
 from src.platforms.fansly import FanslyPlatform
 from tests.functional.conftest import fail_or_skip, mutating_post_tag, mutating_post_text
 from tests.functional.webview_helpers import (
+    attach_via_file_picker,
     close_webview,
     create_webview,
     get_or_create_app,
@@ -102,6 +103,20 @@ def _call_platform(method, *args, timeout_ms: int = 20000) -> dict:
     if isinstance(value, dict):
         return value
     return {'timed_out': not state['done'], 'raw': value}
+
+
+def _composer_preview_count(page) -> int:
+    """Count media preview elements — Fansly's only visible sign of an attachment.
+
+    The uploader takes the file into Angular component state and leaves the file input
+    empty, so counting `input.files` reports zero even on success.
+    """
+    value = run_js(
+        page,
+        'document.querySelectorAll(\'[class*="single-preview"], [class*="preview"]\').length',
+        timeout_ms=10000,
+    )
+    return int(value) if isinstance(value, int) else -1
 
 
 def _own_profile_href(page) -> str | None:
@@ -391,5 +406,59 @@ class TestFanslyPost:
             )
             print(f'\n  Fansly post created (tag {tag}) -> {posted.get("where")}')
             print(f'  MANUAL CLEANUP NEEDED — delete the Fansly post tagged {tag}')
+        finally:
+            close_webview(view, page, platform)
+
+    @pytest.mark.non_mutating
+    def test_media_attach_via_file_picker(
+        self, galefling_data_dir, fansly_credentials, sample_jpeg
+    ):
+        """Attach media through Chromium's file picker. Never clicks Post.
+
+        A synthetic ``DataTransfer`` does not work here — Fansly's Angular uploader
+        ignores it entirely. Going through ``chooseFiles()`` gives Chromium a genuine
+        file selection, which the uploader does accept.
+
+        The trusted click is on the composer textarea purely to grant user activation
+        (Chromium refuses to open a picker without it). Clicking a textarea only focuses
+        it; it stands in for the user's own click rather than reimplementing anything.
+        """
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fansly_credentials)
+            ok, final_url = load_page(page, COMPOSER_URL, timeout_ms=30000)
+            assert ok, f'Composer load failed: {final_url}'
+            wait_ms(8000)
+
+            before = _composer_preview_count(page)
+
+            result = attach_via_file_picker(
+                view,
+                page,
+                platform,
+                sample_jpeg,
+                FanslyPlatform.TEXT_SELECTOR,
+                timeout_ms=20000,
+            )
+            assert result.get('attached'), f'File picker never took the file: {result}'
+            assert platform.picker_invocations == 1, (
+                f'Expected exactly one picker request, got {platform.picker_invocations}'
+            )
+
+            wait_ms(4000)
+            after = _composer_preview_count(page)
+            assert after > before, (
+                f'Fansly did not register the attachment: previews {before} -> {after}. '
+                'The uploader consumes the file into component state rather than '
+                'leaving it on the input, so a preview appearing is the only signal.'
+            )
+
+            still_here = run_js(
+                page,
+                f'window.location.href.indexOf({json.dumps(COMPOSER_URL)}) === 0',
+                timeout_ms=10000,
+            )
+            assert still_here, 'Must not navigate away without submitting'
         finally:
             close_webview(view, page, platform)

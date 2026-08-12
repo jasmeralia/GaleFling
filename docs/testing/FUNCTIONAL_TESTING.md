@@ -570,8 +570,26 @@ Fixed — but the failure mode is worth knowing. `BaseWebViewPlatform._evict_pro
 
 `close_webview()` therefore clears `platform._profile` (not just `_view` / `_page`), pumps deferred deletes before evicting, and runs a `gc.collect()` pass. Functional tests also carry a hard `pytest-timeout` ceiling (`FUNCTIONAL_TEST_TIMEOUT_S`, thread method) so a wedged profile fails one test with stack dumps instead of stalling the run — a Chromium deadlock sits in C++ and never returns to Python, so nothing else can interrupt it.
 
-### Fansly media cannot be attached programmatically
-`FanslyPlatform` inherits `_attach_media()`, but **it does not work on Fansly** and there is deliberately no Fansly media test. Verified 2026-08-12 against the live composer: assigning a synthetic `DataTransfer` and dispatching `input`/`change` clears the file input and changes nothing else — twelve seconds later the composer subtree is byte-identical (no preview element, no `app-media`, textarea still `ng-pristine ng-invalid`). Fansly's Angular uploader appears to require a trusted file selection.
+### Attaching media: use the file picker, not a synthetic DataTransfer
+`_attach_media()` writes a synthetic `DataTransfer` onto the file input. That works on FetLife's composers and **does not work on Fansly at all** — its Angular uploader ignores the synthetic selection outright (verified 2026-08-12: the input clears and the composer subtree is byte-identical twelve seconds later).
+
+The mechanism that does work everywhere is Chromium's own file picker, via `chooseFiles()`:
+
+1. `platform.stage_media_for_picker(path)` queues the file.
+2. A **trusted** click grants user activation — Chromium refuses to open a picker without it, and JavaScript cannot grant it. In tests that is `trusted_click()` (a real `QTest` mouse event); in the app it is the user's own click.
+3. `platform.open_media_picker()` issues a JS `input.click()`, which Chromium now allows.
+4. `_LoggingWebEnginePage.chooseFiles()` returns the staged path, and the page receives a genuine `change` event with a real `File`.
+
+`attach_via_file_picker()` wraps steps 1–4. Verified live on Fansly, where the `DataTransfer` path fails.
+
+Two constraints learned the hard way:
+- **The activation target must be visible.** FetLife's `picture[caption]` textarea has zero size until a file is attached, so clicking it grants nothing. `trusted_click()` accepts a tuple of candidate selectors and skips any that are not rendered.
+- **Tests must set `suppress_native_file_dialog`.** Without a staged file the override falls through to Qt's real dialog, which is correct for the app but blocks a headless run forever. `attach_via_file_picker()` sets it.
+
+Fansly's uploader consumes the file into Angular state and leaves `input.files` empty, so success is measured by a preview element appearing, not by counting files on the input.
+
+#### Still on the base64 path
+FetLife's media tests still use `_attach_media()`. They pass, but migrating them to the picker would remove the size ceiling (the file is inlined into a script as base64) and use one mechanism across both platforms. `FanslyPlatform` inherits `_attach_media()`, but **it does not work on Fansly**. Verified 2026-08-12 against the live composer: assigning a synthetic `DataTransfer` and dispatching `input`/`change` clears the file input and changes nothing else — twelve seconds later the composer subtree is byte-identical (no preview element, no `app-media`, textarea still `ng-pristine ng-invalid`). Fansly's Angular uploader appears to require a trusted file selection.
 
 This raises the priority of the `QWebEnginePage.chooseFiles()` approach recorded for task #417 Level B: for FetLife it is merely the better option (the base64 attach works but is size-bound); **for Fansly it is the only option**. Until then, Fansly media posting is untestable and unautomatable, and `test_composer_elements_present` covers only that the input exists.
 

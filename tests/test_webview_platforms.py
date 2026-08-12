@@ -181,6 +181,47 @@ def test_fansly_specs():
     assert specs.max_text_length == 2048
 
 
+def test_staged_picker_files_are_consumed_once():
+    """chooseFiles() must not hand the same selection to a second picker request."""
+    platform = FanslyPlatform(account_id='fansly_1')
+    assert platform.take_staged_picker_files() == []
+    assert platform.picker_invocations == 1
+
+    platform.stage_media_for_picker(Path('/tmp/photo.jpg'))
+    assert platform.take_staged_picker_files() == ['/tmp/photo.jpg']
+    assert platform.take_staged_picker_files() == []
+    assert platform.picker_invocations == 3
+
+
+def test_open_media_picker_clicks_the_media_input():
+    """The JS click is what opens the picker; user activation is the caller's job."""
+    platform, page = _fansly_with_page()
+    platform.open_media_picker()
+
+    assert len(page.js_calls) == 1
+    script = page.js_calls[0]
+    assert json.dumps(FanslyPlatform.MEDIA_FILE_SELECTOR) in script
+    assert 'input.click()' in script
+    assert 'navigator.userActivation' in script
+
+
+def test_open_media_picker_reports_platforms_with_no_media_input():
+    class NoMedia(FanslyPlatform):
+        MEDIA_FILE_SELECTOR = ''
+
+    platform = NoMedia(account_id='fansly_1')
+    platform._view = _RecordingView(_RecordingPage())
+    results = []
+    platform.open_media_picker(callback=results.append)
+
+    assert results == [{'opened': False, 'reason': 'platform declares no media file input'}]
+
+
+def test_suppress_native_file_dialog_defaults_off():
+    """The app must still get a real dialog when a user opens a picker themselves."""
+    assert FanslyPlatform(account_id='fansly_1').suppress_native_file_dialog is False
+
+
 def test_bare_origin_login_url_does_not_match_every_page():
     """A LOGIN_URL that is a bare origin must not classify the whole site as login.
 
@@ -385,6 +426,13 @@ class _RecordingView:
 
     def page(self):
         return self._page
+
+
+def _fansly_with_page():
+    platform = FanslyPlatform(account_id='fansly_1')
+    page = _RecordingPage()
+    platform._view = _RecordingView(page)
+    return platform, page
 
 
 def _fetlife_with_page():

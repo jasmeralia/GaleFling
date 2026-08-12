@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from PyQt6.QtCore import QEventLoop, Qt, QTimer, QUrl
+from PyQt6.QtCore import QEventLoop, QPoint, Qt, QTimer, QUrl
 from PyQt6.QtTest import QTest
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -143,6 +143,106 @@ _CONFIRM_DELETE_JS = """
     return {confirmed: true, label: (btn.textContent || btn.value || '').trim()};
 })();
 """
+
+
+def element_center(page: QWebEnginePage, selector: str) -> tuple[int, int] | None:
+    """Viewport centre of the first element matching *selector*, or None."""
+    rect = run_js(
+        page,
+        f"""
+        (function() {{
+            var el = document.querySelector({json.dumps(selector)});
+            if (!el) return null;
+            // Scroll into view first: an element below the fold reports viewport
+            // coordinates outside the widget, so the synthetic click would land
+            // somewhere else entirely (or nowhere) and grant no activation.
+            el.scrollIntoView({{block: 'center', inline: 'center'}});
+            var r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return null;
+            return {{
+                x: Math.round(r.left + r.width / 2),
+                y: Math.round(r.top + r.height / 2),
+                viewportH: window.innerHeight,
+                viewportW: window.innerWidth
+            }};
+        }})();
+        """,
+    )
+    if not isinstance(rect, dict):
+        return None
+    x, y = int(rect['x']), int(rect['y'])
+    if not (0 <= x < int(rect['viewportW']) and 0 <= y < int(rect['viewportH'])):
+        return None
+    return x, y
+
+
+def trusted_click(
+    view: QWebEngineView, page: QWebEnginePage, selector: str | tuple[str, ...]
+) -> bool:
+    """Click a visible element with a real Qt mouse event, granting user activation.
+
+    Chromium refuses to open a file picker without user activation, and JavaScript
+    cannot grant it — a ``runJavaScript``-driven click is rejected with "File chooser
+    dialog can only be shown with a user activation". A ``QTest`` mouse event is
+    trusted, and the activation it grants then lets a *subsequent* JS ``input.click()``
+    through (verified 2026-08-12).
+
+    This stands in for the user's own click; it is not a reimplementation of anything
+    the platform does.
+    """
+    selectors = (selector,) if isinstance(selector, str) else tuple(selector)
+    point = None
+    for candidate in selectors:
+        point = element_center(page, candidate)
+        if point is not None:
+            break
+    if point is None:
+        return False
+    wait_ms(400)  # let the scroll settle before clicking the measured point
+
+    target = view.focusProxy() or view
+    QTest.mouseClick(
+        target,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        QPoint(*point),
+    )
+    wait_ms(300)
+    return bool(run_js(page, '!!(navigator.userActivation && navigator.userActivation.isActive)'))
+
+
+def attach_via_file_picker(
+    view: QWebEngineView,
+    page: QWebEnginePage,
+    platform: BaseWebViewPlatform,
+    path: Path,
+    activation_selector: str | tuple[str, ...],
+    timeout_ms: int = 15000,
+) -> dict:
+    """Stage *path* and drive the composer's picker into taking it.
+
+    ``activation_selector`` must be a *visible* element safe to click — the composer's
+    own attach control. Clicking the file input itself will not do: composers hide it
+    (``class="hidden"``, zero size), so it has no clickable coordinates.
+    """
+    platform.suppress_native_file_dialog = True
+    before = platform.picker_invocations
+    platform.stage_media_for_picker(path)
+
+    activated = trusted_click(view, page, activation_selector)
+    if not activated:
+        return {'attached': False, 'reason': f'no user activation from {activation_selector!r}'}
+
+    platform.open_media_picker(path)
+
+    elapsed = 0
+    while platform.picker_invocations == before and elapsed < timeout_ms:
+        wait_ms(250)
+        elapsed += 250
+
+    if platform.picker_invocations == before:
+        return {'attached': False, 'reason': 'file picker never opened', 'activated': True}
+    return {'attached': True, 'activated': True, 'elapsed_ms': elapsed}
 
 
 def _confirmed(result) -> bool:

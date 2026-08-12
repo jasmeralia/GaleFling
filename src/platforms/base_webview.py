@@ -11,7 +11,7 @@ import mimetypes
 import re
 import sqlite3
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from src.core.webview_environment import (
@@ -133,6 +133,12 @@ class BaseWebViewPlatform(BasePlatform):
         self._post_confirmed = False
         self._text: str = ''
         self._image_path: Path | None = None
+        # Files handed to Chromium's file picker via _LoggingWebEnginePage.chooseFiles().
+        self._staged_picker_files: list[str] = []
+        self._picker_invocations = 0
+        # Tests set this so an unstaged picker returns [] instead of opening a real
+        # native dialog, which would block the run with nothing able to dismiss it.
+        self.suppress_native_file_dialog = False
         self._poll_timer: QTimer | None = None
         self._poll_elapsed_ms: int = 0
         self._last_url: str = ''
@@ -915,6 +921,63 @@ class BaseWebViewPlatform(BasePlatform):
         """
         return self.MEDIA_FILE_SELECTOR or None
 
+    def stage_media_for_picker(self, path: Path) -> None:
+        """Queue *path* to satisfy the next native file-picker request.
+
+        Chromium refuses to open a file dialog without user activation, so staging alone
+        does nothing — something must then trigger the picker from a trusted gesture.
+        See open_media_picker().
+        """
+        self._staged_picker_files = [str(path)]
+
+    def take_staged_picker_files(self) -> list[str]:
+        """Consume the staged selection. Called by the page's chooseFiles() override."""
+        self._picker_invocations += 1
+        staged, self._staged_picker_files = self._staged_picker_files, []
+        return staged
+
+    @property
+    def picker_invocations(self) -> int:
+        """How many times the file picker has been satisfied for this platform."""
+        return self._picker_invocations
+
+    def open_media_picker(
+        self, path: Path | None = None, callback: Callable[[dict], None] | None = None
+    ) -> None:
+        """Ask the page to open its file picker for the composer's media input.
+
+        The click is issued from JavaScript, which carries no user activation of its
+        own. Chromium accepts it only if a *trusted* gesture has already activated the
+        page — verified 2026-08-12: a JS ``input.click()`` fires chooseFiles when
+        ``navigator.userActivation.isActive`` is true, and is refused with "File chooser
+        dialog can only be shown with a user activation" when it is not. Callers are
+        responsible for that gesture.
+        """
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+        selector = self.get_media_file_selector(path)
+        if not selector:
+            if callback:
+                callback({'opened': False, 'reason': 'platform declares no media file input'})
+            return
+
+        js = f"""
+        (function() {{
+            var input = document.querySelector({json.dumps(selector)});
+            if (!input) return {{opened: false, reason: 'file input not found'}};
+            var active = !!(navigator.userActivation && navigator.userActivation.isActive);
+            input.click();
+            return {{opened: true, userActivationActive: active}};
+        }})();
+        """
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
+
     def _attach_media(self, path: Path, callback: Callable[[dict], None] | None = None) -> None:
         """Attach a local file to the open upload composer's file input.
 
@@ -1220,6 +1283,32 @@ class _LoggingWebEnginePage(QWebEnginePage):
     ):
         super().__init__(profile, parent)
         self._platform = platform
+
+    def chooseFiles(  # noqa: N802 - mirrors Qt API
+        self,
+        mode: QWebEnginePage.FileSelectionMode,
+        oldFiles: Iterable[str | None],  # noqa: N803 - mirrors Qt API
+        acceptedMimeTypes: Iterable[str | None],  # noqa: N803 - mirrors Qt API
+    ) -> list[str]:
+        """Satisfy a page's file picker from the platform's staged selection.
+
+        This is how media reaches a WebView composer.  Chromium treats the returned
+        paths as a genuine user file selection and fires a real ``change`` event with a
+        real ``File`` — which is what site uploaders expect.  Assigning a synthetic
+        ``DataTransfer`` from JavaScript does not achieve that: Fansly's uploader
+        ignores it outright.
+
+        With nothing staged this falls through to Qt's own handler, so a user who opens
+        a picker themselves still gets the native dialog.  Functional tests set
+        ``suppress_native_file_dialog`` to return an empty selection instead — a real
+        modal dialog in a headless run blocks forever with nothing able to dismiss it.
+        """
+        staged = self._platform.take_staged_picker_files()
+        if staged:
+            return staged
+        if self._platform.suppress_native_file_dialog:
+            return []
+        return super().chooseFiles(mode, oldFiles, acceptedMimeTypes)
 
     def acceptNavigationRequest(  # noqa: N802
         self,

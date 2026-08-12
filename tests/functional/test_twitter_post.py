@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import contextlib
-import uuid
 
 import pytest
 import tweepy
+
+from tests.functional.conftest import mutating_post_text
 
 
 def _make_auth(creds: dict):
@@ -134,8 +135,7 @@ class TestTwitterTextPost:
     def test_text_post_and_delete(self, twitter_credentials):
         from src.platforms.twitter import TwitterPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        text = f'GaleFling functional test {tag} — safe to delete'
+        text = mutating_post_text()
 
         platform = TwitterPlatform(_make_auth(twitter_credentials))
         result = platform.post(text)
@@ -158,8 +158,7 @@ class TestTwitterImagePost:
     def test_single_image_post(self, twitter_credentials, sample_jpeg):
         from src.platforms.twitter import TwitterPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling image test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = TwitterPlatform(_make_auth(twitter_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg])
@@ -173,8 +172,7 @@ class TestTwitterImagePost:
     def test_png_image_post(self, twitter_credentials, sample_png):
         from src.platforms.twitter import TwitterPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling PNG test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = TwitterPlatform(_make_auth(twitter_credentials))
         result = platform.post(caption, media_paths=[sample_png])
@@ -188,8 +186,7 @@ class TestTwitterImagePost:
     def test_multiple_images_post(self, twitter_credentials, sample_jpeg, sample_png):
         from src.platforms.twitter import TwitterPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling multi-image test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = TwitterPlatform(_make_auth(twitter_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
@@ -211,8 +208,7 @@ class TestTwitterVideoPost:
     def test_video_post(self, twitter_credentials, sample_video):
         from src.platforms.twitter import TwitterPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling video test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = TwitterPlatform(_make_auth(twitter_credentials))
         result = platform.post(caption, media_paths=[sample_video])

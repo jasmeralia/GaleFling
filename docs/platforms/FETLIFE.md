@@ -81,6 +81,15 @@ FetLife sessions expire periodically (especially without "remember me"). When yo
 - **Recurring prompt**: If FetLife displays its post-login prompt again, GaleFling
   selects **Maybe Later** so the composer remains usable. The prompt is detected on
   every page load rather than assumed to be a one-time event.
+- **Upload composers**: `pictures/new` has *two* file inputs — a hidden picker carrying the
+  `accept` list (`#picture_attachments`) and the real `picture[attachments][]` field. FetLife
+  moves the file between them asynchronously and clears the picker, so an attach cannot be
+  verified by re-reading the input it was written to. `videos/new` has a single input
+  (`#video_video`) and keeps the file.
+- **Upload consent**: both upload forms require `picture[is_certified]` / `video[is_certified]`
+  before they will submit. `FetLifePlatform._certify_upload_consent()` matches these by exact
+  name — the picture form also carries `picture[is_avatar]`, which replaces the account avatar,
+  so keyword matching over checkbox labels must never be used here.
 - **Success detection**: FetLife supports URL capture. Post URLs match the pattern `fetlife.com/users/<id>/(statuses|posts|pictures|videos)/<id>`.
 
 ### Post Cleanup Note

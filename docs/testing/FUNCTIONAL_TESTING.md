@@ -376,7 +376,7 @@ GALEFLING_STRICT_FUNCTIONAL=1 scripts/run-with-desktop-session.sh \
   .venv/bin/python -m pytest tests/functional/test_webview_fansly.py -v
 ```
 
-Every mutating post embeds a UUID tag in the caption/text (`GaleFling functional test <tag> — safe to delete`). Search the account for `GaleFling` to find leftovers if cleanup fails.
+Every mutating post embeds an 8-character hex UUID tag in the caption/text (via `mutating_post_text()` / `mutating_post_tag()` in `conftest.py`). Search the account for that tag if cleanup fails — pytest output includes the tag when a test prints it.
 
 ### Session-or-Login Flow
 
@@ -414,6 +414,7 @@ Tests that create a post attempt to delete it in the same test. Cleanup is **bes
 | Threads | Yes | Graph API delete (text, image, video, carousel) |
 | Facebook Page | Yes | Graph API delete (text, photo, multi-photo, video) |
 | FetLife (text) | Best-effort | UI delete when post URL is captured; feed redirect needs manual cleanup |
+| FetLife (picture/video) | **No mutating tests** | Attach is covered non-mutatingly; Upload is never clicked — see warning below |
 
 Tests use UUID tags in post text to avoid duplicate-post rejections and to make manual cleanup easy.
 
@@ -465,8 +466,9 @@ The tables above show what **is** tested. The gaps below map missing functional 
 | Gap | OnlyFans | Fansly | FetLife |
 |-----|----------|--------|---------|
 | Mutating post submit + delete | — | — | text only |
-| Media / image upload post | — | — | composer DOM only |
-| Video upload post | — | — | composer DOM only |
+| Media / image upload post | — | — | attach-only (non-mutating) |
+| Video upload post | — | — | attach-only (non-mutating) |
+| Media upload wired into post flow | — | — | — (task #417 Level B) |
 | Paid / schedule / tier UI flows | — | — | — |
 | Media processing functional tests | unit only | unit only | — |
 
@@ -482,7 +484,7 @@ excluded from routine runs (`disabled_platform`). Image→video pipeline tests i
 **Priority gaps to close next** (tracked in Odoo task #166):
 
 1. **OnlyFans + Fansly mutating smoke tests** — submit a tagged post and delete, mirroring FetLife.
-2. **FetLife picture/video mutating tests** — currently stop at composer element discovery.
+2. **FetLife media upload in the post flow** — `_attach_media()` and `_certify_upload_consent()` exist and are covered, but nothing calls them outside tests; wiring them into `_do_prefill()` is task #417 Level B.
 3. **Media processing** — add resize/validation cases for Threads, Facebook Page, OnlyFans, and Fansly specs.
 4. **Second-account slots** — no functional test exercises `twitter_2`, `bluesky_alt`, `meta_instagram_2`, or `meta_threads_2`.
 
@@ -500,10 +502,15 @@ Snapchat session tests exist but are `disabled_platform` (excluded from routine 
 
 | Test case                    | FetLife | Fansly | OnlyFans |
 |------------------------------|---------|--------|----------|
+| Session / connection         | x       | -      | -        |
 | Composer page loads          | x       | x      | x        |
 | Composer click expansion     | -       | -      | x        |
-| Text injection               | x       | x      | x        |
-| Text post submit             | x       | -      | -        |
+| Text injection (platform)    | x       | x      | x        |
+| Text post submit + delete    | x       | -      | -        |
+| Picture post submit + delete | -       | -      | -        |
+| Video post submit + delete   | -       | -      | -        |
+| Picture attach via platform (no submit) | x | -  | -        |
+| Video attach via platform (no submit)   | x | -  | -        |
 | Picture composer elements    | x       | -      | -        |
 | Video composer elements      | x       | -      | -        |
 
@@ -557,8 +564,34 @@ Check that the credentials in `.env` are correct. If the account is locked or re
 ### OnlyFans composer tests skip with "No OnlyFans session" or "login form present"
 OnlyFans cannot be logged in automatically during tests. Export `auth.json` from a normal browser, import it in GaleFling Settings, or set `ONLYFANS_AUTH_JSON` in `.env`. See [OnlyFans Session Import](../platforms/ONLYFANS_SESSION_IMPORT.md).
 
+### A WebView test failure wedges every test after it
+Fixed — but the failure mode is worth knowing. `BaseWebViewPlatform._evict_profile()` only drops the registry key; it does not destroy the `QWebEngineProfile` or release Chromium's lock on `webprofiles/<account_id>/`. When a test *fails*, pytest keeps the assertion traceback alive, and with it the test frame's `view` / `page` / `platform` locals — so unless teardown clears every reference itself, the profile survives, the next `create_webview()` builds a second profile on the same storage path, and every page load after that returns an empty URL while the process wedges at exit.
+
+`close_webview()` therefore clears `platform._profile` (not just `_view` / `_page`), pumps deferred deletes before evicting, and runs a `gc.collect()` pass. Functional tests also carry a hard `pytest-timeout` ceiling (`FUNCTIONAL_TEST_TIMEOUT_S`, thread method) so a wedged profile fails one test with stack dumps instead of stalling the run — a Chromium deadlock sits in C++ and never returns to Python, so nothing else can interrupt it.
+
 ### FetLife post not auto-deleted
-FetLife redirects to `/posts` after submission instead of the individual post page. Check your FetLife feed for posts containing "GaleFling functional test" and delete them manually.
+FetLife redirects to `/posts` after text submission instead of the individual post page. When a permalink is captured, the test attempts UI delete; otherwise search your feed for the UUID tag from the test output.
+
+### FetLife picture/video tests — do not auto-submit
+**Mutating picture/video functional tests were removed.** An earlier helper blindly checked every checkbox on the upload form (including **set as avatar**) and submitted real uploads during debugging.
+
+Current coverage:
+- **Non-mutating:** composer loads, file input present, `FetLifePlatform._attach_media()` loads the file into the form, `FetLifePlatform._certify_upload_consent()` ticks the certification box — **never clicks Upload**
+- **Mutating:** text posts only
+
+`_certify_upload_consent()` matches `picture[is_certified]` / `video[is_certified]` by **exact field name**. It cannot touch `picture[is_avatar]`, and `test_picture_attach_via_platform` asserts that box stays unchecked. Do not reintroduce keyword or substring matching over checkbox labels.
+
+Manual cleanup if test uploads occurred: delete the stray pictures from your gallery, restore your previous avatar in FetLife profile settings, and search for any text posts containing the UUID tag from the failed run.
+
+Wiring media upload into the actual post flow is task #417 Level B. That should override `QWebEnginePage.chooseFiles()` rather than extend the current base64/`DataTransfer` attach, which inlines the whole file into a script and so only suits test-sized media.
+
+### FetLife picture composer has two file inputs
+`pictures/new` renders a hidden picker carrying the `accept` list (`#picture_attachments`) **and** the real `picture[attachments][]` field, which has no `accept`. A comma-list `querySelector` returns the picker (first in document order), and FetLife moves the file to the named field and clears the picker **asynchronously**.
+
+Consequences for any test or platform code touching this form:
+- Select the picker by `accept`, not by name — `FetLifePlatform.IMAGE_FILE_SELECTOR`.
+- Never verify an attach by re-reading the input you wrote to; it reports zero files on success. Poll `FetLifePlatform._media_attachment_state()`, which totals files across every file input.
+- `videos/new` has a single input (`#video_video`) and keeps the file, so it does not show this behaviour. Code that works there can still be wrong for pictures.
 
 ### OnlyFans composer not found
 The test attempts to click the compose area to expand the editor. If it still can't find the composer, the SPA may need full browser rendering. Run on Windows for the best chance of success.

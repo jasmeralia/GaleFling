@@ -1,6 +1,7 @@
 """Functional test configuration — credentials and strict failure reporting."""
 
 import os
+import uuid
 from functools import wraps
 
 import pytest
@@ -46,6 +47,16 @@ def fail_or_skip(reason: str) -> None:
     if _STRICT_FUNCTIONAL:
         pytest.fail(reason, pytrace=False)
     pytest.skip(reason)
+
+
+def mutating_post_tag() -> str:
+    """Short unique tag embedded in live mutating post text for cleanup lookup."""
+    return uuid.uuid4().hex[:8]
+
+
+def mutating_post_text(*parts: str) -> str:
+    """Caption/body for a live mutating post — neutral UUID tag, optional extra tokens."""
+    return ' '.join((mutating_post_tag(), *parts))
 
 
 def skip_if_no_cookie_db(data_dir, account_id: str, platform_name: str) -> None:
@@ -154,6 +165,14 @@ class _RendererCrashMonitor:
 
         def on_terminated(status, exit_code, watched_page=page) -> None:
             status_name = getattr(status, 'name', str(status))
+            if status_name == 'NormalTerminationStatus' and exit_code == 0:
+                from tests.functional.webview_helpers import teardown_in_progress
+
+                # A clean renderer exit is expected only while we are deliberately
+                # destroying the view.  The same exit *during* a test is a real signal
+                # (the page dropped its renderer on its own) and must still fail.
+                if teardown_in_progress():
+                    return
             try:
                 url = watched_page.url().toString()
             except RuntimeError:
@@ -322,12 +341,29 @@ def pytest_addoption(parser) -> None:
     )
 
 
+# A wedged Chromium profile deadlocks inside C++ and never returns to Python, so a
+# hung test would otherwise stall the whole run indefinitely.  The thread method
+# dumps every stack and aborts the process, which turns "the suite hangs forever"
+# into a diagnosable failure.
+FUNCTIONAL_TEST_TIMEOUT_S = 300
+
+
+def _apply_functional_timeout(config, item) -> None:
+    """Give each functional test a hard wall-clock ceiling, if pytest-timeout is present."""
+    if not config.pluginmanager.hasplugin('timeout'):
+        return
+    if item.get_closest_marker('timeout') is not None:
+        return
+    item.add_marker(pytest.mark.timeout(FUNCTIONAL_TEST_TIMEOUT_S, method='thread'))
+
+
 def pytest_collection_modifyitems(config, items) -> None:
     """Require side-effect markers; skip disabled-platform tests unless opted in."""
     errors = []
     for item in items:
         if item.get_closest_marker('functional') is None:
             continue
+        _apply_functional_timeout(config, item)
         groups = [
             name
             for name in ('non_mutating', 'mutating')

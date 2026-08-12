@@ -10,11 +10,10 @@ username/password login is not supported — see docs/platforms/ONLYFANS_SESSION
 
 import json
 import os
-import uuid
 
 import pytest
 
-from tests.functional.conftest import ONLYFANS_ACCOUNT_ID, fail_or_skip
+from tests.functional.conftest import ONLYFANS_ACCOUNT_ID, fail_or_skip, mutating_post_tag
 from tests.functional.webview_helpers import (
     close_webview,
     create_webview,
@@ -176,8 +175,7 @@ class TestOnlyFansComposer:
                 )
 
             # Composer found — inject text
-            tag = uuid.uuid4().hex[:8]
-            test_text = f'GaleFling functional test {tag}'
+            test_text = mutating_post_tag()
             inject_result = run_js(
                 page,
                 f"""

@@ -1,25 +1,30 @@
 """Functional tests for FetLife WebView posting.
 
-Tests the three FetLife composer types (text, picture, video):
-- Text: inject text into the Lexxy editor, submit, capture post URL
-- Picture: verify file input and upload button are present
-- Video: verify file input and upload button are present
+Exercises the shipped ``FetLifePlatform`` adapter for text, picture, and video
+composers: ``_inject_text()``, ``_attach_media()``, and ``_certify_upload_consent()``.
 
-Requires GALEFLING_DATA_DIR and FETLIFE_EMAIL / FETLIFE_PASSWORD in .env.
-If the session cookie is still valid the login flow is skipped.
+**Media upload:** attach is covered non-mutatingly — the file is loaded into the
+composer form and the Upload button is never clicked. Mutating submit tests stay
+disabled until media upload is wired into the post flow (task #417 Level B).
+``_certify_upload_consent()`` selects the certification field by exact name, so
+``picture[is_avatar]`` can never be toggled; the attach test asserts that directly.
 """
+
+from __future__ import annotations
 
 import json
 import re
-import uuid
 
 import pytest
 
-from tests.functional.conftest import fail_or_skip
+from src.platforms.fetlife import FetLifePlatform
+from tests.functional.conftest import fail_or_skip, mutating_post_tag, mutating_post_text
 from tests.functional.webview_helpers import (
+    attempt_delete_current_post,
     close_webview,
     create_webview,
     get_or_create_app,
+    has_cookie_db,
     load_page,
     login_fetlife,
     run_js,
@@ -27,6 +32,16 @@ from tests.functional.webview_helpers import (
 )
 
 ACCOUNT_ID = 'fetlife_1'
+TEXT_COMPOSER_URL = FetLifePlatform.TEXT_COMPOSER_URL
+IMAGE_COMPOSER_URL = FetLifePlatform.IMAGE_COMPOSER_URL
+VIDEO_COMPOSER_URL = FetLifePlatform.VIDEO_COMPOSER_URL
+PICTURE_FILE_SELECTOR = FetLifePlatform.IMAGE_FILE_SELECTOR
+VIDEO_FILE_SELECTOR = FetLifePlatform.VIDEO_FILE_SELECTOR
+
+POST_URL_PATTERN = re.compile(
+    r'fetlife\.com/(?:users/\d+/)?(?:posts|pictures|videos)/(\d+)',
+    re.IGNORECASE,
+)
 
 
 def _dismiss_maybe_later(page) -> bool:
@@ -52,40 +67,28 @@ def _dismiss_maybe_later(page) -> bool:
     return bool(dismissed)
 
 
-def _inject_lexxy_text(page, text: str):
-    """Set text through Lexxy's form-associated custom-element value API."""
+def _read_lexxy_text(page) -> dict:
+    """Read the Lexxy editor content after platform text injection."""
     return run_js(
         page,
-        f"""
-        (function() {{
+        """
+        (function() {
             var content = document.querySelector(
                 'div.lexxy-editor__content[contenteditable="true"][role="textbox"]'
             );
-            var editor = content && content.closest('lexxy-editor');
-            if (!editor) return {{found: false}};
-            var paragraph = document.createElement('p');
-            paragraph.textContent = {json.dumps(text)};
-            editor.value = paragraph.outerHTML;
-            editor.dispatchEvent(new Event('input', {{bubbles: true}}));
-            editor.dispatchEvent(new Event('change', {{bubbles: true}}));
-            return {{
-                found: true,
-                content: content.textContent.substring(0, 150),
-                value: editor.value.substring(0, 200)
-            }};
-        }})();
+            if (!content) return {found: false};
+            return {found: true, content: content.textContent.substring(0, 200)};
+        })();
         """,
     )
 
 
 def _ensure_session(page, credentials: dict) -> None:
-    """Verify we have a valid FetLife session, logging in if needed.
-
-    Navigates to the text composer page (which redirects to /login when the
-    session is expired) and calls login_fetlife if authentication is required.
-    Reports a strict-mode failure if login cannot be completed.
-    """
-    ok, final_url = load_page(page, 'https://fetlife.com/posts/new?source=Feed')
+    """Verify we have a valid FetLife session, logging in if needed."""
+    ok, final_url = load_page(page, TEXT_COMPOSER_URL, timeout_ms=20000)
+    if not ok:
+        wait_ms(2000)
+        ok, final_url = load_page(page, TEXT_COMPOSER_URL, timeout_ms=20000)
     if not ok:
         fail_or_skip(f'FetLife page load failed: {final_url}')
 
@@ -93,16 +96,191 @@ def _ensure_session(page, credentials: dict) -> None:
         success = login_fetlife(page, credentials['email'], credentials['password'])
         if not success:
             fail_or_skip('FetLife login failed — check credentials in .env')
-        # After login, navigate back to the composer
-        ok, final_url = load_page(page, 'https://fetlife.com/posts/new?source=Feed')
+        ok, final_url = load_page(page, TEXT_COMPOSER_URL, timeout_ms=20000)
         if not ok or '/login' in final_url.lower():
             fail_or_skip('FetLife composer unreachable after login')
     _dismiss_maybe_later(page)
 
 
+def _call_platform(method, *args, timeout_ms: int = 20000) -> dict:
+    """Call a platform method whose result arrives via an async runJavaScript callback."""
+    state: dict = {'done': False, 'value': None}
+
+    def callback(value):
+        state['done'] = True
+        state['value'] = value
+
+    method(*args, callback=callback)
+
+    elapsed = 0
+    while not state['done'] and elapsed < timeout_ms:
+        wait_ms(100)
+        elapsed += 100
+
+    value = state['value']
+    if isinstance(value, dict):
+        return value
+    return {'timed_out': not state['done'], 'raw': value}
+
+
+def _wait_for_attachment(platform, timeout_ms: int = 15000) -> dict:
+    """Poll until the upload form reports a file, or the timeout expires.
+
+    FetLife's picture composer moves the file from the picker to the hidden
+    ``picture[attachments][]`` field asynchronously, so acceptance cannot be read
+    back synchronously from the attach call.
+    """
+    elapsed = 0
+    state: dict = {}
+    while elapsed < timeout_ms:
+        state = _call_platform(platform._media_attachment_state)
+        if state.get('attached'):
+            return state
+        wait_ms(500)
+        elapsed += 500
+    return state
+
+
+def _composer_elements(page, file_selector: str, submit_label: str) -> dict:
+    """Report the file input and upload button on an open upload composer."""
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            var fileInput = document.querySelector({json.dumps(file_selector)});
+            var submitBtn = Array.from(
+                document.querySelectorAll('button[type="submit"]')
+            ).find(function(b) {{
+                return b.textContent.includes({json.dumps(submit_label)});
+            }});
+            return {{
+                fileInputFound: !!fileInput,
+                fileInputAccept: fileInput ? fileInput.accept : null,
+                submitFound: !!submitBtn,
+                submitDisabled: submitBtn ? submitBtn.disabled : null
+            }};
+        }})();
+        """,
+    )
+
+
+def _upload_form_state(page, composer_path: str) -> dict:
+    """Report where an attached file landed and whether any side-effect box was set."""
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            var named = document.querySelector(
+                'input[type="file"][name="picture[attachments][]"]'
+            );
+            var avatar = document.querySelector(
+                'input[type="checkbox"][name="picture[is_avatar]"]'
+            );
+            var total = 0;
+            document.querySelectorAll('input[type="file"]').forEach(function(el) {{
+                if (el.files) total += el.files.length;
+            }});
+            return {{
+                stillOnComposer: window.location.href.includes({json.dumps(composer_path)}),
+                totalFiles: total,
+                namedFieldFiles: named && named.files ? named.files.length : 0,
+                avatarChecked: avatar ? avatar.checked : false
+            }};
+        }})();
+        """,
+    )
+
+
+def _click_submit_button(page, label_fragments: str | list[str]) -> dict:
+    """Click a submit control matching one of *label_fragments* (case-insensitive)."""
+    if isinstance(label_fragments, str):
+        fragments = [label_fragments]
+    else:
+        fragments = label_fragments
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            var needles = {json.dumps([f.lower() for f in fragments])};
+            var controls = Array.from(document.querySelectorAll(
+                'button[type="submit"], input[type="submit"], button, [role="button"]'
+            ));
+            var btn = controls.find(function(el) {{
+                var label = (el.textContent || el.value || '').trim().toLowerCase();
+                return needles.some(function(needle) {{ return label.includes(needle); }});
+            }});
+            if (!btn) {{
+                return {{
+                    clicked: false,
+                    reason: 'Button not found',
+                    labels: controls.slice(0, 8).map(function(el) {{
+                        return (el.textContent || el.value || '').trim();
+                    }}).filter(Boolean)
+                }};
+            }}
+            if (btn.disabled) return {{clicked: false, reason: 'Button disabled'}};
+            btn.click();
+            return {{
+                clicked: true,
+                label: (btn.textContent || btn.value || '').trim()
+            }};
+        }})();
+        """,
+    )
+
+
+@pytest.mark.functional
+@pytest.mark.non_mutating
+class TestFetLifeConnection:
+    """Session and platform adapter checks — fail fast before posting tests."""
+
+    def test_has_valid_session(self, galefling_data_dir):
+        """Cookie database must exist and pass has_valid_session()."""
+        if not has_cookie_db(galefling_data_dir, ACCOUNT_ID):
+            pytest.skip('No FetLife cookie database — log in via Settings first')
+        platform = FetLifePlatform(account_id=ACCOUNT_ID)
+        assert platform.has_valid_session(), 'FetLife session invalid or expired'
+
+    def test_authenticate(self, galefling_data_dir):
+        """WebView platforms report authenticate() success when cookies exist."""
+        if not has_cookie_db(galefling_data_dir, ACCOUNT_ID):
+            pytest.skip('No FetLife cookie database')
+        platform = FetLifePlatform(account_id=ACCOUNT_ID)
+        ok, err = platform.authenticate()
+        assert ok, f'authenticate() failed: {err}'
+        assert err is None
+
+    def test_connection(self, galefling_data_dir, fetlife_credentials):
+        """Platform test_connection() after loading the shared WebView profile."""
+        if not has_cookie_db(galefling_data_dir, ACCOUNT_ID):
+            pytest.skip('No FetLife cookie database')
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            ok, err = platform.test_connection()
+            if not ok and err == 'WV-SESSION-EXPIRED':
+                _ensure_session(page, fetlife_credentials)
+                ok, err = platform.test_connection()
+            assert ok, f'test_connection() failed: {err}'
+            assert err is None
+        finally:
+            close_webview(view, page, platform)
+
+    def test_composer_url_routing(self, tmp_path):
+        """get_composer_url() must route text, image, and video composers."""
+        platform = FetLifePlatform(account_id=ACCOUNT_ID)
+        assert platform.get_composer_url() == TEXT_COMPOSER_URL
+
+        platform._image_path = tmp_path / 'photo.jpg'
+        assert platform.get_composer_url() == IMAGE_COMPOSER_URL
+
+        platform._image_path = tmp_path / 'clip.mp4'
+        assert platform.get_composer_url() == VIDEO_COMPOSER_URL
+
+
 @pytest.mark.functional
 class TestFetLifeTextPost:
-    """FetLife text post: inject text, submit form, capture URL, delete."""
+    """FetLife text post via FetLifePlatform._inject_text()."""
 
     @pytest.mark.non_mutating
     def test_composer_loads(self, galefling_data_dir, fetlife_credentials):
@@ -118,17 +296,19 @@ class TestFetLifeTextPost:
             close_webview(view, page, platform)
 
     @pytest.mark.non_mutating
-    def test_text_injection(self, galefling_data_dir, fetlife_credentials):
-        """Verify text can be injected into the Lexxy editor."""
+    def test_text_injection_via_platform(self, galefling_data_dir, fetlife_credentials):
+        """Verify FetLifePlatform._inject_text() fills the Lexxy editor."""
         get_or_create_app()
         view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
             _ensure_session(page, fetlife_credentials)
             wait_ms(2000)
 
-            tag = uuid.uuid4().hex[:8]
-            test_text = f'GaleFling functional test {tag}'
-            result = _inject_lexxy_text(page, test_text)
+            test_text = mutating_post_tag()
+            platform._inject_text(test_text)
+            wait_ms(500)
+
+            result = _read_lexxy_text(page)
             assert isinstance(result, dict), f'JS returned: {result}'
             assert result.get('found'), 'Lexxy editor not found'
             assert test_text in result.get('content', ''), f'Text not injected: {result}'
@@ -137,230 +317,185 @@ class TestFetLifeTextPost:
 
     @pytest.mark.mutating
     def test_text_post_submit_and_delete(self, galefling_data_dir, fetlife_credentials):
-        """Submit a text post, capture the URL, then attempt deletion."""
+        """Submit a text post, capture the URL when possible, then attempt deletion."""
         get_or_create_app()
         view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
-        post_url = None
         try:
             _ensure_session(page, fetlife_credentials)
             wait_ms(3000)
 
-            # Inject text
-            tag = uuid.uuid4().hex[:8]
-            test_text = f'GaleFling functional test {tag} — safe to delete'
-            inject_result = _inject_lexxy_text(page, test_text)
-            assert isinstance(inject_result, dict) and inject_result.get('found'), (
-                f'Text injection failed: {inject_result}'
+            test_text = mutating_post_text()
+            platform._inject_text(test_text)
+            wait_ms(500)
+
+            inject_check = _read_lexxy_text(page)
+            assert inject_check.get('found') and test_text in inject_check.get('content', ''), (
+                f'Text injection failed: {inject_check}'
             )
 
-            # Click "Express Yourself" submit button
             wait_ms(500)
-            submit_result = run_js(
+            submit_result = _click_submit_button(
                 page,
-                """
-                (function() {
-                    var buttons = Array.from(document.querySelectorAll('button[type="submit"]'));
-                    var btn = buttons.find(function(b) {
-                        return b.textContent.trim().includes('Express Yourself');
-                    });
-                    if (!btn) return {clicked: false, reason: 'Button not found'};
-                    if (btn.disabled) return {clicked: false, reason: 'Button disabled'};
-                    btn.click();
-                    return {clicked: true};
-                })();
-                """,
+                ['Express Yourself', 'Post', 'Share', 'Publish'],
             )
             assert isinstance(submit_result, dict) and submit_result.get('clicked'), (
                 f'Submit failed: {submit_result}'
             )
 
-            # Wait for navigation after submit
             wait_ms(8000)
             post_url = page.url().toString()
-
-            # Verify we navigated away from the composer (post was submitted)
             assert 'posts/new' not in post_url, f'Still on composer after submit: {post_url}'
 
-            # Check if we landed on a specific post page or the posts feed
-            specific_post = re.search(r'fetlife\.com/(?:users/\d+/)?posts/(\d+)', post_url)
-            if specific_post:
+            if POST_URL_PATTERN.search(post_url):
                 print(f'\n  FetLife post created: {post_url}')
-                # Attempt deletion from the post page
-                self._attempt_delete(page)
+                delete_outcome = attempt_delete_current_post(page)
+                print(f'  Delete attempt: {delete_outcome}')
             else:
-                # Redirected to feed — post was created but no direct URL captured
                 print(f'\n  FetLife post submitted (redirected to: {post_url})')
-                print('  Manual cleanup needed — check recent posts')
-
+                print(f'  Manual cleanup needed — search feed for tag: {test_text}')
         finally:
             close_webview(view, page, platform)
 
-    @staticmethod
-    def _attempt_delete(page):
-        """Best-effort deletion of the current post page."""
-        wait_ms(2000)
-        delete_result = run_js(
-            page,
-            """
-            (function() {
-                var links = Array.from(document.querySelectorAll('a, button'));
-                var deleteLink = links.find(function(el) {
-                    var text = el.textContent.trim().toLowerCase();
-                    return text === 'delete' || text === 'remove'
-                        || text.includes('delete this');
-                });
-                if (deleteLink) {
-                    deleteLink.click();
-                    return {found: true, text: deleteLink.textContent.trim()};
-                }
-                var menuBtn = links.find(function(el) {
-                    var label = (el.getAttribute('aria-label') || '').toLowerCase();
-                    return label.includes('more') || label.includes('option')
-                        || label.includes('menu');
-                });
-                if (menuBtn) {
-                    menuBtn.click();
-                    return {found: false, menu_opened: true};
-                }
-                return {found: false, menu_opened: false};
-            })();
-            """,
-        )
-        if (
-            isinstance(delete_result, dict)
-            and delete_result.get('menu_opened')
-            and not delete_result.get('found')
-        ):
-            wait_ms(1000)
-            delete_result2 = run_js(
-                page,
-                """
-                (function() {
-                    var items = Array.from(document.querySelectorAll(
-                        'a, button, [role="menuitem"]'
-                    ));
-                    var del_item = items.find(function(el) {
-                        return el.textContent.trim().toLowerCase().includes('delete');
-                    });
-                    if (del_item) { del_item.click(); return {clicked: true}; }
-                    return {clicked: false};
-                })();
-                """,
-            )
-            if isinstance(delete_result2, dict) and delete_result2.get('clicked'):
-                wait_ms(2000)
-                run_js(
-                    page,
-                    """
-                    var btn = document.querySelector(
-                        'button[type="submit"], .confirm-delete, [data-confirm]'
-                    );
-                    if (btn) btn.click();
-                    """,
-                )
-                wait_ms(2000)
-
 
 @pytest.mark.functional
-@pytest.mark.non_mutating
-class TestFetLifePictureComposer:
-    """FetLife picture composer: verify page loads and elements are present."""
+class TestFetLifePicturePost:
+    """FetLife picture upload via FetLifePlatform._attach_media()."""
 
+    @pytest.mark.non_mutating
     def test_picture_composer_loads(self, galefling_data_dir, fetlife_credentials):
-        """Verify the picture composer loads with file input and submit button."""
+        """Verify the picture composer loads with file input, submit button, and consent."""
         get_or_create_app()
         view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
-            # Establish session via the text composer (handles login redirect)
             _ensure_session(page, fetlife_credentials)
 
-            # Now navigate to the picture composer
-            ok, final_url = load_page(
-                page, 'https://fetlife.com/pictures/new?source=Main+Navigation'
-            )
+            ok, final_url = load_page(page, IMAGE_COMPOSER_URL, timeout_ms=20000)
             assert ok, f'Page load failed: {final_url}'
             assert '/login' not in final_url.lower(), f'Session expired: {final_url}'
             wait_ms(2000)
             _dismiss_maybe_later(page)
 
-            result = run_js(
-                page,
-                """
-                (function() {
-                    var fileInput = document.querySelector(
-                        'input[type="file"][accept*="image"], '
-                        + 'input[type="file"][name="picture[attachments][]"]'
-                    );
-                    var submitBtn = Array.from(
-                        document.querySelectorAll('button[type="submit"]')
-                    ).find(function(b) {
-                        return b.textContent.includes('Upload Your Picture');
-                    });
-                    return {
-                        fileInputFound: !!fileInput,
-                        fileInputAccept: fileInput ? fileInput.accept : null,
-                        submitFound: !!submitBtn,
-                        submitDisabled: submitBtn ? submitBtn.disabled : null
-                    };
-                })();
-                """,
-            )
+            result = _composer_elements(page, PICTURE_FILE_SELECTOR, 'Upload Your Picture')
             assert isinstance(result, dict), f'JS returned: {result}'
             assert result.get('fileInputFound'), 'File input not found'
             assert result.get('submitFound'), 'Upload button not found'
             assert 'image' in (result.get('fileInputAccept') or ''), (
                 'File input does not accept images'
             )
+
+            consent = _call_platform(platform._certify_upload_consent)
+            assert consent.get('certified'), f'Consent certification not set: {consent}'
+            assert consent.get('names') == ['picture[is_certified]'], (
+                f'Unexpected certification fields: {consent}'
+            )
+        finally:
+            close_webview(view, page, platform)
+
+    @pytest.mark.non_mutating
+    def test_picture_attach_via_platform(
+        self, galefling_data_dir, fetlife_credentials, sample_jpeg
+    ):
+        """FetLifePlatform._attach_media() must load a file into the picture form.
+
+        The picture composer exposes two file inputs: a hidden picker carrying the
+        ``accept`` list, and the real ``picture[attachments][]`` field.  FetLife's own
+        JS moves the file from the first to the second and clears the picker, so the
+        attach is verified on the form as a whole.  Never submits.
+        """
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fetlife_credentials)
+
+            ok, final_url = load_page(page, IMAGE_COMPOSER_URL, timeout_ms=20000)
+            assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
+            wait_ms(2000)
+            _dismiss_maybe_later(page)
+
+            platform._image_path = sample_jpeg
+            assert platform.get_media_file_selector() == PICTURE_FILE_SELECTOR
+
+            attach = _call_platform(platform._attach_media, sample_jpeg)
+            assert attach.get('dispatched'), f'Attach failed: {attach}'
+
+            state = _wait_for_attachment(platform)
+            assert state.get('attached'), f'Form never accepted the file: {state}'
+            assert 'picture[attachments][]' in state.get('holders', []), (
+                f'File did not reach the named form field: {state}'
+            )
+
+            consent = _call_platform(platform._certify_upload_consent)
+            assert consent.get('certified'), f'Consent certification not set: {consent}'
+
+            page_state = _upload_form_state(page, 'pictures/new')
+            assert page_state.get('stillOnComposer'), 'Must not navigate away without submit'
+            assert not page_state.get('avatarChecked'), (
+                f'picture[is_avatar] must never be toggled: {page_state}'
+            )
         finally:
             close_webview(view, page, platform)
 
 
 @pytest.mark.functional
-@pytest.mark.non_mutating
-class TestFetLifeVideoComposer:
-    """FetLife video composer: verify page loads and elements are present."""
+class TestFetLifeVideoPost:
+    """FetLife video upload via FetLifePlatform._attach_media()."""
 
+    @pytest.mark.non_mutating
     def test_video_composer_loads(self, galefling_data_dir, fetlife_credentials):
-        """Verify the video composer loads with file input and submit button."""
+        """Verify the video composer loads with file input, submit button, and consent."""
         get_or_create_app()
         view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
         try:
-            # Establish session via the text composer (handles login redirect)
             _ensure_session(page, fetlife_credentials)
 
-            # Now navigate to the video composer
-            ok, final_url = load_page(page, 'https://fetlife.com/videos/new?source=Main+Navigation')
+            ok, final_url = load_page(page, VIDEO_COMPOSER_URL, timeout_ms=20000)
             assert ok, f'Page load failed: {final_url}'
             assert '/login' not in final_url.lower(), f'Session expired: {final_url}'
             wait_ms(2000)
             _dismiss_maybe_later(page)
 
-            result = run_js(
-                page,
-                """
-                (function() {
-                    var fileInput = document.querySelector(
-                        'input[type="file"][accept*="video"]'
-                    );
-                    var submitBtn = Array.from(
-                        document.querySelectorAll('button[type="submit"]')
-                    ).find(function(b) {
-                        return b.textContent.includes('Upload Your Video');
-                    });
-                    return {
-                        fileInputFound: !!fileInput,
-                        fileInputAccept: fileInput ? fileInput.accept : null,
-                        submitFound: !!submitBtn,
-                        submitDisabled: submitBtn ? submitBtn.disabled : null
-                    };
-                })();
-                """,
-            )
+            result = _composer_elements(page, VIDEO_FILE_SELECTOR, 'Upload Your Video')
             assert isinstance(result, dict), f'JS returned: {result}'
             assert result.get('fileInputFound'), 'File input not found'
             assert result.get('submitFound'), 'Upload button not found'
             assert 'video' in (result.get('fileInputAccept') or ''), (
                 'File input does not accept video'
             )
+
+            consent = _call_platform(platform._certify_upload_consent)
+            assert consent.get('certified'), f'Consent certification not set: {consent}'
+            assert consent.get('names') == ['video[is_certified]'], (
+                f'Unexpected certification fields: {consent}'
+            )
+        finally:
+            close_webview(view, page, platform)
+
+    @pytest.mark.non_mutating
+    def test_video_attach_via_platform(self, galefling_data_dir, fetlife_credentials, sample_video):
+        """FetLifePlatform._attach_media() must load a file into the video form."""
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fetlife_credentials)
+
+            ok, final_url = load_page(page, VIDEO_COMPOSER_URL, timeout_ms=20000)
+            assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
+            wait_ms(2000)
+            _dismiss_maybe_later(page)
+
+            platform._image_path = sample_video
+            assert platform.get_media_file_selector() == VIDEO_FILE_SELECTOR
+
+            attach = _call_platform(platform._attach_media, sample_video)
+            assert attach.get('dispatched'), f'Attach failed: {attach}'
+
+            state = _wait_for_attachment(platform)
+            assert state.get('attached'), f'Form never accepted the file: {state}'
+
+            consent = _call_platform(platform._certify_upload_consent)
+            assert consent.get('certified'), f'Consent certification not set: {consent}'
+
+            page_state = _upload_form_state(page, 'videos/new')
+            assert page_state.get('stillOnComposer'), 'Must not navigate away without submit'
         finally:
             close_webview(view, page, platform)

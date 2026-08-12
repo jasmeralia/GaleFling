@@ -450,8 +450,18 @@ verifying against a file Chromium had not yet written.
 - [x] A deliberate break in `base_webview.py` fails at least one functional test
   (unit tests assert `create_webview` delegates to the platform implementation).
 - [x] `make lint` and `make test-ci` pass.
-- [x] Shared-profile registry is evicted after each functional test
-  (`_evict_webview_profiles_after_functional_test` autouse fixture).
+- [x] Shared profile is fully **released** after each functional test — `close_webview()`
+  clears `platform._profile`, pumps deferred deletes, then evicts and collects
+  (`_evict_webview_profiles_after_functional_test` remains as a backstop).
+
+  > **Eviction is not release.** `_evict_profile()` only drops the registry key. The
+  > `QWebEngineProfile` lives until its last Python reference goes, and a *failing* test
+  > keeps `view`/`page`/`platform` alive in pytest's retained traceback. Leaving that
+  > reference in place let a second profile open on the same `persistentStoragePath`,
+  > after which every page load returned an empty URL and the process wedged at exit —
+  > one failing assertion took out every WebView test behind it. See
+  > `docs/testing/FUNCTIONAL_TESTING.md` → "A WebView test failure wedges every test
+  > after it".
 
 ---
 

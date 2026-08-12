@@ -6,6 +6,7 @@ login helpers for platforms that still support automated session refresh.
 """
 
 import contextlib
+import gc
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -28,6 +29,11 @@ _PLATFORM_CLASSES: dict[str, type[BaseWebViewPlatform]] = {
     'fetlife': FetLifePlatform,
     'snapchat': SnapchatPlatform,
 }
+
+# Non-zero while close_webview() is deliberately destroying a page.  The renderer
+# crash monitor in conftest uses this to tell an intentional teardown apart from a
+# renderer that exited on its own mid-test.
+_TEARDOWN_DEPTH = 0
 
 
 def platform_class_for_account(account_id: str) -> type[BaseWebViewPlatform]:
@@ -117,6 +123,102 @@ def run_js(page: QWebEnginePage, js: str, timeout_ms: int = 5000):
     return state['value']
 
 
+# Confirmation controls only, scoped to the dialog/form that the delete action
+# opened.  An unscoped ``button[type="submit"]`` lookup would match the first submit
+# button anywhere on the page — on FetLife that is the site search form.
+_CONFIRM_DELETE_JS = """
+(function() {
+    var scope = document.querySelector(
+        '[role="dialog"], [role="alertdialog"], .modal, dialog[open], form[data-turbo-confirm]'
+    ) || document;
+    var btn = Array.from(scope.querySelectorAll(
+        'button[type="submit"], input[type="submit"], .confirm-delete, [data-confirm], button'
+    )).find(function(el) {
+        var label = (el.textContent || el.value || '').trim().toLowerCase();
+        return label.includes('delete') || label.includes('confirm')
+            || label === 'yes' || label === 'ok';
+    });
+    if (!btn) return {confirmed: false, scoped: scope !== document};
+    btn.click();
+    return {confirmed: true, label: (btn.textContent || btn.value || '').trim()};
+})();
+"""
+
+
+def _confirmed(result) -> bool:
+    """Whether a confirmation click actually landed (not merely attempted)."""
+    return bool(isinstance(result, dict) and result.get('confirmed'))
+
+
+def attempt_delete_current_post(page: QWebEnginePage) -> dict:
+    """Best-effort deletion of the post currently shown in the WebView.
+
+    ``deleted`` reflects whether a confirmation control was actually clicked, not
+    merely that a delete link was found — cleanup that silently did nothing must not
+    report success, or stray live posts go unnoticed.
+    """
+    wait_ms(2000)
+    delete_result = run_js(
+        page,
+        """
+        (function() {
+            var links = Array.from(document.querySelectorAll('a, button'));
+            var deleteLink = links.find(function(el) {
+                var text = el.textContent.trim().toLowerCase();
+                return text === 'delete' || text === 'remove'
+                    || text.includes('delete this');
+            });
+            if (deleteLink) {
+                deleteLink.click();
+                return {found: true, text: deleteLink.textContent.trim()};
+            }
+            var menuBtn = links.find(function(el) {
+                var label = (el.getAttribute('aria-label') || '').toLowerCase();
+                return label.includes('more') || label.includes('option')
+                    || label.includes('menu');
+            });
+            if (menuBtn) {
+                menuBtn.click();
+                return {found: false, menu_opened: true};
+            }
+            return {found: false, menu_opened: false};
+        })();
+        """,
+    )
+    if (
+        isinstance(delete_result, dict)
+        and delete_result.get('menu_opened')
+        and not delete_result.get('found')
+    ):
+        wait_ms(1000)
+        delete_result2 = run_js(
+            page,
+            """
+            (function() {
+                var items = Array.from(document.querySelectorAll(
+                    'a, button, [role="menuitem"]'
+                ));
+                var del_item = items.find(function(el) {
+                    return el.textContent.trim().toLowerCase().includes('delete');
+                });
+                if (del_item) { del_item.click(); return {clicked: true}; }
+                return {clicked: false};
+            })();
+            """,
+        )
+        if isinstance(delete_result2, dict) and delete_result2.get('clicked'):
+            wait_ms(2000)
+            confirm = run_js(page, _CONFIRM_DELETE_JS)
+            wait_ms(2000)
+            return {'deleted': _confirmed(confirm), 'via': 'menu', 'confirm': confirm}
+    if isinstance(delete_result, dict) and delete_result.get('found'):
+        wait_ms(2000)
+        confirm = run_js(page, _CONFIRM_DELETE_JS)
+        wait_ms(2000)
+        return {'deleted': _confirmed(confirm), 'via': 'direct', 'confirm': confirm}
+    return {'deleted': False, 'detail': delete_result}
+
+
 def create_webview(
     data_dir: Path, account_id: str
 ) -> tuple[QWebEngineView, QWebEnginePage, BaseWebViewPlatform]:
@@ -142,21 +244,69 @@ def create_webview(
         return view, page, platform
 
 
+def teardown_in_progress() -> bool:
+    """Whether a test WebView is currently being torn down by close_webview()."""
+    return _TEARDOWN_DEPTH > 0
+
+
+def _pump_deferred_deletes(ms: int = 500) -> None:
+    """Run pending deleteLater() calls so C++ objects are destroyed before we continue."""
+    app = QApplication.instance()
+    if app is not None:
+        app.processEvents()
+    wait_ms(ms)
+    if app is not None:
+        app.processEvents()
+
+
 def close_webview(
     view: QWebEngineView,
     page: QWebEnginePage,
     platform: BaseWebViewPlatform,
 ) -> None:
-    """Tear down a platform-backed test WebView and release its shared profile."""
+    """Tear down a platform-backed test WebView and fully release its shared profile.
+
+    ``BaseWebViewPlatform._evict_profile()`` only drops the registry key — it does not
+    destroy the ``QWebEngineProfile`` or release Chromium's lock on the profile's
+    persistent storage directory.  The profile lives until its last Python reference
+    goes away, and ``platform._profile`` is one of them.
+
+    That distinction is load-bearing.  When a test *fails*, pytest keeps the assertion
+    traceback alive, which keeps the test frame's ``view`` / ``page`` / ``platform``
+    locals alive with it.  If this function does not clear every reference itself, the
+    old profile survives the test, the next ``create_webview()`` builds a *second*
+    profile against the same ``persistentStoragePath``, and Chromium deadlocks — so one
+    failing assertion wedges every WebView test that runs after it.
+    """
+    global _TEARDOWN_DEPTH
+
     account_id = platform._account_id or 'default'
-    with contextlib.suppress(RuntimeError):
-        view.close()
+    _TEARDOWN_DEPTH += 1
+    try:
         platform._view = None
         platform._page = None
-        view.deleteLater()
-    wait_ms(500)
-    BaseWebViewPlatform._evict_profile(account_id)
-    wait_ms(500)
+        platform._profile = None
+
+        if view is not None:
+            with contextlib.suppress(RuntimeError):
+                view.close()
+            with contextlib.suppress(RuntimeError):
+                view.deleteLater()
+        if page is not None:
+            with contextlib.suppress(RuntimeError):
+                page.deleteLater()
+
+        # Destroy the pages before dropping the profile: Qt requires a profile to
+        # outlive every page using it.
+        _pump_deferred_deletes()
+        BaseWebViewPlatform._evict_profile(account_id)
+        # The caller's own locals may still reference the profile transitively; a
+        # collection pass drops those cycles so the C++ object is destroyed here
+        # rather than at some arbitrary point during a later test.
+        gc.collect()
+        _pump_deferred_deletes()
+    finally:
+        _TEARDOWN_DEPTH -= 1
 
 
 def has_cookie_db(data_dir: Path, account_id: str) -> bool:

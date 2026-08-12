@@ -1,5 +1,6 @@
 """Tests for concrete WebView platform implementations."""
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -339,6 +340,120 @@ def test_fetlife_selects_text_composer_url_for_text_only():
     p = FetLifePlatform(account_id='fetlife_1')
     p.prepare_post('hello', [])
     assert p.get_composer_url() == 'https://fetlife.com/posts/new?source=Feed'
+
+
+class _RecordingPage:
+    """Minimal QWebEnginePage stand-in that captures runJavaScript calls."""
+
+    def __init__(self):
+        self.js_calls = []
+
+    def runJavaScript(self, script, callback=None):  # noqa: N802 - mirrors Qt API
+        self.js_calls.append(script)
+        if callback is not None:
+            callback({'stub': True})
+
+
+class _RecordingView:
+    def __init__(self, page):
+        self._page = page
+
+    def page(self):
+        return self._page
+
+
+def _fetlife_with_page():
+    platform = FetLifePlatform(account_id='fetlife_1')
+    page = _RecordingPage()
+    platform._view = _RecordingView(page)
+    return platform, page
+
+
+def test_fetlife_media_file_selector_routes_by_extension(tmp_path):
+    platform = FetLifePlatform(account_id='fetlife_1')
+    assert platform.get_media_file_selector() is None
+
+    platform._image_path = tmp_path / 'photo.jpg'
+    assert platform.get_media_file_selector() == FetLifePlatform.IMAGE_FILE_SELECTOR
+
+    platform._image_path = tmp_path / 'clip.mp4'
+    assert platform.get_media_file_selector() == FetLifePlatform.VIDEO_FILE_SELECTOR
+
+
+def test_fetlife_attach_media_writes_file_then_state_totals_every_input(tmp_path):
+    """The picture composer moves the file to a hidden named field and clears the picker.
+
+    Verifying the input we wrote to would therefore report zero files on a successful
+    attach, so _media_attachment_state() totals files across all file inputs.
+    """
+    photo = tmp_path / 'photo.jpg'
+    photo.write_bytes(b'\xff\xd8\xff\xe0 fake jpeg')
+
+    platform, page = _fetlife_with_page()
+    platform._image_path = photo
+    platform._attach_media(photo)
+
+    assert len(page.js_calls) == 1
+    script = page.js_calls[0]
+    assert json.dumps(FetLifePlatform.IMAGE_FILE_SELECTOR) in script
+    assert 'new DataTransfer()' in script
+    assert 'photo.jpg' in script
+    assert 'image/jpeg' in script
+
+    # Acceptance is observed separately, because FetLife's hand-off to the named
+    # field is asynchronous and cannot be read back from the attach call.
+    platform._media_attachment_state()
+    state_script = page.js_calls[1]
+    assert 'querySelectorAll(\'input[type="file"]\')' in state_script
+    assert 'holders' in state_script
+
+
+def test_fetlife_attach_media_selects_video_input_for_video(tmp_path):
+    clip = tmp_path / 'clip.mp4'
+    clip.write_bytes(b'fake mp4')
+
+    platform, page = _fetlife_with_page()
+    platform._image_path = clip
+    platform._attach_media(clip)
+
+    assert json.dumps(FetLifePlatform.VIDEO_FILE_SELECTOR) in page.js_calls[0]
+    assert 'video/mp4' in page.js_calls[0]
+
+
+def test_fetlife_attach_media_reports_unreadable_file(tmp_path):
+    platform, _ = _fetlife_with_page()
+    results = []
+    platform._attach_media(tmp_path / 'missing.jpg', callback=results.append)
+
+    assert len(results) == 1
+    assert results[0]['dispatched'] is False
+    assert 'missing.jpg' in results[0]['reason']
+
+
+def test_fetlife_consent_matches_certification_field_by_exact_name():
+    """The avatar checkbox shares the form; only the certification field may be set."""
+    selector = FetLifePlatform.CONSENT_CHECKBOX_SELECTOR
+    assert 'picture[is_certified]' in selector
+    assert 'video[is_certified]' in selector
+    assert 'is_avatar' not in selector
+
+    platform, page = _fetlife_with_page()
+    platform._certify_upload_consent()
+
+    script = page.js_calls[0]
+    assert json.dumps(selector) in script
+    # `certified` must reflect real checkbox state, not merely that we tried.
+    assert 'boxes.every(' in script
+    assert 'box.disabled' in script
+
+
+def test_fetlife_media_methods_no_op_without_view(tmp_path):
+    photo = tmp_path / 'photo.jpg'
+    photo.write_bytes(b'x')
+    platform = FetLifePlatform(account_id='fetlife_1')
+
+    platform._attach_media(photo)
+    platform._certify_upload_consent()  # must not raise without a view
 
 
 def test_fetlife_success_url_pattern():

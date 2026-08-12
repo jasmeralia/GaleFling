@@ -1,6 +1,10 @@
 """FetLife platform implementation using WebView."""
 
+import base64
 import json
+import mimetypes
+from collections.abc import Callable
+from pathlib import Path
 
 from PyQt6.QtCore import QUrl
 from PyQt6.QtWebEngineCore import QWebEngineScript
@@ -24,6 +28,21 @@ class FetLifePlatform(BaseWebViewPlatform):
     COOKIE_DOMAINS = ['fetlife.com']
     AUTH_COOKIE_NAMES = ['_fl_sessionid', 'remember_user_token', '_fl_session_remember_me']
     PREFILL_DELAY_MS = 200  # Traditional server-rendered pages load fast
+
+    # Upload composers expose the picker as a hidden <input type="file"> carrying the
+    # `accept` list (#picture_attachments / #video_video).  Match on `accept` rather
+    # than on `name`: the picture picker has no name attribute, and the *named* field
+    # (`picture[attachments][]`) carries no accept list — see _attach_media().
+    IMAGE_FILE_SELECTOR = 'input[type="file"][accept*="image"]'
+    VIDEO_FILE_SELECTOR = 'input[type="file"][accept*="video"]'
+
+    # Both upload forms require an age/consent certification before they will submit.
+    # Matched by exact field name — never by keyword, so no unrelated control (notably
+    # `picture[is_avatar]`, which replaces the account avatar) can ever be toggled.
+    CONSENT_CHECKBOX_SELECTOR = (
+        'input[type="checkbox"][name="picture[is_certified]"], '
+        'input[type="checkbox"][name="video[is_certified]"]'
+    )
 
     def create_webview(self, parent: QWidget | None = None):
         view = super().create_webview(parent)
@@ -235,6 +254,148 @@ class FetLifePlatform(BaseWebViewPlatform):
             }})();
             """
         )
+
+    # ── Media upload composers ──────────────────────────────────────
+
+    def get_media_file_selector(self) -> str | None:
+        """Return the file-input selector for the staged media, or None for text posts."""
+        if not self._image_path:
+            return None
+        if self._image_path.suffix.lower() in VIDEO_EXTENSIONS:
+            return self.VIDEO_FILE_SELECTOR
+        return self.IMAGE_FILE_SELECTOR
+
+    def _attach_media(self, path: Path, callback: Callable[[dict], None] | None = None) -> None:
+        """Attach a local file to the open upload composer's file input.
+
+        The file is handed to the picker input via a synthetic ``DataTransfer`` so the
+        page's own change handlers run.  This reports only that the file was written and
+        the events dispatched — **not** that the form accepted it.  The picture composer
+        moves the file to a hidden ``picture[attachments][]`` field and clears the picker
+        asynchronously, so acceptance must be observed by polling
+        ``_media_attachment_state()`` rather than read back here.
+
+        The file is inlined into the script as base64, which bounds this to modest
+        media.  Wiring media upload into the automatic post flow (task #417 Level B)
+        should instead override ``QWebEnginePage.chooseFiles()`` and hand Chromium the
+        path directly — no size ceiling and a genuinely native file-picker path.
+        """
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+
+        selector = self.get_media_file_selector() or self.IMAGE_FILE_SELECTOR
+        mime, _ = mimetypes.guess_type(str(path))
+        if not mime:
+            mime = 'video/mp4' if path.suffix.lower() in VIDEO_EXTENSIONS else 'image/jpeg'
+
+        try:
+            data_b64 = base64.b64encode(path.read_bytes()).decode('ascii')
+        except OSError as exc:
+            if callback:
+                callback({'dispatched': False, 'reason': f'could not read {path.name}: {exc}'})
+            return
+
+        js = f"""
+        (function() {{
+            var input = document.querySelector({json.dumps(selector)});
+            if (!input) return {{dispatched: false, reason: 'file input not found'}};
+            var binary = atob({json.dumps(data_b64)});
+            var bytes = new Uint8Array(binary.length);
+            for (var i = 0; i < binary.length; i++) {{
+                bytes[i] = binary.charCodeAt(i);
+            }}
+            var transfer = new DataTransfer();
+            transfer.items.add(
+                new File([bytes], {json.dumps(path.name)}, {{type: {json.dumps(mime)}}})
+            );
+            input.files = transfer.files;
+            input.dispatchEvent(new Event('input', {{bubbles: true}}));
+            input.dispatchEvent(new Event('change', {{bubbles: true}}));
+            return {{dispatched: true, fileName: {json.dumps(path.name)}}};
+        }})();
+        """
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
+
+    def _media_attachment_state(self, callback: Callable[[dict], None] | None = None) -> None:
+        """Report how many files the open upload form is currently holding.
+
+        Counts across every ``input[type="file"]`` on the page rather than the picker we
+        wrote to.  The picture composer hands the file to ``picture[attachments][]`` and
+        empties the picker, so inspecting the picker alone reports zero on success.
+        Poll this after ``_attach_media()`` — the hand-off is asynchronous.
+        """
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+
+        js = """
+        (function() {
+            var total = 0;
+            var holders = [];
+            document.querySelectorAll('input[type="file"]').forEach(function(el) {
+                if (el.files && el.files.length) {
+                    total += el.files.length;
+                    holders.push(el.name || el.id || '<unnamed>');
+                }
+            });
+            return {attached: total > 0, fileCount: total, holders: holders};
+        })();
+        """
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
+
+    def _certify_upload_consent(self, callback: Callable[[dict], None] | None = None) -> None:
+        """Tick the age/consent certification required by the upload composers.
+
+        Selects the certification field by exact name, so no other control on the form
+        can be toggled — the picture composer also carries ``picture[is_avatar]``, which
+        would replace the account avatar.
+        """
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+
+        js = f"""
+        (function() {{
+            var boxes = Array.from(
+                document.querySelectorAll({json.dumps(self.CONSENT_CHECKBOX_SELECTOR)})
+            );
+            if (!boxes.length) {{
+                return {{certified: false, reason: 'no certification checkbox on this page'}};
+            }}
+            var changed = [];
+            var blocked = [];
+            boxes.forEach(function(box) {{
+                if (box.disabled) {{ blocked.push(box.name); return; }}
+                if (box.checked) {{ return; }}
+                box.checked = true;
+                box.dispatchEvent(new Event('change', {{bubbles: true}}));
+                changed.push(box.name);
+            }});
+            return {{
+                certified: boxes.every(function(box) {{ return box.checked; }}),
+                names: boxes.map(function(box) {{ return box.name; }}),
+                changed: changed,
+                blocked: blocked
+            }};
+        }})();
+        """
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
 
     def navigate_to_login(self):
         if not self._view:

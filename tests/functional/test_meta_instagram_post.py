@@ -17,10 +17,11 @@ All media is staged to S3 first so the Graph API can fetch it by public URL.
 from __future__ import annotations
 
 import contextlib
-import uuid
 
 import pytest
 import requests
+
+from tests.functional.conftest import mutating_post_text
 
 INSTAGRAM_API_BASE = 'https://graph.instagram.com'
 
@@ -159,8 +160,7 @@ class TestInstagramImagePost:
         """Stage a JPEG to S3, post it to Instagram, verify permalink, then delete."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling functional test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg])
@@ -180,8 +180,7 @@ class TestInstagramImagePost:
         """PNG images must also be accepted by the API."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling PNG test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_png])
@@ -206,8 +205,7 @@ class TestInstagramVideoPost:
         """Stage an MP4 to S3, post it as a Reel, verify success, then delete."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling video test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_video])
@@ -235,8 +233,7 @@ class TestInstagramCarouselPost:
         """Post a 2-image carousel, verify the carousel container is published."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling carousel test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
@@ -259,8 +256,7 @@ class TestInstagramCarouselPost:
         """Post a mixed image+video carousel, verify publish, then delete."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling mixed carousel test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_video])

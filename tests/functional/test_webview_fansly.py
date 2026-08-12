@@ -7,11 +7,10 @@ If the session cookie is still valid the login flow is skipped.
 """
 
 import json
-import uuid
 
 import pytest
 
-from tests.functional.conftest import fail_or_skip
+from tests.functional.conftest import fail_or_skip, mutating_post_tag
 from tests.functional.webview_helpers import (
     close_webview,
     create_webview,
@@ -85,8 +84,7 @@ class TestFanslyTextInjection:
             _ensure_session(page, fansly_credentials)
             wait_ms(5000)  # Extra wait for SPA to fully hydrate after login
 
-            tag = uuid.uuid4().hex[:8]
-            test_text = f'GaleFling functional test {tag}'
+            test_text = mutating_post_tag()
             result = run_js(
                 page,
                 f"""

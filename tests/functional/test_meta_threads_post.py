@@ -14,10 +14,11 @@ Media posts (image, video, carousel) additionally require AWS staging credential
 from __future__ import annotations
 
 import contextlib
-import uuid
 
 import pytest
 import requests
+
+from tests.functional.conftest import mutating_post_text
 
 THREADS_API_BASE = 'https://graph.threads.net/v1.0'
 
@@ -140,8 +141,7 @@ class TestMetaThreadsTextPost:
         """Post a text-only thread and verify success."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        text = f'GaleFling functional test {tag} — safe to delete'
+        text = mutating_post_text()
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials))
         result = platform.post(text)
@@ -167,8 +167,7 @@ class TestMetaThreadsImagePost:
         """Stage a JPEG to S3, post it to Threads, verify permalink, then delete."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling image test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg])
@@ -188,8 +187,7 @@ class TestMetaThreadsImagePost:
         """PNG images must also be accepted by the Threads API."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling PNG test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_png])
@@ -214,8 +212,7 @@ class TestMetaThreadsVideoPost:
         """Stage an MP4 to S3, post it to Threads, verify success, then delete."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling video test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_video])
@@ -243,8 +240,7 @@ class TestMetaThreadsCarouselPost:
         """Post a 2-image carousel, verify the carousel is published, then delete."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling carousel test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
@@ -267,8 +263,7 @@ class TestMetaThreadsCarouselPost:
         """Post a mixed image+video carousel, verify publish, then delete."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling mixed carousel test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_video])

@@ -104,6 +104,185 @@ def _call_platform(method, *args, timeout_ms: int = 20000) -> dict:
     return {'timed_out': not state['done'], 'raw': value}
 
 
+def _trusted_click_xy(view, x: int, y: int) -> None:
+    """Hover then click at viewport coordinates with real Qt mouse events."""
+    from PyQt6.QtCore import QPoint, Qt
+    from PyQt6.QtTest import QTest
+
+    target = view.focusProxy() or view
+    QTest.mouseMove(target, QPoint(x, y))
+    wait_ms(350)
+    QTest.mouseClick(
+        target, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(x, y)
+    )
+    wait_ms(1200)
+
+
+def _element_xy(page, js_expr: str) -> dict | None:
+    """Centre coordinates of the element returned by *js_expr*, or None."""
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            var el = {js_expr};
+            if (!el) return null;
+            var r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return null;
+            return {{x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}};
+        }})();
+        """,
+        timeout_ms=10000,
+    )
+
+
+def _open_media_menu(view, page) -> bool:
+    """Open the composer's media dropdown.
+
+    The control is ``div.dropdown-title`` — the *parent* of ``i.fa-image.hover-effect``;
+    clicking the icon itself does nothing. A ``div.xdModal.back-drop`` overlays the page
+    and absorbs the first click, so this retries rather than assuming one lands.
+    """
+    for _ in range(4):
+        point = _element_xy(
+            page, "document.querySelector('i.fa-image.hover-effect')?.parentElement"
+        )
+        if point is None:
+            return False
+        _trusted_click_xy(view, point['x'], point['y'])
+        if _element_xy(page, _UPLOAD_NEW_JS) is not None:
+            return True
+    return False
+
+
+_UPLOAD_NEW_JS = (
+    "Array.from(document.querySelectorAll('*')).filter(function(e){"
+    "return e.children.length===0 && (e.textContent||'').trim()==='Upload New';})[0]"
+)
+
+_UPLOAD_BTN_JS = (
+    'Array.from(document.querySelectorAll(\'button, div[class*="btn"]\')).filter(function(e){'
+    "return (e.textContent||'').trim()==='Upload';})[0]"
+)
+
+
+def _composer_media_count(page) -> int:
+    """Media items the composer is holding, scoped to its own upload container.
+
+    Never count preview-ish classes document-wide: the surrounding feed dominates that
+    number and it drifts on its own, which previously produced a false pass.
+    """
+    value = run_js(
+        page,
+        '(document.querySelector(\'[class*="media-upload-container"]\') || {children: []})'
+        '.children.length',
+        timeout_ms=10000,
+    )
+    return int(value) if isinstance(value, int) else -1
+
+
+def _post_has_media(page, tag: str) -> dict:
+    """Whether the published post carrying *tag* actually contains media.
+
+    A post created before the upload finishes keeps its caption and silently drops the
+    media, so asserting the caption appeared is not enough.
+    """
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            var leaf = Array.from(document.querySelectorAll('*')).filter(function(el) {{
+                return el.children.length === 0
+                    && (el.textContent || '').indexOf({json.dumps(tag)}) !== -1;
+            }})[0];
+            if (!leaf) return {{found: false, reason: 'tag not on page'}};
+            var host = leaf;
+            for (var d = 0; d < 9 && host.parentElement; d++) {{
+                host = host.parentElement;
+                var media = Array.from(host.querySelectorAll('img, video')).filter(function(m) {{
+                    return /^https?:|^blob:/.test(m.src || m.currentSrc || '');
+                }});
+                if (media.length) {{
+                    return {{found: true, hasMedia: true, depth: d, count: media.length}};
+                }}
+            }}
+            return {{found: true, hasMedia: false}};
+        }})();
+        """,
+        timeout_ms=15000,
+    )
+
+
+def _attach_media_through_ui(view, page, platform, path) -> dict:
+    """Drive Fansly's own media flow end to end, applying the no-paywall policy.
+
+    icon -> Upload New -> native picker (chooseFiles) -> Upload media modal ->
+    permissions -> Upload. Writing the file onto the input directly does not work:
+    Fansly's uploader is never in the call stack.
+    """
+
+    def step(msg):
+        # Several multi-second waits live below. Announce each, so a slow run is
+        # visibly progressing rather than indistinguishable from a hang.
+        print(f'    [attach] {msg}', flush=True)
+
+    platform.suppress_native_file_dialog = True
+    platform.stage_media_for_picker(path)
+    before = _composer_media_count(page)
+    step(f'staged {path.name}; composer holds {before} item(s)')
+
+    if not _open_media_menu(view, page):
+        return {'attached': False, 'reason': 'media dropdown never opened'}
+    step('media dropdown open')
+
+    point = _element_xy(page, _UPLOAD_NEW_JS)
+    if point is None:
+        return {'attached': False, 'reason': '"Upload New" not visible'}
+    _trusted_click_xy(view, point['x'], point['y'])
+
+    elapsed = 0
+    while elapsed < 20000:
+        if run_js(page, '/Upload media/.test(document.body.innerText)', timeout_ms=10000):
+            break
+        wait_ms(1000)
+        elapsed += 1000
+    else:
+        return {
+            'attached': False,
+            'reason': 'Upload media modal never opened',
+            'picker_invocations': platform.picker_invocations,
+        }
+
+    step(f'modal open (picker fired {platform.picker_invocations}x)')
+
+    perms = _call_platform(platform.apply_media_permissions)
+    if not perms.get('ok'):
+        return {'attached': False, 'reason': f'permissions not applied: {perms}'}
+
+    step(f'permissions applied: {perms.get("state")}')
+
+    point = _element_xy(page, _UPLOAD_BTN_JS)
+    if point is None:
+        return {'attached': False, 'reason': 'Upload button not found', 'permissions': perms}
+    _trusted_click_xy(view, point['x'], point['y'])
+
+    elapsed = 0
+    while elapsed < 45000:
+        if _composer_media_count(page) > before:
+            return {
+                'attached': True,
+                'permissions': perms,
+                'mediaCount': _composer_media_count(page),
+            }
+        wait_ms(2000)
+        elapsed += 2000
+    return {
+        'attached': False,
+        'reason': 'media never reached the composer',
+        'permissions': perms,
+        'before': before,
+    }
+
+
 def _own_profile_href(page) -> str | None:
     """Resolve the logged-in account's profile path from the feed's own links."""
     return run_js(
@@ -414,6 +593,73 @@ class TestFanslyPost:
                 f'Fansly post {tag} not found after submit — nothing was created: {posted}'
             )
             print(f'\n  Fansly post created (tag {tag}) -> {posted.get("where")}')
+            print(f'  MANUAL CLEANUP NEEDED — delete the Fansly post tagged {tag}')
+        finally:
+            close_webview(view, page, platform)
+
+    @pytest.mark.mutating
+    @pytest.mark.xfail(
+        reason=(
+            'Attach and the no-paywall permissions work, but clicking Post with media '
+            'attached publishes nothing — verified 2026-08-12, the run reaches Post and '
+            'no post appears. Suspected: the Post control is genuinely inert while media '
+            'is still processing, and being a <div> its disabled class does not stop the '
+            'click. See docs/platforms/FANSLY.md for the verified flow.'
+        ),
+        strict=False,
+    )
+    def test_image_post_creates_a_post_with_media(
+        self, galefling_data_dir, fansly_credentials, sample_jpeg
+    ):
+        """Post a real image through Fansly's own upload flow and prove media landed.
+
+        Asserts the *published* post contains media, not merely that the caption
+        reached the feed — a post created before the upload completes keeps its text
+        and silently drops the image.
+        """
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            print('\n  [1/5] establishing session', flush=True)
+            _ensure_session(page, fansly_credentials)
+            ok, final_url = load_page(page, COMPOSER_URL, timeout_ms=30000)
+            assert ok, f'Composer load failed: {final_url}'
+            wait_ms(8000)
+
+            print('  [2/5] attaching media through the composer UI', flush=True)
+            attached = _attach_media_through_ui(view, page, platform, sample_jpeg)
+            assert attached.get('attached'), f'Media never attached: {attached}'
+
+            perms = attached.get('permissions', {})
+            assert perms.get('state', {}).get('Require Subscription') is False, (
+                f'Post would be paywalled: {perms}'
+            )
+            assert perms.get('state', {}).get('Require Follow') is True, (
+                f'Require Follow not set: {perms}'
+            )
+
+            tag = mutating_post_text()
+            print(f'  [3/5] posting tag {tag} — delete this if the run fails', flush=True)
+            platform._inject_text(tag)
+            wait_ms(2000)
+            injected = _read_composer_text(page)
+            assert injected.get('found') and tag in injected.get('value', ''), (
+                f'Caption not in composer: {injected}'
+            )
+
+            print('  [4/5] clicking Post', flush=True)
+            submit = _click_post_control(page)
+            assert submit.get('clicked'), f'Post control not clicked: {submit}'
+
+            wait_ms(10000)
+            print('  [5/5] verifying the published post', flush=True)
+            posted = _wait_for_post(page, tag, timeout_ms=60000)
+            assert posted.get('found'), f'Post {tag} not found after submit: {posted}'
+
+            media = _post_has_media(page, tag)
+            assert media.get('hasMedia'), f'Fansly published the caption but no image: {media}'
+            print(f'\n  Fansly image post created (tag {tag}) -> {posted.get("where")}')
+            print(f'  permalinks: {posted.get("permalinks")}  media: {media}')
             print(f'  MANUAL CLEANUP NEEDED — delete the Fansly post tagged {tag}')
         finally:
             close_webview(view, page, platform)

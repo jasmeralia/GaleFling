@@ -1,6 +1,6 @@
 # WebView Functional Testing — Multi-Phase Plan
 
-**Status:** Phases 1, 3, and 5 implemented; Phase 2 in progress; Phases 4, 6–7 not started
+**Status:** Phases 1 and 3 implemented; Phases 2 and 5 in progress; Phases 4, 6–7 not started
 **Created:** 2026-08-10
 **Last updated:** 2026-08-11 (OnlyFans auth + checkbox scope)
 **Owner:** Jas
@@ -406,9 +406,51 @@ Do not perform the BIOS change before this phase reports. It may prove unnecessa
 
 **Goal:** Make the production WebView code reachable by tests.
 **Prerequisites:** Phase 1.
-**Status:** Implemented 2026-08-11 — `webview_helpers.create_webview()` delegates to
-`BaseWebViewPlatform.create_webview()`; login helpers remain as test-only harnesses for
-Fansly/FetLife/Snapchat session refresh (platforms have no automated login path).
+**Status:** **In progress.** The shared infrastructure landed 2026-08-11 —
+`webview_helpers.create_webview()` delegates to `BaseWebViewPlatform.create_webview()`,
+and login helpers remain as test-only harnesses for Fansly/FetLife/Snapchat session
+refresh (no platform has an automated login path). What is *not* finished is the
+per-platform-family pass: each family's tests have to be read and confirmed to drive
+shipped code rather than a copy of it.
+
+Infrastructure alone does not deliver the phase. Every WebView family used
+`create_webview()` from day one and still injected text, dismissed prompts, or hardcoded
+selectors itself — so the tests exercised production page/profile setup while quietly
+testing their own composer logic.
+
+| Platform family | Routed through shipped code | Verified live |
+|---|---|---|
+| Bluesky, Twitter | Yes — `227348d` | Yes |
+| Meta (Instagram, Threads, Facebook Page) | Yes — `084909e` | Yes |
+| FetLife (WebView) | Yes | Yes — full suite, incl. mutating |
+| Fansly (WebView) | Yes — injection rerouted to `_inject_text()` | **No** |
+| OnlyFans (WebView) | Yes — injection and selector rerouted | **No** |
+| Snapchat (WebView) | n/a — `disabled_platform` | n/a |
+
+> **The OnlyFans reroute is a live question, not a cleanup.** The test previously
+> injected with `execCommand('insertText')`; shipped `_inject_text()` assigns
+> `el.textContent` on a contenteditable. Those are not equivalent on a
+> framework-controlled editor, so the rerouted test may legitimately fail and expose a
+> real injection defect. Treat a red OnlyFans test after this change as a finding.
+
+### Violations found by the FetLife pass (2026-08-11)
+
+Recorded because they are the pattern to look for in the remaining families, and none of
+them were visible from the acceptance criteria below:
+
+- **FetLife** re-implemented the "Maybe later" dismissal that
+  `FetLifePlatform._inject_checkbox_fix()` already runs from a MutationObserver. A broken
+  shipped dismissal would not have failed a single test. The test now asserts the prompt
+  is *absent* rather than dismissing it.
+- **Fansly** injected text with its own `el.value =` block instead of `_inject_text()`.
+- **OnlyFans** injected with `execCommand` and copied
+  `div[contenteditable="true"].b-make-post__text` to four call sites instead of reading
+  `OnlyFansPlatform.TEXT_SELECTOR`, so a selector change in shipped code could not fail
+  the test.
+
+The generalisable smell: a test that *makes the page ready* (dismissing, expanding,
+selecting, injecting) is probably duplicating shipped behaviour. A test that *observes*
+or that *stands in for the user's own click* is not.
 
 ### Background
 
@@ -449,6 +491,13 @@ verifying against a file Chromium had not yet written.
 - [x] No functional test constructs a `QWebEngineProfile` directly.
 - [x] A deliberate break in `base_webview.py` fails at least one functional test
   (unit tests assert `create_webview` delegates to the platform implementation).
+- [ ] **Per family, no test re-implements shipped composer behaviour.** Done for
+  Bluesky/Twitter, Meta, and FetLife; Fansly and OnlyFans are rerouted but unverified
+  against the live sites. This criterion is what the original tick missed: the two above
+  are satisfied by `create_webview()` alone, which every family already used while still
+  injecting text and dismissing prompts itself.
+- [ ] A deliberate break in each platform's `_inject_text()` / injected scripts fails
+  that platform's functional tests.
 - [x] `make lint` and `make test-ci` pass.
 - [x] Shared profile is fully **released** after each functional test — `close_webview()`
   clears `platform._profile`, pumps deferred deletes, then evicts and collects

@@ -100,3 +100,21 @@ Attaching media is a multi-step flow driven by Fansly's own UI, not a single fil
 6. Add the caption and post.
 
 Writing a file onto the input directly does not work, with either a synthetic `DataTransfer` or the picker: Fansly's uploader is never in the call stack, so the modal never opens and the composer stays empty. Posting anyway publishes the caption with **no media attached**.
+
+### Driving the flow — verified selectors and quirks (2026-08-12)
+
+Steps 1–4 above are confirmed working end to end against the live composer. The details are fiddly enough to be worth recording:
+
+| Step | Target | Note |
+|---|---|---|
+| Open the menu | `div.dropdown-title` — the **parent** of `i.fa-image.hover-effect` | Clicking the `<i>` itself does nothing, despite it having `cursor: pointer` |
+| Choose upload | the visible leaf whose text is exactly `Upload New` | Present in the DOM from page load but `visible: false` until the menu opens |
+| Picker | fires `chooseFiles()`, `picker_invocations` goes to 1 | Only when Fansly opens it — not when we click the input |
+| Modal | `Upload media`; buttons `Cancel` (`btn large margin-right-2`) and `Upload` (`btn solid-blue large`) | |
+
+Two traps:
+
+- **`div.xdModal.back-drop` overlays the page.** `document.elementFromPoint()` at the icon's centre returns the backdrop, not the icon, and the **first click is absorbed dismissing it**. Retry the open-menu click — attempt 1 fails, attempt 2 succeeds, reproducibly.
+- **`fa-image` vs `fa-images`.** The composer's control is the singular `fa-image`; the surrounding feed is full of plural `fa-images` in the right-hand column. A substring match on `fa-image` hits both and lands you on a feed icon ~1000px away. Match the class as a whole token.
+
+**Still unknown:** the Media Permissions toggles are **not** `input[type="checkbox"]` — a scan of the open modal found none. They are custom components, as FetLife's styled checkboxes are. Identifying how they are represented is the remaining blocker for applying the no-paywall policy, and therefore for any Fansly media test.

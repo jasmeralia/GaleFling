@@ -78,6 +78,19 @@ class TestInstagramConnection:
         assert ok, f'test_connection() failed with error: {err}'
         assert err is None
 
+    def test_connection_returns_username(self, instagram_credentials):
+        """Profile fetch: Graph API must return a username for the token."""
+        resp = requests.get(
+            f'{INSTAGRAM_API_BASE}/me',
+            params={
+                'fields': 'username',
+                'access_token': instagram_credentials['access_token'],
+            },
+            timeout=15,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json().get('username')
+
     def test_connection_bad_token(self):
         """A bogus access token must produce an auth error, not an exception."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
@@ -122,6 +135,16 @@ class TestInstagramValidation:
 
         assert not result.success
         assert result.error_code == 'POST-TEXT-TOO-LONG'
+
+    def test_webp_image_rejected(self, instagram_credentials, sample_webp):
+        """WEBP is not in Instagram specs; reject before any API or S3 staging."""
+        from src.platforms.meta_instagram import MetaInstagramPlatform
+
+        platform = MetaInstagramPlatform(_make_auth(instagram_credentials))
+        result = platform.post('caption', media_paths=[sample_webp])
+
+        assert not result.success
+        assert result.error_code == 'IMG-INVALID-FORMAT'
 
 
 # ── Image post tests ──────────────────────────────────────────────────────────
@@ -219,6 +242,32 @@ class TestInstagramCarouselPost:
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
 
         assert result.success, f'Carousel post failed: {result.error_code} — {result.error_message}'
+        assert result.platform == 'Instagram'
+        media_id = result.raw_response.get('id')
+        assert media_id
+
+        # Cleanup
+        _delete_media(instagram_credentials['access_token'], media_id)
+
+    def test_carousel_image_and_video(
+        self,
+        instagram_credentials,
+        meta_aws_credentials,
+        sample_jpeg,
+        sample_video,
+    ):
+        """Post a mixed image+video carousel, verify publish, then delete."""
+        from src.platforms.meta_instagram import MetaInstagramPlatform
+
+        tag = uuid.uuid4().hex[:8]
+        caption = f'GaleFling mixed carousel test {tag} — safe to delete'
+
+        platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
+        result = platform.post(caption, media_paths=[sample_jpeg, sample_video])
+
+        assert result.success, (
+            f'Mixed carousel post failed: {result.error_code} — {result.error_message}'
+        )
         assert result.platform == 'Instagram'
         media_id = result.raw_response.get('id')
         assert media_id

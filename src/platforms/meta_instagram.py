@@ -313,7 +313,9 @@ class MetaInstagramPlatform(BasePlatform):
             params['image_url'] = image_url
         if video_url:
             params['video_url'] = video_url
-            params['media_type'] = 'VIDEO'
+            # Carousel items still use VIDEO; standalone feed videos require REELS
+            # (VIDEO was deprecated for feed posts in Nov 2023 — subcode 2207067).
+            params['media_type'] = 'VIDEO' if is_carousel_item else 'REELS'
         if caption:
             params['caption'] = caption
         if is_carousel_item:

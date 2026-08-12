@@ -382,6 +382,17 @@ def sample_png(tmp_path):
 
 
 @pytest.fixture
+def sample_webp(tmp_path):
+    """Create a small 100x100 green WEBP for format-rejection tests."""
+    from PIL import Image
+
+    img = Image.new('RGB', (100, 100), color='green')
+    path = tmp_path / 'test_image.webp'
+    img.save(str(path), 'WEBP')
+    return path
+
+
+@pytest.fixture
 def oversized_jpeg(tmp_path):
     """Create a 5000x5000 JPEG that exceeds most platform dimension limits."""
     from PIL import Image

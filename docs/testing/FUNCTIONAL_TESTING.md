@@ -411,12 +411,13 @@ Tests that create a post attempt to delete it in the same test. Cleanup is **bes
 | Bluesky | Yes | API `delete_post` |
 | Twitter | Yes | API `delete_tweet` |
 | Instagram | Yes | Graph API media delete |
-| Threads (image/video/carousel) | Yes | Graph API delete |
-| Threads (text-only) | **No** | Post is left live; search for `GaleFling functional test` |
-| Facebook Page | **No** | All mutating posts are left live; manual cleanup required |
+| Threads | Yes | Graph API delete (text, image, video, carousel) |
+| Facebook Page | Yes | Graph API delete (text, photo, multi-photo, video) |
 | FetLife (text) | Best-effort | UI delete when post URL is captured; feed redirect needs manual cleanup |
 
 Tests use UUID tags in post text to avoid duplicate-post rejections and to make manual cleanup easy.
+
+**If auto-delete fails** (assertion before cleanup, API error, or token lacks delete permission), search the platform for `GaleFling` plus the UUID tag in the post text and remove manually.
 
 ## What's Tested
 
@@ -425,13 +426,15 @@ Tests use UUID tags in post text to avoid duplicate-post rejections and to make 
 | Test case                  | Bluesky | Twitter | Instagram | Threads | Facebook Page |
 |----------------------------|---------|---------|-----------|---------|---------------|
 | Authentication             | x       | x       | x         | x       | x             |
-| Profile fetch              | x       | x       | -         | -       | -             |
+| Profile fetch              | x       | x       | x         | x       | x             |
 | Text-only post + delete    | x       | x       | -         | x       | x             |
 | Post with URL facets       | x       | -       | -         | -       | -             |
 | Single image post          | x       | x       | x         | x       | x             |
 | Multiple images post       | x       | x       | x         | x       | x             |
+| Mixed image+video carousel | -       | -       | x         | x       | -             |
 | Video post                 | x       | x       | x         | x       | x             |
 | Character limit rejection  | x       | x       | x         | x       | x             |
+| Unsupported format (WEBP)  | -       | -       | x         | x       | x             |
 | Text-only post rejected    | -       | -       | x         | -       | -             |
 
 Instagram and Threads media tests skip when Meta AWS staging credentials are absent.
@@ -447,8 +450,8 @@ The tables above show what **is** tested. The gaps below map missing functional 
 |-----|---------|---------|-----------|---------|---------------|
 | Second account slot (`*_2` / `*_alt`) | — | — | — | — | — |
 | GIF / animated image post | — | — | — | — | — |
-| WEBP image post (native format) | — | — | — | — | — |
-| Post cleanup after mutating test | ✓ | ✓ | ✓ | text only | all posts |
+| Native WEBP image post | — | — | — | — | — |
+| Post cleanup after mutating test | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Media processing functional tests | partial | partial | partial | — | — |
 | Token refresh / expiry warning path | — | — | — | — | — |
 | Rate-limit headroom check | — | — | — | — | — |
@@ -474,11 +477,10 @@ excluded from routine runs (`disabled_platform`). Image→video pipeline tests i
 
 **Priority gaps to close next** (tracked in Odoo task #166):
 
-1. **Facebook Page + Threads text post cleanup** — add API delete (or document permanent test posts).
-2. **OnlyFans + Fansly mutating smoke tests** — submit a tagged post and delete, mirroring FetLife.
-3. **FetLife picture/video mutating tests** — currently stop at composer element discovery.
-4. **Media processing** — add resize/validation cases for Threads, Facebook Page, OnlyFans, and Fansly specs.
-5. **Second-account slots** — no functional test exercises `twitter_2`, `bluesky_alt`, `meta_instagram_2`, or `meta_threads_2`.
+1. **OnlyFans + Fansly mutating smoke tests** — submit a tagged post and delete, mirroring FetLife.
+2. **FetLife picture/video mutating tests** — currently stop at composer element discovery.
+3. **Media processing** — add resize/validation cases for Threads, Facebook Page, OnlyFans, and Fansly specs.
+4. **Second-account slots** — no functional test exercises `twitter_2`, `bluesky_alt`, `meta_instagram_2`, or `meta_threads_2`.
 
 ### WebView Platform Session Tests
 

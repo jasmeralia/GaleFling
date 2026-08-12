@@ -416,6 +416,26 @@ def test_create_container_error_paths(mock_requests):
 
 
 @patch('src.platforms.meta_instagram.requests')
+def test_create_container_video_media_type(mock_requests):
+    """Standalone videos use REELS; carousel items keep VIDEO per Meta API."""
+    p = _make_platform()
+    p._access_token = 'tok'
+    p._user_id = 'uid'
+    mock_requests.post.return_value = MagicMock(status_code=200, json=lambda: {'id': 'c1'})
+
+    p._create_media_container(video_url='https://s3.example.com/vid.mp4')
+    standalone = mock_requests.post.call_args.kwargs['data']
+    assert standalone['media_type'] == 'REELS'
+
+    mock_requests.post.reset_mock()
+    mock_requests.post.return_value = MagicMock(status_code=200, json=lambda: {'id': 'c2'})
+    p._create_media_container(video_url='https://s3.example.com/vid.mp4', is_carousel_item=True)
+    carousel = mock_requests.post.call_args.kwargs['data']
+    assert carousel['media_type'] == 'VIDEO'
+    assert carousel['is_carousel_item'] == 'true'
+
+
+@patch('src.platforms.meta_instagram.requests')
 def test_publish_container_error_paths(mock_requests):
     p = _make_platform()
     p._access_token = 'tok'

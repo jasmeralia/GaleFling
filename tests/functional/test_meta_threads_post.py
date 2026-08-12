@@ -71,6 +71,19 @@ class TestMetaThreadsConnection:
         assert ok, f'test_connection() failed with error: {err}'
         assert err is None
 
+    def test_connection_returns_username(self, meta_threads_credentials):
+        """Profile fetch: Threads API must return a username for the token."""
+        resp = requests.get(
+            f'{THREADS_API_BASE}/me',
+            params={
+                'fields': 'username',
+                'access_token': meta_threads_credentials['access_token'],
+            },
+            timeout=15,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json().get('username')
+
     def test_connection_bad_token(self):
         from src.platforms.meta_threads import MetaThreadsPlatform
 
@@ -87,25 +100,13 @@ class TestMetaThreadsConnection:
         assert err in ('TH-AUTH-EXPIRED', 'TH-AUTH-INVALID')
 
 
-# ── Text post tests ───────────────────────────────────────────────────────────
+# ── Validation tests ──────────────────────────────────────────────────────────
 
 
 @pytest.mark.functional
-@pytest.mark.mutating
-class TestMetaThreadsTextPost:
-    def test_text_post(self, meta_threads_credentials):
-        """Post a text-only thread and verify success."""
-        from src.platforms.meta_threads import MetaThreadsPlatform
-
-        tag = uuid.uuid4().hex[:8]
-        text = f'GaleFling functional test {tag} — safe to ignore'
-
-        platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials))
-        result = platform.post(text)
-
-        assert result.success, f'Text post failed: {result.error_code} — {result.error_message}'
-        assert result.platform == 'Threads'
-        assert result.raw_response.get('id')
+@pytest.mark.non_mutating
+class TestMetaThreadsValidation:
+    """Pre-post validation — errors returned before any network I/O."""
 
     def test_text_too_long_rejected(self, meta_threads_credentials):
         """A post exceeding 500 characters should be rejected before API call."""
@@ -117,6 +118,41 @@ class TestMetaThreadsTextPost:
 
         assert not result.success
         assert result.error_code == 'POST-TEXT-TOO-LONG'
+
+    def test_webp_image_rejected(self, meta_threads_credentials, sample_webp):
+        """WEBP is not in Threads specs; reject before any API or S3 staging."""
+        from src.platforms.meta_threads import MetaThreadsPlatform
+
+        platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials))
+        result = platform.post('caption', media_paths=[sample_webp])
+
+        assert not result.success
+        assert result.error_code == 'IMG-INVALID-FORMAT'
+
+
+# ── Text post tests ───────────────────────────────────────────────────────────
+
+
+@pytest.mark.functional
+@pytest.mark.mutating
+class TestMetaThreadsTextPost:
+    def test_text_post(self, meta_threads_credentials):
+        """Post a text-only thread and verify success."""
+        from src.platforms.meta_threads import MetaThreadsPlatform
+
+        tag = uuid.uuid4().hex[:8]
+        text = f'GaleFling functional test {tag} — safe to delete'
+
+        platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials))
+        result = platform.post(text)
+
+        assert result.success, f'Text post failed: {result.error_code} — {result.error_message}'
+        assert result.platform == 'Threads'
+        post_id = result.raw_response.get('id')
+        assert post_id
+
+        # Cleanup
+        _delete_post(meta_threads_credentials['access_token'], post_id)
 
 
 # ── Image post tests ──────────────────────────────────────────────────────────
@@ -143,7 +179,7 @@ class TestMetaThreadsImagePost:
         assert post_id
 
         if result.post_url:
-            assert result.post_url.startswith('https://www.threads.net/')
+            assert 'threads.' in result.post_url and '/post/' in result.post_url
 
         # Cleanup
         _delete_post(meta_threads_credentials['access_token'], post_id)
@@ -214,6 +250,32 @@ class TestMetaThreadsCarouselPost:
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
 
         assert result.success, f'Carousel post failed: {result.error_code} — {result.error_message}'
+        assert result.platform == 'Threads'
+        post_id = result.raw_response.get('id')
+        assert post_id
+
+        # Cleanup
+        _delete_post(meta_threads_credentials['access_token'], post_id)
+
+    def test_carousel_image_and_video(
+        self,
+        meta_threads_credentials,
+        meta_aws_credentials,
+        sample_jpeg,
+        sample_video,
+    ):
+        """Post a mixed image+video carousel, verify publish, then delete."""
+        from src.platforms.meta_threads import MetaThreadsPlatform
+
+        tag = uuid.uuid4().hex[:8]
+        caption = f'GaleFling mixed carousel test {tag} — safe to delete'
+
+        platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials, meta_aws_credentials))
+        result = platform.post(caption, media_paths=[sample_jpeg, sample_video])
+
+        assert result.success, (
+            f'Mixed carousel post failed: {result.error_code} — {result.error_message}'
+        )
         assert result.platform == 'Threads'
         post_id = result.raw_response.get('id')
         assert post_id

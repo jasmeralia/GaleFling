@@ -43,27 +43,33 @@ VIDEO_FILE_SELECTOR = FetLifePlatform.VIDEO_FILE_SELECTOR
 POST_URL_PATTERN = re.compile(FetLifePlatform.SUCCESS_URL_PATTERN, re.IGNORECASE)
 
 
-def _dismiss_maybe_later(page) -> bool:
-    """Dismiss FetLife's recurring post-login prompt when it appears."""
-    dismissed = run_js(
-        page,
-        """
-        (function() {
-            var candidates = Array.from(
-                document.querySelectorAll('button, a, [role="button"]')
-            );
-            var later = candidates.find(function(el) {
-                return (el.textContent || '').trim().toLowerCase() === 'maybe later';
-            });
-            if (!later) return false;
-            later.click();
-            return true;
-        })();
-        """,
+def _maybe_later_prompt_present(page) -> bool:
+    """Whether FetLife's recurring "Maybe later" prompt is still on screen.
+
+    The prompt is dismissed by shipped code — ``dismissMaybeLater()`` inside
+    ``FetLifePlatform._inject_checkbox_fix()``, driven by a MutationObserver. Tests
+    therefore *observe* it rather than dismissing it themselves: a test-side dismissal
+    would keep passing even if the shipped one broke, which is the defect class Phase 5
+    exists to catch.
+    """
+    return bool(
+        run_js(
+            page,
+            """
+            (function() {
+                return Array.from(
+                    document.querySelectorAll('button, a, [role="button"]')
+                ).some(function(el) {
+                    if ((el.textContent || '').trim().toLowerCase() !== 'maybe later') {
+                        return false;
+                    }
+                    var style = window.getComputedStyle(el);
+                    return style.display !== 'none' && style.visibility !== 'hidden';
+                });
+            })();
+            """,
+        )
     )
-    if dismissed:
-        wait_ms(500)
-    return bool(dismissed)
 
 
 def _read_status_text(page) -> dict:
@@ -126,7 +132,11 @@ def _ensure_session(page, credentials: dict) -> None:
         ok, final_url = load_page(page, TEXT_COMPOSER_URL, timeout_ms=20000)
         if not ok or '/login' in final_url.lower():
             fail_or_skip('FetLife composer unreachable after login')
-    _dismiss_maybe_later(page)
+    wait_ms(1000)  # let the shipped MutationObserver dismiss the recurring prompt
+    assert not _maybe_later_prompt_present(page), (
+        'FetLife "Maybe later" prompt is still showing — the shipped '
+        'dismissMaybeLater() in FetLifePlatform._inject_checkbox_fix() did not fire'
+    )
 
 
 def _call_platform(method, *args, timeout_ms: int = 20000) -> dict:
@@ -568,7 +578,6 @@ class TestFetLifePicturePost:
             assert ok, f'Page load failed: {final_url}'
             assert '/login' not in final_url.lower(), f'Session expired: {final_url}'
             wait_ms(2000)
-            _dismiss_maybe_later(page)
 
             result = _composer_elements(page, PICTURE_FILE_SELECTOR, 'Upload Your Picture')
             assert isinstance(result, dict), f'JS returned: {result}'
@@ -605,7 +614,6 @@ class TestFetLifePicturePost:
             ok, final_url = load_page(page, IMAGE_COMPOSER_URL, timeout_ms=20000)
             assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
             wait_ms(2000)
-            _dismiss_maybe_later(page)
 
             platform._image_path = sample_jpeg
             assert platform.get_media_file_selector() == PICTURE_FILE_SELECTOR
@@ -647,7 +655,6 @@ class TestFetLifePicturePost:
             ok, final_url = load_page(page, IMAGE_COMPOSER_URL, timeout_ms=20000)
             assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
             wait_ms(2000)
-            _dismiss_maybe_later(page)
 
             tag = mutating_post_text()
             platform._image_path = sample_jpeg
@@ -700,7 +707,6 @@ class TestFetLifeVideoPost:
             assert ok, f'Page load failed: {final_url}'
             assert '/login' not in final_url.lower(), f'Session expired: {final_url}'
             wait_ms(2000)
-            _dismiss_maybe_later(page)
 
             result = _composer_elements(page, VIDEO_FILE_SELECTOR, 'Upload Your Video')
             assert isinstance(result, dict), f'JS returned: {result}'
@@ -729,7 +735,6 @@ class TestFetLifeVideoPost:
             ok, final_url = load_page(page, VIDEO_COMPOSER_URL, timeout_ms=20000)
             assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
             wait_ms(2000)
-            _dismiss_maybe_later(page)
 
             platform._image_path = sample_video
             assert platform.get_media_file_selector() == VIDEO_FILE_SELECTOR
@@ -765,7 +770,6 @@ class TestFetLifeVideoPost:
             ok, final_url = load_page(page, VIDEO_COMPOSER_URL, timeout_ms=20000)
             assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
             wait_ms(2000)
-            _dismiss_maybe_later(page)
 
             tag = mutating_post_text()
             platform._image_path = sample_video

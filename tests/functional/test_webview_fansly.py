@@ -13,6 +13,7 @@ import pytest
 from src.platforms.fansly import FanslyPlatform
 from tests.functional.conftest import fail_or_skip, mutating_post_tag, mutating_post_text
 from tests.functional.webview_helpers import (
+    call_platform,
     close_webview,
     create_webview,
     get_or_create_app,
@@ -20,6 +21,7 @@ from tests.functional.webview_helpers import (
     load_page,
     login_fansly,
     run_js,
+    trusted_click_at,
     wait_ms,
 )
 
@@ -72,54 +74,15 @@ def _read_composer_text(page) -> dict:
     )
 
 
-def _wait_for_attachment(platform, timeout_ms: int = 20000) -> dict:
-    """Poll until the composer reports a file attached."""
-    elapsed = 0
-    state: dict = {}
-    while elapsed < timeout_ms:
-        state = _call_platform(platform._media_attachment_state)
-        if state.get('attached'):
-            return state
-        wait_ms(500)
-        elapsed += 500
-    return state
-
-
-def _call_platform(method, *args, timeout_ms: int = 20000) -> dict:
-    """Call a platform method whose result arrives via an async runJavaScript callback."""
-    state: dict = {'done': False, 'value': None}
-
-    def callback(value):
-        state['done'] = True
-        state['value'] = value
-
-    method(*args, callback=callback)
-    elapsed = 0
-    while not state['done'] and elapsed < timeout_ms:
-        wait_ms(100)
-        elapsed += 100
-    value = state['value']
-    if isinstance(value, dict):
-        return value
-    return {'timed_out': not state['done'], 'raw': value}
-
-
-def _trusted_click_xy(view, x: int, y: int) -> None:
-    """Hover then click at viewport coordinates with real Qt mouse events."""
-    from PyQt6.QtCore import QPoint, Qt
-    from PyQt6.QtTest import QTest
-
-    target = view.focusProxy() or view
-    QTest.mouseMove(target, QPoint(x, y))
-    wait_ms(350)
-    QTest.mouseClick(
-        target, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(x, y)
-    )
-    wait_ms(1200)
-
-
 def _element_xy(page, js_expr: str) -> dict | None:
-    """Centre coordinates of the element returned by *js_expr*, or None."""
+    """Centre coordinates of the element returned by *js_expr*, or None.
+
+    Deliberately not ``webview_helpers.element_center_js``: that one scrolls the target
+    to the centre of the viewport first, which is right for a control that may be below
+    the fold but wrong here. This drives Fansly's composer dropdown, whose measured
+    layout (docs/platforms/FANSLY.md) was verified live against an unscrolled page, and
+    whose menu closes on scroll.
+    """
     return run_js(
         page,
         f"""
@@ -147,7 +110,7 @@ def _open_media_menu(view, page, platform) -> bool:
     coordinates the icon happens to occupy. The retry below is a safety net for a
     backdrop that reappears, not the mechanism.
     """
-    overlay = _call_platform(platform.dismiss_blocking_overlay)
+    overlay = call_platform(platform.dismiss_blocking_overlay)
     print(f'    [attach] overlay: {overlay}', flush=True)
     for _ in range(4):
         point = _element_xy(
@@ -155,7 +118,7 @@ def _open_media_menu(view, page, platform) -> bool:
         )
         if point is None:
             return False
-        _trusted_click_xy(view, point['x'], point['y'])
+        trusted_click_at(view, point['x'], point['y'])
         if _element_xy(page, _UPLOAD_NEW_JS) is not None:
             return True
     return False
@@ -290,7 +253,7 @@ def _attach_media_through_ui(view, page, platform, path, upload_timeout_ms: int 
     point = _element_xy(page, _UPLOAD_NEW_JS)
     if point is None:
         return {'attached': False, 'reason': '"Upload New" not visible'}
-    _trusted_click_xy(view, point['x'], point['y'])
+    trusted_click_at(view, point['x'], point['y'])
 
     elapsed = 0
     while elapsed < 20000:
@@ -307,7 +270,7 @@ def _attach_media_through_ui(view, page, platform, path, upload_timeout_ms: int 
 
     step(f'modal open (picker fired {platform.picker_invocations}x)')
 
-    perms = _call_platform(platform.apply_media_permissions)
+    perms = call_platform(platform.apply_media_permissions)
     if not perms.get('ok'):
         return {'attached': False, 'reason': f'permissions not applied: {perms}'}
 
@@ -316,7 +279,7 @@ def _attach_media_through_ui(view, page, platform, path, upload_timeout_ms: int 
     point = _element_xy(page, _UPLOAD_BTN_JS)
     if point is None:
         return {'attached': False, 'reason': 'Upload button not found', 'permissions': perms}
-    _trusted_click_xy(view, point['x'], point['y'])
+    trusted_click_at(view, point['x'], point['y'])
 
     elapsed = 0
     while elapsed < upload_timeout_ms:
@@ -658,7 +621,7 @@ class TestFanslyGreetingPrompt:
             if not before.get('backdrop'):
                 pytest.skip(f'Fansly showed no greeting prompt this session: {before}')
 
-            result = _call_platform(platform.dismiss_blocking_overlay)
+            result = call_platform(platform.dismiss_blocking_overlay)
             # 'via' records whether the named decline control or the backdrop fallback
             # cleared it — without it a pass cannot distinguish the two paths.
             print(f'\n  dismissed via {result.get("via")}: {result.get("text")}', flush=True)

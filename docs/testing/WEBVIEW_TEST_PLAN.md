@@ -422,8 +422,8 @@ testing their own composer logic.
 |---|---|---|
 | Bluesky, Twitter | Yes — `227348d` | Yes |
 | Meta (Instagram, Threads, Facebook Page) | Yes — `084909e` | Yes |
-| FetLife (WebView) | Yes | Yes — full suite, incl. mutating |
-| Fansly (WebView) | Yes | Yes — incl. a mutating text post |
+| FetLife (WebView) | Yes | Yes — full suite, incl. mutating. Post-conditions re-tightened 2026-08-12 (below); the tightened assertions are **not yet re-run live** |
+| Fansly (WebView) | Yes | Yes — incl. mutating text, image, and video posts |
 | OnlyFans (WebView) | Yes — injection and selector rerouted | **No** |
 | Snapchat (WebView) | n/a — `disabled_platform` | n/a |
 
@@ -451,6 +451,41 @@ them were visible from the acceptance criteria below:
 The generalisable smell: a test that *makes the page ready* (dismissing, expanding,
 selecting, injecting) is probably duplicating shipped behaviour. A test that *observes*
 or that *stands in for the user's own click* is not.
+
+### Weak post-conditions found by the FetLife re-pass (2026-08-12)
+
+Phase 5 asks whether a test drives shipped code. It does not ask whether the test's
+*post-condition* can fail — and routing a test through the real adapter does nothing if
+what it asserts afterwards was never capable of catching the failure. The Fansly media
+work surfaced this class; re-reading FetLife against it found four instances:
+
+- **An `or` that made half the assertion decorative.** The picture test asserted
+  `POST_URL_PATTERN.search(url) or caption_found`. The left branch is satisfied by
+  navigation to *any* picture permalink, including one that already existed, so the
+  test could pass without the right branch ever being consulted. Now both are required.
+- **No test anywhere proved media landed.** Neither media test looked at the published
+  artifact for an image or video — only for the caption, which FetLife renders from the
+  submitted form field whether or not the attachment survived. This is the failure the
+  Fansly suite hit for real (`0f3eca0`, "Fix Fansly media posts publishing nothing").
+- **An assertion that could not fail.** `assert caption.get('caption')` read the return
+  of `_inject_media_caption()`, whose inner `fill()` returns `true` when it *finds* the
+  element — never that the value stuck. Same shape as clicking a disabled `<div>` and
+  reporting a submit. The tests now read the value back out of the DOM.
+- **Submit labels hardcoded as string literals** in the non-mutating composer tests
+  while the mutating ones read `FetLifePlatform.IMAGE_SUBMIT_LABEL` — the drift hazard
+  already documented at the top of `test_webview_fansly.py`, where a hardcoded selector
+  copy *had* drifted.
+
+The generalisable question to ask of each remaining family, alongside the one above:
+**if the thing under test silently did nothing, which assertion goes red?** If the
+answer is "none, the caption/URL/return value would still look right", the
+post-condition is decorative regardless of what code path produced it.
+
+FetLife's status deletion also moved from "documented as impossible" to implemented:
+its `<a href="#0">` Delete control binds its handler in JS and ignores a synthetic
+click, which is exactly the trusted-click case Phase 6 prescribes. The shared
+`trusted_click_at()` / `element_center_js()` helpers in `webview_helpers.py` now serve
+both it and Fansly's dropdown.
 
 ### Background
 

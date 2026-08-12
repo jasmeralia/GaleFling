@@ -1,11 +1,18 @@
 """Functional tests for FetLife WebView posting.
 
 Exercises the shipped ``FetLifePlatform`` adapter for text, picture, and video
-composers: ``_inject_text()``, ``_attach_media()``, and ``_certify_upload_consent()``.
+composers: ``_inject_text()``, ``_attach_media()``, ``_inject_media_caption()``, and
+``_certify_upload_consent()``.
 
-**Media upload:** attach is covered non-mutatingly — the file is loaded into the
-composer form and the Upload button is never clicked. Mutating submit tests stay
-disabled until media upload is wired into the post flow (task #417 Level B).
+**Media upload** is covered at two levels. The non-mutating attach tests load a file
+into the composer form and never click Upload. The mutating tests submit for real and
+then assert the *published* artifact carries media — not that a URL changed, and not
+that the caption alone reached a page. A post created while the upload is still in
+flight keeps its caption and silently drops the file, so the caption is evidence that
+something was published, never that the media landed. This is the same post-condition
+the Fansly suite settled on; see ``docs/platforms/FANSLY.md`` → "Video posts render as
+poster images in the feed" for where the rule came from.
+
 ``_certify_upload_consent()`` selects the certification field by exact name, so
 ``picture[is_avatar]`` can never be toggled; the attach test asserts that directly.
 """
@@ -22,13 +29,17 @@ from tests.functional.conftest import fail_or_skip, mutating_post_tag, mutating_
 from tests.functional.webview_helpers import (
     _CONFIRM_DELETE_JS,
     attempt_delete_current_post,
+    call_platform,
     close_webview,
     create_webview,
+    element_center_js,
     get_or_create_app,
     has_cookie_db,
     load_page,
     login_fetlife,
     run_js,
+    trusted_click_at,
+    wait_for_attachment,
     wait_ms,
 )
 
@@ -116,6 +127,97 @@ def _status_exists_in_feed(page, tag: str) -> dict:
     )
 
 
+# Media that belongs to the page furniture rather than to a post. FetLife renders the
+# author's avatar inside the same container as the upload, so an unfiltered "is there
+# an <img>?" check reports success on a post whose picture silently dropped — the
+# exact false pass the Fansly suite hit and fixed (docs/platforms/FANSLY.md).
+_CHROME_MEDIA_JS = """
+function chrome(m) {
+    if (m.closest('header, nav, footer, aside')) return true;
+    if (/avatar|profile-pic|user-pic|logo/i.test((m.className || '') + ' ' + (m.id || ''))) {
+        return true;
+    }
+    if (m.closest('[class*="avatar"], [class*="user-info"], [class*="author"]')) return true;
+    // FetLife's avatars are square thumbnails; uploaded media renders far larger.
+    var r = m.getBoundingClientRect();
+    return r.width > 0 && r.width <= 120 && r.height <= 120;
+}
+"""
+
+
+def _published_media_report(page, tag: str) -> dict:
+    """Whether the published item carrying *tag* actually renders media.
+
+    Scoped to the container that owns the tag — an ``<article>`` in a feed or gallery,
+    else the document on a permalink page, where the whole page *is* the post. Walking
+    up until an image turns up instead would escape into the surrounding feed and find
+    somebody else's picture, which is how the Fansly equivalent first passed wrongly.
+
+    Returns the matched media's tag, classes and dimensions so a pass can be audited
+    rather than taken on trust: "hasMedia: true" with a 40x40 match is an avatar that
+    slipped the filter, and that is visible in the printed result.
+    """
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            {_CHROME_MEDIA_JS}
+            var leaf = Array.from(document.querySelectorAll('*')).filter(function(el) {{
+                return el.children.length === 0
+                    && (el.textContent || '').indexOf({json.dumps(tag)}) !== -1;
+            }})[0];
+            if (!leaf) return {{found: false, reason: 'tag not on page', url: location.href}};
+
+            // On a permalink the page is the post; in a feed or gallery it is the
+            // enclosing article. Never climb past either.
+            var scope = leaf.closest('article');
+            var scoped = !!scope;
+            if (!scope) {{
+                if (/\\/(pictures|videos|s)\\/\\d+/.test(location.pathname)) {{
+                    scope = document.body;
+                }} else {{
+                    return {{
+                        found: true, hasMedia: false,
+                        reason: 'no article ancestor and not on a permalink',
+                        url: location.href
+                    }};
+                }}
+            }}
+
+            function sourced(m) {{
+                if (/^https?:|^blob:/.test(m.src || m.currentSrc || '')) return true;
+                if (m.tagName.toLowerCase() !== 'video') return false;
+                // A <video> mid-transcode may carry only its poster, and FetLife puts
+                // the real URL on a <source> child. Requiring element.src alone reports
+                // "no media" on a perfectly good video.
+                if (/^https?:|^blob:/.test(m.getAttribute('poster') || '')) return true;
+                return Array.from(m.querySelectorAll('source')).some(function(s) {{
+                    return /^https?:|^blob:/.test(s.getAttribute('src') || '');
+                }});
+            }}
+
+            var media = Array.from(scope.querySelectorAll('img, video')).filter(function(m) {{
+                return sourced(m) && !chrome(m);
+            }}).map(function(m) {{
+                var r = m.getBoundingClientRect();
+                return {{
+                    tag: m.tagName.toLowerCase(),
+                    cls: ((m.className || '') + '').trim().substring(0, 60),
+                    w: Math.round(r.width),
+                    h: Math.round(r.height)
+                }};
+            }});
+
+            return {{
+                found: true, scopedToArticle: scoped, url: location.href,
+                hasMedia: media.length > 0, count: media.length, media: media.slice(0, 4)
+            }};
+        }})();
+        """,
+        timeout_ms=15000,
+    )
+
+
 def _ensure_session(page, credentials: dict) -> None:
     """Verify we have a valid FetLife session, logging in if needed."""
     ok, final_url = load_page(page, TEXT_COMPOSER_URL, timeout_ms=20000)
@@ -139,43 +241,37 @@ def _ensure_session(page, credentials: dict) -> None:
     )
 
 
-def _call_platform(method, *args, timeout_ms: int = 20000) -> dict:
-    """Call a platform method whose result arrives via an async runJavaScript callback."""
-    state: dict = {'done': False, 'value': None}
+def _read_media_caption(page, is_video: bool) -> dict:
+    """Read back the caption (and video title) actually sitting in the upload form.
 
-    def callback(value):
-        state['done'] = True
-        state['value'] = value
-
-    method(*args, callback=callback)
-
-    elapsed = 0
-    while not state['done'] and elapsed < timeout_ms:
-        wait_ms(100)
-        elapsed += 100
-
-    value = state['value']
-    if isinstance(value, dict):
-        return value
-    return {'timed_out': not state['done'], 'raw': value}
-
-
-def _wait_for_attachment(platform, timeout_ms: int = 15000) -> dict:
-    """Poll until the upload form reports a file, or the timeout expires.
-
-    FetLife's picture composer moves the file from the picker to the hidden
-    ``picture[attachments][]`` field asynchronously, so acceptance cannot be read
-    back synchronously from the attach call.
+    ``_inject_media_caption()`` returns ``{caption: true}`` whenever the field *exists*
+    — its inner ``fill()`` reports that it found an element, not that the value stuck.
+    Asserting on that return is therefore the same class of false pass as clicking a
+    disabled ``<div>`` and calling it a submit: it cannot fail for the reason it is
+    being checked. Read the DOM instead.
     """
-    elapsed = 0
-    state: dict = {}
-    while elapsed < timeout_ms:
-        state = _call_platform(platform._media_attachment_state)
-        if state.get('attached'):
-            return state
-        wait_ms(500)
-        elapsed += 500
-    return state
+    caption_selector = (
+        FetLifePlatform.VIDEO_CAPTION_SELECTOR
+        if is_video
+        else FetLifePlatform.IMAGE_CAPTION_SELECTOR
+    )
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            var caption = document.querySelector({json.dumps(caption_selector)});
+            var title = {json.dumps(is_video)}
+                ? document.querySelector({json.dumps(FetLifePlatform.VIDEO_TITLE_SELECTOR)})
+                : null;
+            return {{
+                captionFound: !!caption,
+                caption: caption ? caption.value.substring(0, 200) : null,
+                titleFound: !!title,
+                title: title ? title.value.substring(0, 120) : null
+            }};
+        }})();
+        """,
+    )
 
 
 def _composer_elements(page, file_selector: str, submit_label: str) -> dict:
@@ -228,51 +324,93 @@ def _upload_form_state(page, composer_path: str) -> dict:
     )
 
 
-def _delete_status_by_tag(page, tag: str) -> dict:
+# The article that owns *tag*, as a JS expression. The tag text sits in a leaf several
+# levels below the article and only the article carries the controls, so walking to the
+# deepest node containing the tag finds an element with no controls at all. Scoping to
+# the article is also what stops any other status being deleted.
+def _tagged_article_js(tag: str) -> str:
+    return f"""
+    (function() {{
+        var leaf = Array.from(document.querySelectorAll('*')).filter(function(el) {{
+            return el.children.length === 0
+                && (el.textContent || '').indexOf({json.dumps(tag)}) !== -1;
+        }})[0];
+        return leaf ? leaf.closest('article') : null;
+    }})()
+    """
+
+
+def _control_in_article_js(tag: str, label: str) -> str:
+    """A control inside *tag*'s article whose text is exactly *label*, as a JS expression.
+
+    Exact match, never a substring: FetLife's overflow menu puts "Delete" next to other
+    entries, and a keyword match over a menu of destructive actions is the same hazard
+    as the ``picture[is_avatar]`` checkbox next to the consent one.
+    """
+    return f"""
+    (function() {{
+        var host = {_tagged_article_js(tag)};
+        if (!host) return null;
+        return Array.from(host.querySelectorAll('a, button, [role="button"]')).filter(
+            function(c) {{
+                if ((c.textContent || '').trim().toLowerCase() !== {json.dumps(label.lower())}) {{
+                    return false;
+                }}
+                var r = c.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+            }}
+        )[0] || null;
+    }})()
+    """
+
+
+def _delete_status_by_tag(view, page, tag: str) -> dict:
     """Delete the feed status carrying *tag* via its own dropdown Delete entry.
 
-    Scoped to the ``<article>`` that owns the tag, so no other status can be removed.
-    The tag text sits in a leaf ``<p>`` several levels below the article, and only the
-    article carries the controls — walking to the *deepest* node containing the tag
-    finds an element with no controls at all.
+    **Why this needs real mouse events.** Investigated against a live status on
+    2026-08-11: the Delete entry is an ``<a href="#0">`` whose only payload is a ``data``
+    attribute that stringifies to ``[object Object]`` — no ``data-method``, no
+    ``data-turbo-confirm``, no delete endpoint. The handler is bound in JavaScript, so a
+    synthetic ``.click()`` never reaches it and no confirmation dialog is raised, which
+    is why the JS-only version of this helper could never work.
 
-    **This does not currently work, and the test reports that honestly.** Investigated
-    against a live status on 2026-08-11: the Delete entry is an ``<a href="#0">`` whose
-    only payload is a ``data`` attribute that stringifies to ``[object Object]`` — no
-    ``data-method``, no ``data-turbo-confirm``, no delete endpoint, and the status
-    permalink page (``/<username>/s/<id>``) offers the same control rather than a form.
-    The handler is bound in JavaScript, so a synthetic ``.click()`` never reaches it and
-    no confirmation dialog is raised.
+    ``QTest.mouseClick`` at the element's viewport coordinates is trusted, and it is the
+    same mechanism the Fansly media flow needed for its dropdown (proven live
+    2026-08-12). The overflow menu must be opened first: the Delete entry has no
+    coordinates to click until it is on screen.
 
-    Automating it needs a *trusted* click — ``QTest.mouseClick`` at the element's
-    viewport coordinates, opening the "More options" dropdown first. That is exactly the
-    pattern ``docs/testing/WEBVIEW_TEST_PLAN.md`` Phase 6 prescribes for telling "our JS
-    set the property" apart from "a user's click reached the control", and is the right
-    next step. Until then, mutating runs leave a status behind and print its tag.
+    ``deleted`` reflects the status actually leaving the feed on a fresh page load —
+    never that a control was clicked. Cleanup that silently did nothing must not report
+    success, or a stray live post goes unnoticed.
     """
-    run_js(page, 'window.confirm = function() { return true; };')
-    clicked = run_js(
-        page,
-        f"""
-        (function() {{
-            var leaf = Array.from(document.querySelectorAll('*')).filter(function(el) {{
-                return el.children.length === 0
-                    && (el.textContent || '').indexOf({json.dumps(tag)}) !== -1;
-            }})[0];
-            if (!leaf) return {{clicked: false, reason: 'status not on page'}};
-            var host = leaf.closest('article');
-            if (!host) return {{clicked: false, reason: 'no article ancestor for the status'}};
-            var del = Array.from(host.querySelectorAll('a, button, [role="button"]')).find(
-                function(c) {{ return (c.textContent || '').trim().toLowerCase() === 'delete'; }}
-            );
-            if (!del) return {{clicked: false, reason: 'no Delete entry in the article'}};
-            del.click();
-            return {{clicked: true}};
-        }})();
-        """,
-    )
-    if not (isinstance(clicked, dict) and clicked.get('clicked')):
-        return {'deleted': False, 'detail': clicked}
+    menu_js = _control_in_article_js(tag, 'more options')
+    point = element_center_js(page, menu_js)
+    if point is None:
+        # Some layouts label the overflow control by icon alone; fall back to the
+        # article's last button rather than guessing at a selector.
+        point = element_center_js(
+            page,
+            f"""
+            (function() {{
+                var host = {_tagged_article_js(tag)};
+                if (!host) return null;
+                var btns = Array.from(host.querySelectorAll('button, [role="button"]'))
+                    .filter(function(b) {{
+                        var r = b.getBoundingClientRect();
+                        return r.width > 0 && r.height > 0;
+                    }});
+                return btns.length ? btns[btns.length - 1] : null;
+            }})()
+            """,
+        )
+    if point is None:
+        return {'deleted': False, 'reason': 'no overflow control on the status article'}
+    trusted_click_at(view, *point)
+
+    delete_point = element_center_js(page, _control_in_article_js(tag, 'delete'))
+    if delete_point is None:
+        return {'deleted': False, 'reason': 'Delete entry never became visible'}
+    trusted_click_at(view, *delete_point)
 
     wait_ms(2000)
     confirm = run_js(page, _CONFIRM_DELETE_JS)
@@ -503,6 +641,50 @@ class TestFetLifeTextPost:
         finally:
             close_webview(view, page, platform)
 
+    @pytest.mark.non_mutating
+    def test_composer_cap_agrees_with_specs(self, galefling_data_dir, fetlife_credentials):
+        """The live composer must cut off exactly where FETLIFE_SPECS says it does.
+
+        Fansly can assert this against the textarea's ``maxlength``; FetLife sets none,
+        and enforces the cap by disabling "Say It!" instead. So the boundary is probed
+        the way the limit is actually expressed — at the cap the button is live, one
+        character past it the button is dead.
+
+        Without this, ``FETLIFE_SPECS.max_text_length`` rests on a manual measurement
+        from 2026-08-11 that nothing re-checks. GaleFling truncates to that number
+        before posting, so if FetLife moves the cap down the app silently produces
+        statuses the composer will refuse.
+
+        Never submits: the text is injected and read back only.
+        """
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fetlife_credentials)
+            wait_ms(2000)
+
+            cap = platform.get_specs().max_text_length
+
+            platform._inject_text('x' * cap)
+            wait_ms(800)
+            at_cap = _read_status_text(page)
+            assert at_cap.get('submitFound'), f'Submit control missing: {at_cap}'
+            assert not at_cap.get('submitDisabled'), (
+                f'"{FetLifePlatform.TEXT_SUBMIT_LABEL}" is disabled at {cap} characters — '
+                f'FetLife caps statuses lower than FETLIFE_SPECS.max_text_length says: {at_cap}'
+            )
+
+            platform._inject_text('x' * (cap + 1))
+            wait_ms(800)
+            over_cap = _read_status_text(page)
+            assert over_cap.get('submitDisabled'), (
+                f'"{FetLifePlatform.TEXT_SUBMIT_LABEL}" is still enabled at {cap + 1} '
+                f'characters — FetLife accepts more than FETLIFE_SPECS.max_text_length '
+                f'says, so GaleFling is truncating statuses it need not: {over_cap}'
+            )
+        finally:
+            close_webview(view, page, platform)
+
     @pytest.mark.mutating
     def test_text_post_submit_and_delete(self, galefling_data_dir, fetlife_credentials):
         """Post a status, prove it exists on the feed, then attempt deletion.
@@ -556,7 +738,7 @@ class TestFetLifeTextPost:
             if POST_URL_PATTERN.search(post_url):
                 delete_outcome = attempt_delete_current_post(page)
             else:
-                delete_outcome = _delete_status_by_tag(page, test_text)
+                delete_outcome = _delete_status_by_tag(view, page, test_text)
             print(f'  Delete attempt: {delete_outcome}')
             if not delete_outcome.get('deleted'):
                 print(
@@ -583,7 +765,9 @@ class TestFetLifePicturePost:
             assert '/login' not in final_url.lower(), f'Session expired: {final_url}'
             wait_ms(2000)
 
-            result = _composer_elements(page, PICTURE_FILE_SELECTOR, 'Upload Your Picture')
+            result = _composer_elements(
+                page, PICTURE_FILE_SELECTOR, FetLifePlatform.IMAGE_SUBMIT_LABEL
+            )
             assert isinstance(result, dict), f'JS returned: {result}'
             assert result.get('fileInputFound'), 'File input not found'
             assert result.get('submitFound'), 'Upload button not found'
@@ -591,7 +775,7 @@ class TestFetLifePicturePost:
                 'File input does not accept images'
             )
 
-            consent = _call_platform(platform._certify_upload_consent)
+            consent = call_platform(platform._certify_upload_consent)
             assert consent.get('certified'), f'Consent certification not set: {consent}'
             assert consent.get('names') == ['picture[is_certified]'], (
                 f'Unexpected certification fields: {consent}'
@@ -622,16 +806,16 @@ class TestFetLifePicturePost:
             platform._image_path = sample_jpeg
             assert platform.get_media_file_selector() == PICTURE_FILE_SELECTOR
 
-            attach = _call_platform(platform._attach_media, sample_jpeg)
+            attach = call_platform(platform._attach_media, sample_jpeg)
             assert attach.get('dispatched'), f'Attach failed: {attach}'
 
-            state = _wait_for_attachment(platform)
+            state = wait_for_attachment(platform)
             assert state.get('attached'), f'Form never accepted the file: {state}'
             assert 'picture[attachments][]' in state.get('holders', []), (
                 f'File did not reach the named form field: {state}'
             )
 
-            consent = _call_platform(platform._certify_upload_consent)
+            consent = call_platform(platform._certify_upload_consent)
             assert consent.get('certified'), f'Consent certification not set: {consent}'
 
             page_state = _upload_form_state(page, 'pictures/new')
@@ -646,11 +830,17 @@ class TestFetLifePicturePost:
     def test_picture_upload_creates_a_post(
         self, galefling_data_dir, fetlife_credentials, sample_jpeg
     ):
-        """Upload a real picture and prove the post exists.
+        """Upload a real picture and prove the published post carries the image.
 
-        Cleanup is manual by decision — the run prints the caption tag. Deletion is not
-        attempted; see _delete_status_by_tag for why FetLife's delete control resists
-        automation.
+        **The post-condition is the picture, not the URL.** This previously asserted
+        ``POST_URL_PATTERN.search(url) or caption_found`` — an ``or`` whose left side is
+        satisfied by any navigation to any picture permalink, including one that already
+        existed. Either branch alone also says nothing about the image: FetLife renders
+        the caption from the form field, so a submit that lost the attachment produces a
+        page carrying the tag and no picture. Both halves are now required, and the
+        image itself is verified.
+
+        Cleanup is manual by decision — the run prints the caption tag.
         """
         get_or_create_app()
         view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
@@ -665,15 +855,21 @@ class TestFetLifePicturePost:
             print(f'\n  posting tag {tag} — delete this if the run fails')
             platform._image_path = sample_jpeg
 
-            attach = _call_platform(platform._attach_media, sample_jpeg)
+            attach = call_platform(platform._attach_media, sample_jpeg)
             assert attach.get('dispatched'), f'Attach failed: {attach}'
-            state = _wait_for_attachment(platform)
+            state = wait_for_attachment(platform)
             assert state.get('attached'), f'Form never accepted the file: {state}'
 
-            caption = _call_platform(platform._inject_media_caption, tag)
-            assert caption.get('caption'), f'Caption not filled: {caption}'
+            call_platform(platform._inject_media_caption, tag)
+            caption = _read_media_caption(page, is_video=False)
+            assert caption.get('captionFound'), (
+                f'{FetLifePlatform.IMAGE_CAPTION_SELECTOR} missing: {caption}'
+            )
+            assert tag in (caption.get('caption') or ''), (
+                f'Caption did not stick in the form: {caption}'
+            )
 
-            consent = _call_platform(platform._certify_upload_consent)
+            consent = call_platform(platform._certify_upload_consent)
             assert consent.get('certified'), f'Consent not certified: {consent}'
 
             avatar = _avatar_checkbox_state(page)
@@ -687,11 +883,19 @@ class TestFetLifePicturePost:
 
             wait_ms(15000)
             post_url = page.url().toString()
-            posted = _status_exists_in_feed(page, tag)
-            assert POST_URL_PATTERN.search(post_url) or posted.get('found'), (
-                f'No picture post after upload — url={post_url}, caption not found: {posted}'
+            assert POST_URL_PATTERN.search(post_url), (
+                f'Upload did not land on a picture permalink — url={post_url}'
             )
+            posted = _status_exists_in_feed(page, tag)
+            assert posted.get('found'), (
+                f'Picture permalink {post_url} does not carry caption {tag} — this is not '
+                f'the post we just created: {posted}'
+            )
+
+            media = _published_media_report(page, tag)
+            assert media.get('hasMedia'), f'FetLife published the caption but no picture: {media}'
             print(f'\n  FetLife picture uploaded (tag {tag}) -> {post_url}')
+            print(f'  media: {media}')
             print(
                 f'  CLEANUP PENDING (leave up until any follow-up inspection is done) — delete the picture tagged {tag}'
             )
@@ -716,7 +920,9 @@ class TestFetLifeVideoPost:
             assert '/login' not in final_url.lower(), f'Session expired: {final_url}'
             wait_ms(2000)
 
-            result = _composer_elements(page, VIDEO_FILE_SELECTOR, 'Upload Your Video')
+            result = _composer_elements(
+                page, VIDEO_FILE_SELECTOR, FetLifePlatform.VIDEO_SUBMIT_LABEL
+            )
             assert isinstance(result, dict), f'JS returned: {result}'
             assert result.get('fileInputFound'), 'File input not found'
             assert result.get('submitFound'), 'Upload button not found'
@@ -724,7 +930,7 @@ class TestFetLifeVideoPost:
                 'File input does not accept video'
             )
 
-            consent = _call_platform(platform._certify_upload_consent)
+            consent = call_platform(platform._certify_upload_consent)
             assert consent.get('certified'), f'Consent certification not set: {consent}'
             assert consent.get('names') == ['video[is_certified]'], (
                 f'Unexpected certification fields: {consent}'
@@ -747,13 +953,13 @@ class TestFetLifeVideoPost:
             platform._image_path = sample_video
             assert platform.get_media_file_selector() == VIDEO_FILE_SELECTOR
 
-            attach = _call_platform(platform._attach_media, sample_video)
+            attach = call_platform(platform._attach_media, sample_video)
             assert attach.get('dispatched'), f'Attach failed: {attach}'
 
-            state = _wait_for_attachment(platform)
+            state = wait_for_attachment(platform)
             assert state.get('attached'), f'Form never accepted the file: {state}'
 
-            consent = _call_platform(platform._certify_upload_consent)
+            consent = call_platform(platform._certify_upload_consent)
             assert consent.get('certified'), f'Consent certification not set: {consent}'
 
             page_state = _upload_form_state(page, 'videos/new')
@@ -770,6 +976,16 @@ class TestFetLifeVideoPost:
         The composer URL does not change on success — FetLife transfers and transcodes
         in place — so the gallery is the only honest post-condition. Cleanup is manual;
         the run prints the tag.
+
+        **What this asserts is that media landed, not that it is a video.** The gallery
+        renders an entry as its poster thumbnail, so a still image is what is actually
+        checked — the same limit the Fansly video test documents, and for the same
+        reason: there is no video-specific marker without playing it. The realistic
+        failure (the transfer failing while the description posts) produces a gallery
+        entry with no poster, and so does fail here.
+
+        ``/videos/new`` posts to ``/videos/draft``, so what lands may be a draft rather
+        than a published video; the gallery is the account's own, which lists both.
         """
         get_or_create_app()
         view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
@@ -784,16 +1000,21 @@ class TestFetLifeVideoPost:
             print(f'\n  posting tag {tag} — delete this if the run fails')
             platform._image_path = sample_video
 
-            attach = _call_platform(platform._attach_media, sample_video)
+            attach = call_platform(platform._attach_media, sample_video)
             assert attach.get('dispatched'), f'Attach failed: {attach}'
-            state = _wait_for_attachment(platform)
+            state = wait_for_attachment(platform)
             assert state.get('attached'), f'Form never accepted the file: {state}'
 
-            caption = _call_platform(platform._inject_media_caption, tag)
-            assert caption.get('caption'), f'Description not filled: {caption}'
-            assert caption.get('title'), f'video[title] not filled: {caption}'
+            call_platform(platform._inject_media_caption, tag)
+            caption = _read_media_caption(page, is_video=True)
+            assert tag in (caption.get('caption') or ''), (
+                f'Description did not stick in the form: {caption}'
+            )
+            assert caption.get('title'), (
+                f'video[title] is empty — FetLife rejects a titleless upload: {caption}'
+            )
 
-            consent = _call_platform(platform._certify_upload_consent)
+            consent = call_platform(platform._certify_upload_consent)
             assert consent.get('certified'), f'Consent not certified: {consent}'
 
             submit = _wait_for_enabled_submit(page, FetLifePlatform.VIDEO_SUBMIT_LABEL)
@@ -807,7 +1028,14 @@ class TestFetLifeVideoPost:
             assert posted.get('found'), (
                 f'Video {tag} never appeared in the gallery after upload: {posted}'
             )
+
+            media = _published_media_report(page, tag)
+            assert media.get('hasMedia'), (
+                f'Gallery lists the description but renders no video or poster — the '
+                f'transfer did not complete: {media}'
+            )
             print(f'\n  FetLife video uploaded (tag {tag}) -> {posted.get("gallery")}')
+            print(f'  media: {media}')
             print(
                 f'  CLEANUP PENDING (leave up until any follow-up inspection is done) — delete the video tagged {tag}'
             )

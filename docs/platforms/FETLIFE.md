@@ -81,7 +81,7 @@ FetLife sessions expire periodically (especially without "remember me"). When yo
 
   > **Not `/posts/new`.** That is the *writing* composer, and its form requires a `post[title]` field GaleFling has no input for. Submitting from there fails validation silently and bounces back to the feed, creating nothing — which is exactly what a passing-but-useless functional test looked like before 2026-08-11. The Lexxy editor belongs to that writing composer, not to statuses.
 
-- **Status length limit**: 690 characters — the limit FetLife displays in its own composer. It sets no `maxlength` on the textarea; the "Say It!" button simply disables past the cap (verified 2026-08-11: enabled at 690, disabled at 691).
+- **Status length limit**: 690 characters — the limit FetLife displays in its own composer. It sets no `maxlength` on the textarea; the "Say It!" button simply disables past the cap (verified 2026-08-11: enabled at 690, disabled at 691). Because there is no `maxlength` to read, `FETLIFE_SPECS.max_text_length` cannot be checked against an attribute the way Fansly's is; `test_composer_cap_agrees_with_specs` probes the boundary instead, asserting the button is live at the cap and dead one character past it. GaleFling truncates to that number before posting, so a silent move in FetLife's cap would otherwise go unnoticed.
 - **Recurring prompt**: If FetLife displays its post-login prompt again, GaleFling
   selects **Maybe Later** so the composer remains usable. The prompt is detected on
   every page load rather than assumed to be a one-time event.
@@ -98,9 +98,39 @@ FetLife sessions expire periodically (especially without "remember me"). When yo
 - **Media captions**: both media composers accept text — `picture[caption]` and `video[description]` — and the video form additionally requires a `video[title]`. `FETLIFE_SPECS.supports_text_with_media` is still `False`, which appears stale: GaleFling shows a "text will be ignored" warning for FetLife media posts even though FetLife has a caption field for both. `_inject_media_caption()` fills them, but nothing outside the functional tests calls it yet.
 - **Video uploads are asynchronous and stay put**: clicking **Upload Your Video** does not navigate. FetLife transfers and transcodes in place on `/videos/new`, so the composer URL never changes — success can only be confirmed from `/<username>/videos`. Picture uploads do redirect to the new picture's permalink.
 
+### What proves a media upload worked
+
+A permalink is not proof, and neither is the caption. FetLife renders the caption from
+the form field it was submitted with, so an upload that lost its attachment still
+produces a page carrying the caption — and the picture composer redirects to *a*
+permalink regardless. The functional tests therefore require all three: the permalink
+pattern matched, the caption present on that page, and the page actually rendering
+media that is not page furniture.
+
+Filtering out the furniture is the fiddly part. FetLife puts the author's avatar inside
+the same container as the upload, and it is the *first* image found by anything walking
+the DOM looking for one — so an unfiltered check reports success on a post whose picture
+silently dropped. Avatars are excluded by class, by container, and by size (≤ 120 px
+square); the matched media's real dimensions are printed on every run so a suspicious
+pass can be spotted rather than trusted. This mirrors the rule Fansly arrived at the
+hard way — see [FANSLY.md](FANSLY.md) → "Video posts render as poster images in the feed".
+
+Note the corollary for video: a gallery entry renders as a poster thumbnail, so what is
+actually verified is that *media* landed, not that it is a video. There is no
+video-specific marker without playing it.
+
 ### Post Cleanup Note
 
-Statuses are posted in place on the feed rather than navigating to the new status, so functional tests confirm success by finding the status's tag on the feed. Automated deletion of a status is best-effort and currently unproven — check your feed for the tag printed by the test run.
+Statuses are posted in place on the feed rather than navigating to the new status, so functional tests confirm success by finding the status's tag on the feed.
+
+Automated status deletion needs **real mouse events**, not a scripted `.click()`. The
+Delete entry is an `<a href="#0">` whose only payload is a `data` attribute that
+stringifies to `[object Object]` — no `data-method`, no `data-turbo-confirm`, no delete
+endpoint. Its handler is bound in JavaScript, so a synthetic click never reaches it and
+no confirmation is raised. The tests open the status's overflow menu and click Delete
+with `QTest.mouseClick` at the measured coordinates, then confirm deletion by reloading
+the feed and checking the status is gone — a clicked control is never treated as a
+successful deletion. If the run prints a tag as still pending, check your feed.
 
 ## Troubleshooting
 

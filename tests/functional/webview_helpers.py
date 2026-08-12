@@ -123,6 +123,52 @@ def run_js(page: QWebEnginePage, js: str, timeout_ms: int = 5000):
     return state['value']
 
 
+def call_platform(method, *args, timeout_ms: int = 20000) -> dict:
+    """Call a platform method whose result arrives via an async runJavaScript callback.
+
+    Platform helpers like ``_attach_media()`` and ``_certify_upload_consent()`` hand
+    their result to a callback rather than returning it, so a test cannot read one
+    synchronously.  A non-dict result is wrapped rather than discarded: a timed-out
+    call and a call that genuinely returned ``None`` are different failures and the
+    caller needs to be able to tell them apart.
+    """
+    state: dict = {'done': False, 'value': None}
+
+    def callback(value):
+        state['done'] = True
+        state['value'] = value
+
+    method(*args, callback=callback)
+
+    elapsed = 0
+    while not state['done'] and elapsed < timeout_ms:
+        wait_ms(100)
+        elapsed += 100
+
+    value = state['value']
+    if isinstance(value, dict):
+        return value
+    return {'timed_out': not state['done'], 'raw': value}
+
+
+def wait_for_attachment(platform: BaseWebViewPlatform, timeout_ms: int = 15000) -> dict:
+    """Poll ``_media_attachment_state()`` until the open form reports a file.
+
+    Upload forms move the file from the picker to their own field asynchronously, so
+    acceptance cannot be read back from the attach call itself.  Returns the last
+    observed state on timeout so a failure message says what the form was holding.
+    """
+    elapsed = 0
+    state: dict = {}
+    while elapsed < timeout_ms:
+        state = call_platform(platform._media_attachment_state)
+        if state.get('attached'):
+            return state
+        wait_ms(500)
+        elapsed += 500
+    return state
+
+
 # Confirmation controls only, scoped to the dialog/form that the delete action
 # opened.  An unscoped ``button[type="submit"]`` lookup would match the first submit
 # button anywhere on the page — on FetLife that is the site search form.
@@ -145,13 +191,18 @@ _CONFIRM_DELETE_JS = """
 """
 
 
-def element_center(page: QWebEnginePage, selector: str) -> tuple[int, int] | None:
-    """Viewport centre of the first element matching *selector*, or None."""
+def element_center_js(page: QWebEnginePage, js_expr: str) -> tuple[int, int] | None:
+    """Viewport centre of the element *js_expr* evaluates to, or None.
+
+    Takes an expression rather than a selector because the controls that need a
+    trusted click are often only identifiable by their text — FetLife's Delete entry
+    is an ``<a href="#0">`` indistinguishable from its siblings by CSS alone.
+    """
     rect = run_js(
         page,
         f"""
         (function() {{
-            var el = document.querySelector({json.dumps(selector)});
+            var el = {js_expr};
             if (!el) return null;
             // Scroll into view first: an element below the fold reports viewport
             // coordinates outside the widget, so the synthetic click would land
@@ -167,6 +218,7 @@ def element_center(page: QWebEnginePage, selector: str) -> tuple[int, int] | Non
             }};
         }})();
         """,
+        timeout_ms=10000,
     )
     if not isinstance(rect, dict):
         return None
@@ -174,6 +226,26 @@ def element_center(page: QWebEnginePage, selector: str) -> tuple[int, int] | Non
     if not (0 <= x < int(rect['viewportW']) and 0 <= y < int(rect['viewportH'])):
         return None
     return x, y
+
+
+def element_center(page: QWebEnginePage, selector: str) -> tuple[int, int] | None:
+    """Viewport centre of the first element matching *selector*, or None."""
+    return element_center_js(page, f'document.querySelector({json.dumps(selector)})')
+
+
+def trusted_click_at(view: QWebEngineView, x: int, y: int, settle_ms: int = 1200) -> None:
+    """Hover then click at viewport coordinates with real Qt mouse events.
+
+    The hover is not decoration: menus that open on pointer entry never render if the
+    click is the first event the element sees, so the click lands on nothing.
+    """
+    target = view.focusProxy() or view
+    QTest.mouseMove(target, QPoint(x, y))
+    wait_ms(350)
+    QTest.mouseClick(
+        target, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(x, y)
+    )
+    wait_ms(settle_ms)
 
 
 def trusted_click(
@@ -200,14 +272,7 @@ def trusted_click(
         return False
     wait_ms(400)  # let the scroll settle before clicking the measured point
 
-    target = view.focusProxy() or view
-    QTest.mouseClick(
-        target,
-        Qt.MouseButton.LeftButton,
-        Qt.KeyboardModifier.NoModifier,
-        QPoint(*point),
-    )
-    wait_ms(300)
+    trusted_click_at(view, *point, settle_ms=300)
     return bool(run_js(page, '!!(navigator.userActivation && navigator.userActivation.isActive)'))
 
 

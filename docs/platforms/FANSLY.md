@@ -114,7 +114,20 @@ Steps 1–4 above are confirmed working end to end against the live composer. Th
 
 Two traps:
 
-- **`div.xdModal.back-drop` overlays the page.** `document.elementFromPoint()` at the icon's centre returns the backdrop, not the icon, and the **first click is absorbed dismissing it**. Retry the open-menu click — attempt 1 fails, attempt 2 succeeds, reproducibly.
+- **Fansly greets a session with a push-notification prompt.** `<app-web-push-enable-modal class="active-modal">` ("Enable Push Notifications"), with `div.xdModal.back-drop` behind it at 1270 × 900 — covering the entire composer, media icon and Post control alike. `document.elementFromPoint()` at the media icon's centre returns the backdrop, not the icon, and the **first click anywhere is absorbed dismissing it**. This costs the *user* a click too, not just automation.
+
+  The dialog is a **sibling** of the backdrop, not a child: the backdrop element itself is empty, so anything that inspects the backdrop for the dialog's text or buttons finds nothing. Measured layout, both 282 px wide and stacked 41 px apart:
+
+  | Control | Position |
+  |---|---|
+  | `Yes, Enable` (`btn outline-blue margin-top-3`) | x 494, y 513 |
+  | `Maybe Later` (`btn margin-top-2`) | x 494, y 554 |
+
+  Do not rely on an off-target click to clear it. `BaseWebViewPlatform.dismiss_blocking_overlay()` clears it explicitly, and the shipped load path calls it before prefill. Fansly declares both `BLOCKING_OVERLAY_SELECTOR` and `BLOCKING_OVERLAY_DISMISS_LABELS = ['Maybe Later']`; the dismissal prefers that named decline control and falls back to clicking the backdrop element itself when no declared label is on screen.
+
+  **Match the decline label exactly** — the same rule as the media permission rows, and for the same reason. `Yes, Enable` sits directly above `Maybe Later`, so a keyword or substring match here enables push notifications on the account holder's behalf.
+
+  Declining by name also appears to stick. The prompt returned on every subsequent session after a backdrop-only dismissal, but has not returned since one run clicked `Maybe Later` — so `TestFanslyGreetingPrompt` skips when no prompt is present rather than asserting one appears.
 - **`fa-image` vs `fa-images`.** The composer's control is the singular `fa-image`; the surrounding feed is full of plural `fa-images` in the right-hand column. A substring match on `fa-image` hits both and lands you on a feed icon ~1000px away. Match the class as a whole token.
 
 ### The permission toggles are Angular components, not checkboxes
@@ -131,4 +144,15 @@ The checked state is the **`selected`** class on the inner `div.checkbox`. Confi
 
 `FanslyPlatform.apply_media_permissions()` implements the no-paywall policy against this structure. It matches each row by **exact label text**, clicks the `<app-xd-checkbox>` host only when the current state differs from the policy, touches only the rows named in `MEDIA_PERMISSION_POLICY` (so Advanced Permissions and Require Purchase are left as found), and reads the state back afterwards rather than assuming the clicks landed.
 
-**Not yet verified end to end.** The selectors come from the live modal, but no run has yet applied the policy and completed an upload — that requires publishing a real post.
+### The Post control is a `<div>`, and it is disabled while the upload finishes
+
+The composer's submit is `<div class="btn new-post-btn solid-blue disabled">`. Nothing about a `<div>` stops a synthetic `.click()` being delivered, and `disabled` here is a **class**, not the DOM property — so clicking it while disabled succeeds, reports success, and publishes nothing. That is why media posts appeared to reach the Post click and then silently do nothing, while caption-only posts worked.
+
+Measured live (2026-08-12), with the composer already holding the attachment:
+
+| Moment | `disabled` | opacity |
+|---|---|---|
+| 2 s after the caption is injected — where the click used to happen | present | 0.6 |
+| ~5 s later | gone | 1 |
+
+`media-upload-container` gaining a child is therefore **not** the same as being ready to post: the attachment is visible while Fansly is still processing it. Wait for the `disabled` class to clear (`classList.contains`, a whole-token test — never a substring match) before clicking, and treat "control still disabled" as a refusal to click rather than a click that happened to do nothing.

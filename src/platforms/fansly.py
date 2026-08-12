@@ -19,20 +19,22 @@ class FanslyPlatform(BaseWebViewPlatform):
     TEXT_SUBMIT_LABEL = 'Post'
     # Single multi-accept file input on the feed composer (images, video and audio).
     #
-    # NOTE: media cannot currently be attached to this composer by any automated
-    # means we have found.  Verified 2026-08-12 against the live composer:
-    #
-    #   synthetic DataTransfer  ignored outright — the input clears and the composer
-    #                           subtree is byte-identical twelve seconds later.
-    #   chooseFiles() picker    the picker fires and Chromium hands over a genuine
-    #                           selection, yet media-upload-container stays empty
-    #                           (0 children, 14 bytes of innerHTML) for 20s+.
-    #
-    # Posting regardless publishes the caption with no media attached, so there are
-    # deliberately no Fansly media tests.  Whatever Fansly binds its uploader to, it is
-    # not this input's change event.  Finding it needs fresh investigation — likely
-    # drag-and-drop, or a wrapper component that never consults the input at all.
+    # Writing to it directly does not attach anything: neither a synthetic
+    # DataTransfer nor a picker-supplied selection reaches Fansly's uploader, which
+    # never consults this input's change event.  Media attaches only by driving the
+    # composer's own dropdown — image icon > "Upload New" > Upload media modal — so
+    # that Fansly's uploader is in the call stack.  See docs/platforms/FANSLY.md.
     MEDIA_FILE_SELECTOR = 'input[type="file"]'
+    # Fansly greets a session with <app-web-push-enable-modal> ("Enable Push
+    # Notifications") behind a full-page backdrop.  The backdrop covers the whole
+    # composer and swallows the first click anywhere on the page — including the
+    # user's own.  Dismissed after load by dismiss_blocking_overlay().
+    #
+    # The dialog is a *sibling* of the backdrop, not a child, and offers "Yes, Enable"
+    # directly above "Maybe Later" — 41px apart.  Declining is therefore an exact
+    # label match, never a keyword one.
+    BLOCKING_OVERLAY_SELECTOR = 'div.xdModal.back-drop'
+    BLOCKING_OVERLAY_DISMISS_LABELS = ['Maybe Later']
     SUCCESS_URL_PATTERN = ''  # SPA — URL capture unlikely
     SUCCESS_SELECTOR = ''
     COOKIE_DOMAINS = ['fansly.com']

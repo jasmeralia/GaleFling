@@ -135,13 +135,20 @@ def _element_xy(page, js_expr: str) -> dict | None:
     )
 
 
-def _open_media_menu(view, page) -> bool:
+def _open_media_menu(view, page, platform) -> bool:
     """Open the composer's media dropdown.
 
     The control is ``div.dropdown-title`` — the *parent* of ``i.fa-image.hover-effect``;
-    clicking the icon itself does nothing. A ``div.xdModal.back-drop`` overlays the page
-    and absorbs the first click, so this retries rather than assuming one lands.
+    clicking the icon itself does nothing.
+
+    Fansly's modal backdrop covers the composer and swallows the first click, so the
+    shipped ``dismiss_blocking_overlay()`` clears it first. Letting the menu click be
+    absorbed instead would mean clicking blind into an unknown dialog at whatever
+    coordinates the icon happens to occupy. The retry below is a safety net for a
+    backdrop that reappears, not the mechanism.
     """
+    overlay = _call_platform(platform.dismiss_blocking_overlay)
+    print(f'    [attach] overlay: {overlay}', flush=True)
     for _ in range(4):
         point = _element_xy(
             page, "document.querySelector('i.fa-image.hover-effect')?.parentElement"
@@ -185,6 +192,22 @@ def _post_has_media(page, tag: str) -> dict:
 
     A post created before the upload finishes keeps its caption and silently drops the
     media, so asserting the caption appeared is not enough.
+
+    Two things make this assertion mean what it says, both learned the hard way:
+
+    **Scope to the post, by name.** A parent walk that keeps climbing until it finds an
+    image escapes into ``div.feed-content`` — measured at depth 3, holding 20 images
+    belonging to other posts. This anchors on the enclosing ``.feed-item`` instead and
+    reports a failure if there isn't one, rather than climbing past it.
+
+    **Exclude the author avatar.** ``div.feed-item-meta-wrapper`` carries a 56x56
+    ``img.image.cover`` — the poster's avatar, present whether or not any media
+    attached. It is the *first* image a walk finds, one level below the attachment, so
+    an unfiltered check reports success on a post whose image silently dropped. That is
+    not hypothetical: it is what this function did on the run that first passed.
+
+    The matched media's dimensions and classes come back in the result so a pass can be
+    audited rather than taken on trust.
     """
     return run_js(
         page,
@@ -195,17 +218,28 @@ def _post_has_media(page, tag: str) -> dict:
                     && (el.textContent || '').indexOf({json.dumps(tag)}) !== -1;
             }})[0];
             if (!leaf) return {{found: false, reason: 'tag not on page'}};
-            var host = leaf;
-            for (var d = 0; d < 9 && host.parentElement; d++) {{
-                host = host.parentElement;
-                var media = Array.from(host.querySelectorAll('img, video')).filter(function(m) {{
-                    return /^https?:|^blob:/.test(m.src || m.currentSrc || '');
-                }});
-                if (media.length) {{
-                    return {{found: true, hasMedia: true, depth: d, count: media.length}};
-                }}
+
+            var post = leaf.closest('.feed-item');
+            if (!post) {{
+                return {{found: true, hasMedia: false, reason: 'no .feed-item ancestor'}};
             }}
-            return {{found: true, hasMedia: false}};
+
+            var media = Array.from(post.querySelectorAll('img, video')).filter(function(m) {{
+                if (!/^https?:|^blob:/.test(m.src || m.currentSrc || '')) return false;
+                // The avatar in the post header is not post media.
+                return !m.closest('[class*="feed-item-meta"]');
+            }}).map(function(m) {{
+                var r = m.getBoundingClientRect();
+                return {{
+                    tag: m.tagName.toLowerCase(),
+                    cls: ((m.className || '') + '').trim(),
+                    w: Math.round(r.width),
+                    h: Math.round(r.height)
+                }};
+            }});
+
+            return {{found: true, hasMedia: media.length > 0, count: media.length,
+                     media: media.slice(0, 4)}};
         }})();
         """,
         timeout_ms=15000,
@@ -230,7 +264,7 @@ def _attach_media_through_ui(view, page, platform, path) -> dict:
     before = _composer_media_count(page)
     step(f'staged {path.name}; composer holds {before} item(s)')
 
-    if not _open_media_menu(view, page):
+    if not _open_media_menu(view, page, platform):
         return {'attached': False, 'reason': 'media dropdown never opened'}
     step('media dropdown open')
 
@@ -356,55 +390,130 @@ def _wait_for_post(page, tag: str, timeout_ms: int = 60000) -> dict:
     return {'found': False, 'profile': profile, 'tried': targets, 'waited_ms': elapsed}
 
 
-def _click_post_control(page) -> dict:
-    """Click the composer's submit control.
+# Resolve the composer's submit control, shared by the state probe and the click so
+# the two can never disagree about which element they mean.
+#
+# It is a ``<div>`` carrying a ``btn`` class, not a ``<button>`` — it has no
+# ``type="submit"`` and no ``role="button"``, so a button-oriented lookup finds
+# nothing. It also has element children, so it is not a leaf node. Candidates are
+# ranked innermost-first so we land on the control itself rather than a wrapper that
+# happens to contain the same text.
+_RESOLVE_POST_JS = f"""
+(function() {{
+    var label = {json.dumps(FanslyPlatform.TEXT_SUBMIT_LABEL)};
+    var ta = document.querySelector({json.dumps(FanslyPlatform.TEXT_SELECTOR)});
+    if (!ta) return {{el: null, reason: 'composer textarea not found'}};
 
-    It is a ``<div>`` carrying a ``btn`` class, not a ``<button>`` — it has no
-    ``type="submit"`` and no ``role="button"``, so a button-oriented lookup finds
-    nothing. It also has element children, so it is not a leaf node. Candidates are
-    ranked innermost-first so the click lands on the control itself rather than a
-    wrapper that happens to contain the same text.
+    var scope = ta;
+    for (var d = 0; d < 8 && scope.parentElement; d++) {{
+        scope = scope.parentElement;
+        var hits = Array.from(scope.querySelectorAll(
+            'button, app-button, [role="button"], '
+            + 'div[class*="btn"], span[class*="btn"], a[class*="btn"]'
+        )).filter(function(el) {{
+            return (el.textContent || '').trim() === label;
+        }});
+        if (!hits.length) continue;
+        // Innermost match: fewest descendants.
+        hits.sort(function(a, b) {{
+            return a.querySelectorAll('*').length - b.querySelectorAll('*').length;
+        }});
+        return {{el: hits[0], depth: d, candidates: hits.length}};
+    }}
+    return {{
+        el: null,
+        reason: 'no ' + label + ' control near the composer',
+        textareaClass: ta.className
+    }};
+}})()
+"""
+
+
+def _post_control_state(page) -> dict:
+    """Report whether the composer's submit control is currently enabled.
+
+    ``disabled`` is a **class** on a ``<div>``, not the DOM property, so it is read
+    through ``classList`` — a whole-token test. A substring match would also fire on
+    any future class that merely contains the word.
     """
     return run_js(
         page,
         f"""
         (function() {{
-            var label = {json.dumps(FanslyPlatform.TEXT_SUBMIT_LABEL)};
-            var ta = document.querySelector({json.dumps(FanslyPlatform.TEXT_SELECTOR)});
-            if (!ta) return {{clicked: false, reason: 'composer textarea not found'}};
-
-            var scope = ta;
-            for (var d = 0; d < 8 && scope.parentElement; d++) {{
-                scope = scope.parentElement;
-                var hits = Array.from(scope.querySelectorAll(
-                    'button, app-button, [role="button"], '
-                    + 'div[class*="btn"], span[class*="btn"], a[class*="btn"]'
-                )).filter(function(el) {{
-                    return (el.textContent || '').trim() === label;
-                }});
-                if (!hits.length) continue;
-                // Innermost match: fewest descendants.
-                hits.sort(function(a, b) {{
-                    return a.querySelectorAll('*').length - b.querySelectorAll('*').length;
-                }});
-                var target = hits[0];
-                target.click();
-                return {{
-                    clicked: true,
-                    tag: target.tagName.toLowerCase(),
-                    cls: (target.className || '').toString().substring(0, 60),
-                    depth: d,
-                    candidates: hits.length
-                }};
-            }}
+            var found = {_RESOLVE_POST_JS};
+            if (!found.el) return {{found: false, reason: found.reason}};
             return {{
-                clicked: false,
-                reason: 'no ' + label + ' control near the composer',
-                textareaClass: ta.className
+                found: true,
+                disabled: found.el.classList.contains('disabled'),
+                tag: found.el.tagName.toLowerCase(),
+                cls: (found.el.className || '').toString().substring(0, 60),
+                depth: found.depth,
+                candidates: found.candidates
             }};
         }})();
         """,
     )
+
+
+def _click_post_control(page) -> dict:
+    """Click the composer's submit control, refusing to click it while disabled.
+
+    Fansly disables the control by adding a ``disabled`` **class** to a ``<div>``.
+    Nothing about a ``<div>`` stops ``.click()`` being delivered, so clicking one in
+    that state reports success and publishes nothing — the exact false positive that
+    made Fansly media posting look intermittently broken. Refusing here means
+    ``clicked`` is evidence of a click that could act, not merely one that was sent.
+    """
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            var found = {_RESOLVE_POST_JS};
+            if (!found.el) {{
+                return {{
+                    clicked: false,
+                    reason: found.reason,
+                    textareaClass: found.textareaClass
+                }};
+            }}
+            var target = found.el;
+            var cls = (target.className || '').toString().substring(0, 60);
+            if (target.classList.contains('disabled')) {{
+                return {{clicked: false, reason: 'post control disabled', cls: cls}};
+            }}
+            target.click();
+            return {{
+                clicked: true,
+                tag: target.tagName.toLowerCase(),
+                cls: cls,
+                depth: found.depth,
+                candidates: found.candidates
+            }};
+        }})();
+        """,
+    )
+
+
+def _click_post_when_enabled(page, timeout_ms: int = 60000) -> dict:
+    """Wait for the submit control to leave its disabled state, then click it.
+
+    With media attached the control stays disabled while Fansly finishes processing
+    the upload — measured at ~5 s after the composer first shows the attachment, and
+    still disabled at the 2 s mark where the click used to happen. The composer
+    reporting a child in ``media-upload-container`` is therefore not the same as being
+    ready to post.
+    """
+    elapsed = 0
+    state: dict = {}
+    while elapsed <= timeout_ms:
+        state = _post_control_state(page)
+        if state.get('found') and not state.get('disabled'):
+            result = _click_post_control(page)
+            result['enabled_after_ms'] = elapsed
+            return result
+        wait_ms(1000)
+        elapsed += 1000
+    return {'clicked': False, 'reason': 'post control never left disabled', 'detail': state}
 
 
 @pytest.mark.functional
@@ -445,6 +554,105 @@ class TestFanslyConnection:
                 ok, err = platform.test_connection()
             assert ok, f'test_connection() failed: {err}'
             assert err is None
+        finally:
+            close_webview(view, page, platform)
+
+
+_DECLINE_LABELS = [
+    label.strip().lower() for label in FanslyPlatform.BLOCKING_OVERLAY_DISMISS_LABELS
+]
+
+
+def _push_prompt_state(page) -> dict:
+    """Observe Fansly's push-notification greeting and what it is covering.
+
+    Deliberately observation only — the dismissal is shipped code
+    (``dismiss_blocking_overlay``). A test that dismissed the prompt itself would keep
+    passing after the shipped one broke, which is the defect class these tests exist
+    to catch.
+    """
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            function shown(el) {{
+                if (!el) return false;
+                var r = el.getBoundingClientRect();
+                var s = getComputedStyle(el);
+                return r.width > 0 && r.height > 0
+                    && s.display !== 'none' && s.visibility !== 'hidden';
+            }}
+            var wanted = {json.dumps(_DECLINE_LABELS)};
+            var controls = Array.from(document.querySelectorAll(
+                'button, a, [role="button"], div[class*="btn"], span[class*="btn"]'
+            )).filter(shown);
+
+            // The media icon is the composer control the backdrop covers.
+            var icon = document.querySelector('i.fa-image.hover-effect');
+            var host = icon ? icon.parentElement : null;
+            var covered = null;
+            if (host) {{
+                var r = host.getBoundingClientRect();
+                var hit = document.elementFromPoint(
+                    Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+                covered = !!hit && hit !== host && !host.contains(hit);
+            }}
+            return {{
+                backdrop: shown(document.querySelector(
+                    {json.dumps(FanslyPlatform.BLOCKING_OVERLAY_SELECTOR)})),
+                declineVisible: controls.some(function(b) {{
+                    return wanted.indexOf((b.textContent || '').trim().toLowerCase()) !== -1;
+                }}),
+                affirmativeVisible: controls.some(function(b) {{
+                    return (b.textContent || '').trim().toLowerCase() === 'yes, enable';
+                }}),
+                iconCovered: covered
+            }};
+        }})();
+        """,
+        timeout_ms=15000,
+    )
+
+
+@pytest.mark.functional
+@pytest.mark.non_mutating
+class TestFanslyGreetingPrompt:
+    """Fansly's "Enable Push Notifications" greeting must be cleared by shipped code."""
+
+    def test_shipped_dismissal_clears_the_prompt_and_uncovers_the_composer(
+        self, galefling_data_dir, fansly_credentials
+    ):
+        """The backdrop covers the whole composer until something clears it.
+
+        Asserts the artifact — prompt gone and the media icon reachable by a real
+        click — rather than that a dismissal was merely attempted.
+        """
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fansly_credentials)
+            ok, final_url = load_page(page, COMPOSER_URL, timeout_ms=30000)
+            assert ok, f'Composer load failed: {final_url}'
+            wait_ms(8000)
+
+            before = _push_prompt_state(page)
+            if not before.get('backdrop'):
+                pytest.skip(f'Fansly showed no greeting prompt this session: {before}')
+
+            result = _call_platform(platform.dismiss_blocking_overlay)
+            # 'via' records whether the named decline control or the backdrop fallback
+            # cleared it — without it a pass cannot distinguish the two paths.
+            print(f'\n  dismissed via {result.get("via")}: {result.get("text")}', flush=True)
+            assert result.get('dismissed'), f'Shipped dismissal did not clear it: {result}'
+
+            wait_ms(1500)
+            after = _push_prompt_state(page)
+            assert not after.get('backdrop'), f'Backdrop survived: {after}'
+            assert not after.get('declineVisible'), f'Prompt still on screen: {after}'
+            assert not after.get('affirmativeVisible'), f'Prompt still on screen: {after}'
+            assert after.get('iconCovered') is False, (
+                f'Composer still covered after dismissal: {after}'
+            )
         finally:
             close_webview(view, page, platform)
 
@@ -584,7 +792,7 @@ class TestFanslyPost:
                 f'Text injection failed: {injected}'
             )
 
-            submit = _click_post_control(page)
+            submit = _click_post_when_enabled(page)
             assert submit.get('clicked'), f'Post control not clicked: {submit}'
 
             wait_ms(8000)
@@ -598,16 +806,6 @@ class TestFanslyPost:
             close_webview(view, page, platform)
 
     @pytest.mark.mutating
-    @pytest.mark.xfail(
-        reason=(
-            'Attach and the no-paywall permissions work, but clicking Post with media '
-            'attached publishes nothing — verified 2026-08-12, the run reaches Post and '
-            'no post appears. Suspected: the Post control is genuinely inert while media '
-            'is still processing, and being a <div> its disabled class does not stop the '
-            'click. See docs/platforms/FANSLY.md for the verified flow.'
-        ),
-        strict=False,
-    )
     def test_image_post_creates_a_post_with_media(
         self, galefling_data_dir, fansly_credentials, sample_jpeg
     ):
@@ -647,9 +845,10 @@ class TestFanslyPost:
                 f'Caption not in composer: {injected}'
             )
 
-            print('  [4/5] clicking Post', flush=True)
-            submit = _click_post_control(page)
+            print('  [4/5] clicking Post once it is enabled', flush=True)
+            submit = _click_post_when_enabled(page)
             assert submit.get('clicked'), f'Post control not clicked: {submit}'
+            print(f'    submit {submit}', flush=True)
 
             wait_ms(10000)
             print('  [5/5] verifying the published post', flush=True)

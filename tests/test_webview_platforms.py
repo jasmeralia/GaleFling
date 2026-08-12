@@ -281,6 +281,138 @@ def test_fansly_prefill_delay():
     assert FanslyPlatform.PREFILL_DELAY_MS == 1500
 
 
+def test_fansly_declares_the_blocking_overlay():
+    """Fansly's greeting dialog sits behind a backdrop that eats the first click."""
+    assert FanslyPlatform.BLOCKING_OVERLAY_SELECTOR == 'div.xdModal.back-drop'
+    assert FanslyPlatform.BLOCKING_OVERLAY_DISMISS_LABELS == ['Maybe Later']
+
+
+def test_fansly_overlay_dismissal_never_targets_the_affirmative_button():
+    """The affirmative button sits 41px above "Maybe Later" in the push prompt.
+
+    Enabling push notifications on the account holder's behalf is exactly the class of
+    accident the exact-match rule exists to prevent, so the affirmative label must
+    never appear among the labels we are willing to click.
+    """
+    declines = [label.lower() for label in FanslyPlatform.BLOCKING_OVERLAY_DISMISS_LABELS]
+    assert 'yes, enable' not in declines
+    # And no declared label may be a substring of the affirmative one, which is what
+    # would make a sloppy matcher pick it up.
+    assert all(label not in 'yes, enable' for label in declines)
+
+
+def test_dismiss_blocking_overlay_matches_decline_labels_exactly():
+    """The decline control is matched by whole-label equality, not by substring."""
+    platform, page = _fansly_with_page()
+    platform.dismiss_blocking_overlay()
+
+    assert len(page.js_calls) == 1
+    script = page.js_calls[0]
+    assert json.dumps(FanslyPlatform.BLOCKING_OVERLAY_SELECTOR) in script
+    # The allowlist is embedded lowercased, and compared with indexOf on the *array*
+    # (set membership), never with substring matching on the label text.
+    assert json.dumps(['maybe later']) in script
+    assert "wanted.indexOf((b.textContent || '').trim().toLowerCase()) !== -1" in script
+    assert '.includes(' not in script
+
+
+def test_dismiss_blocking_overlay_falls_back_to_the_backdrop():
+    """With no declared label on screen, the backdrop itself is the dismiss gesture."""
+    platform, page = _fansly_with_page()
+    platform.dismiss_blocking_overlay()
+    script = page.js_calls[0]
+    assert 'el.click()' in script
+    assert "via = 'backdrop'" in script
+
+
+def test_dismiss_blocking_overlay_is_inert_without_a_selector():
+    """Platforms that declare no overlay run no overlay JS."""
+    platform, page = _fetlife_with_page()
+    assert platform.BLOCKING_OVERLAY_SELECTOR == ''
+    platform.dismiss_blocking_overlay()
+    assert page.js_calls == []
+
+
+def test_dismiss_blocking_overlay_without_view():
+    platform = FanslyPlatform(account_id='fansly_1')
+    platform._view = None
+    platform.dismiss_blocking_overlay()  # must not raise
+
+
+def test_dismiss_blocking_overlay_retries_a_backdrop_that_survives(monkeypatch):
+    """A backdrop still present after the click is retried, but only so many times."""
+    from src.platforms import base_webview
+
+    class _StubbornPage:
+        def __init__(self):
+            self.js_calls = []
+
+        def runJavaScript(self, script, callback=None):  # noqa: N802 - mirrors Qt API
+            self.js_calls.append(script)
+            if callback is not None:
+                callback({'present': True, 'dismissed': False, 'buttons': []})
+
+    page = _StubbornPage()
+    platform = FanslyPlatform(account_id='fansly_1')
+    platform._view = _RecordingView(page)
+
+    class _ImmediateTimer:
+        @staticmethod
+        def singleShot(_ms, fn):  # noqa: N802 - mirrors Qt API
+            fn()
+
+    monkeypatch.setattr(base_webview, 'QTimer', _ImmediateTimer)
+
+    seen = []
+    platform.dismiss_blocking_overlay(callback=seen.append)
+
+    assert len(page.js_calls) == FanslyPlatform.BLOCKING_OVERLAY_ATTEMPTS
+    assert seen == [{'present': True, 'dismissed': False, 'buttons': []}]
+
+
+def test_dismiss_blocking_overlay_stops_when_the_backdrop_is_gone():
+    """A dismissed backdrop is not retried."""
+
+    class _ClearedPage:
+        def __init__(self):
+            self.js_calls = []
+
+        def runJavaScript(self, script, callback=None):  # noqa: N802 - mirrors Qt API
+            self.js_calls.append(script)
+            if callback is not None:
+                callback({'present': True, 'dismissed': True, 'buttons': ['Later']})
+
+    page = _ClearedPage()
+    platform = FanslyPlatform(account_id='fansly_1')
+    platform._view = _RecordingView(page)
+
+    seen = []
+    platform.dismiss_blocking_overlay(callback=seen.append)
+
+    assert len(page.js_calls) == 1
+    assert seen and seen[0]['dismissed'] is True
+
+
+def test_prefill_dismisses_the_overlay_before_injecting(monkeypatch):
+    """The backdrop is cleared as part of the shipped load path, not by luck."""
+    from src.platforms import base_webview
+
+    class _NoTimer:
+        @staticmethod
+        def singleShot(_ms, fn):  # noqa: N802 - mirrors Qt API
+            pass
+
+    monkeypatch.setattr(base_webview, 'QTimer', _NoTimer)
+
+    platform, page = _fansly_with_page()
+    platform._text = 'hello'
+    platform._do_prefill()
+
+    assert any(
+        json.dumps(FanslyPlatform.BLOCKING_OVERLAY_SELECTOR) in call for call in page.js_calls
+    ), 'prefill did not attempt to dismiss the blocking overlay'
+
+
 def test_fansly_current_routes_and_session_expiry_selectors():
     assert FanslyPlatform.LOGIN_URL == 'https://fansly.com/'
     assert FanslyPlatform.COMPOSER_URL == 'https://fansly.com/home'

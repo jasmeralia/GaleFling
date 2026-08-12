@@ -97,6 +97,16 @@ class BaseWebViewPlatform(BasePlatform):
     # Composer file-input selector for platforms with a single multi-accept input.
     # Platforms with one composer per media type override get_media_file_selector().
     MEDIA_FILE_SELECTOR: str = ''
+    # Selector for a modal backdrop that covers the composer and swallows the first
+    # click on the page.  Set it to have dismiss_blocking_overlay() clear it after
+    # load; leave it empty and no overlay handling runs.
+    BLOCKING_OVERLAY_SELECTOR: str = ''
+    # Exact labels of the dialog's decline control, e.g. ['Maybe Later'].  Matched
+    # case-insensitively but *exactly* — never as a substring, because the affirmative
+    # button ('Yes, Enable') sits directly beside it.  Empty falls back to clicking
+    # the backdrop.
+    BLOCKING_OVERLAY_DISMISS_LABELS: list[str] = []
+    BLOCKING_OVERLAY_ATTEMPTS: int = 3
     SESSION_EXPIRED_SELECTORS: list[str] = []
     # Milliseconds to wait after loadFinished before running the
     # SESSION_EXPIRED_SELECTORS DOM check.  Set this on platforms whose login
@@ -876,10 +886,117 @@ class BaseWebViewPlatform(BasePlatform):
 
     def _do_prefill(self):
         """Inject text and optionally set up image upload."""
+        if self.BLOCKING_OVERLAY_SELECTOR:
+            self.dismiss_blocking_overlay()
         if self._text:
             self._inject_text(self._text)
         if self.SUCCESS_SELECTOR:
             QTimer.singleShot(500, self._inject_success_observer)
+
+    # ── Blocking overlays ───────────────────────────────────────────
+
+    def dismiss_blocking_overlay(
+        self, callback: 'Callable[[dict], None] | None' = None, _attempt: int = 1
+    ) -> None:
+        """Dismiss a modal covering the composer, if one is present.
+
+        Some platforms greet a session with a dialog — a notifications prompt, a
+        promo — behind a full-page backdrop that swallows the first click anywhere on
+        the page. Left in place it costs the *user* a click too, and any automation
+        that clicks blind through it is aiming at whatever coordinates it wanted with
+        an unknown dialog in front.
+
+        Dismissal prefers the dialog's **own decline control**, matched by exact label
+        against ``BLOCKING_OVERLAY_DISMISS_LABELS`` — the same rule FetLife's shipped
+        "Maybe later" dismissal uses. Exact matching is what makes this safe: these
+        prompts put an affirmative button directly beside the decline one, and a
+        substring or keyword match is how you end up enabling something on the account
+        holder's behalf.
+
+        When no declared label is on screen it falls back to clicking the **backdrop
+        element itself** — the standard dismiss gesture, dispatched on that element
+        rather than at a point, so it cannot land on a control inside the dialog.
+
+        Platforms opt in by setting ``BLOCKING_OVERLAY_SELECTOR``.
+        """
+        if not self._view or not self.BLOCKING_OVERLAY_SELECTOR:
+            return
+        page = self._view.page()
+        if not page:
+            return
+
+        selector = json.dumps(self.BLOCKING_OVERLAY_SELECTOR)
+        labels = json.dumps(
+            [label.strip().lower() for label in self.BLOCKING_OVERLAY_DISMISS_LABELS]
+        )
+        js = f"""
+        (function() {{
+            function shown(el) {{
+                if (!el) return false;
+                var r = el.getBoundingClientRect();
+                var s = getComputedStyle(el);
+                return r.width > 0 && r.height > 0
+                    && s.display !== 'none' && s.visibility !== 'hidden';
+            }}
+            var el = document.querySelector({selector});
+            if (!shown(el)) return {{present: false, dismissed: true}};
+
+            // The dialog is not necessarily inside the backdrop — on Fansly it is a
+            // sibling — so describe it separately for the log.
+            var dialog = document.querySelector('[class*="active-modal"]');
+            var text = dialog
+                ? (dialog.textContent || '').trim().replace(/\\s+/g, ' ').substring(0, 160)
+                : '';
+
+            // Exact label match only. Never a substring: the affirmative button sits
+            // beside the decline one.
+            var wanted = {labels};
+            var decline = Array.from(document.querySelectorAll(
+                'button, a, [role="button"], div[class*="btn"], span[class*="btn"]'
+            )).filter(shown).filter(function(b) {{
+                return wanted.indexOf((b.textContent || '').trim().toLowerCase()) !== -1;
+            }})[0];
+
+            var via;
+            if (decline) {{
+                via = 'label:' + (decline.textContent || '').trim();
+                decline.click();
+            }} else {{
+                via = 'backdrop';
+                el.click();
+            }}
+            return {{
+                present: true,
+                dismissed: !shown(document.querySelector({selector})),
+                via: via,
+                text: text
+            }};
+        }})();
+        """
+
+        def _handle(result):
+            state = result if isinstance(result, dict) else {}
+            if state.get('present'):
+                get_logger().info(
+                    f'{self.get_platform_name()}: blocking overlay '
+                    f'{"dismissed" if state.get("dismissed") else "still present"} '
+                    f'(attempt {_attempt}, via={state.get("via")}, '
+                    f'dialog="{state.get("text", "")}")'
+                )
+            if (
+                state.get('present')
+                and not state.get('dismissed')
+                and _attempt < self.BLOCKING_OVERLAY_ATTEMPTS
+            ):
+                QTimer.singleShot(
+                    self.POLL_INTERVAL_MS,
+                    lambda: self.dismiss_blocking_overlay(callback, _attempt + 1),
+                )
+                return
+            if callback:
+                callback(state)
+
+        page.runJavaScript(js, _handle)
 
     # ── Text injection ──────────────────────────────────────────────
 

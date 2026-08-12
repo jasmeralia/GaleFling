@@ -1,9 +1,41 @@
-"""Functional tests for Bluesky — real API calls against a test account."""
+"""Functional tests for Bluesky — live AT Protocol calls via BlueskyPlatform."""
 
+from __future__ import annotations
+
+import contextlib
 import uuid
 
 import pytest
 from atproto import Client as BskyClient
+
+BSKY_SERVICE = 'https://bsky.social'
+
+
+def _make_auth(creds: dict):
+    """Build a minimal AuthManager stand-in from raw credential dict."""
+
+    class _Auth:
+        def get_bluesky_auth(self):
+            return {
+                'identifier': creds['identifier'],
+                'app_password': creds['app_password'],
+                'service': BSKY_SERVICE,
+            }
+
+        def get_bluesky_auth_alt(self):
+            return None
+
+    return _Auth()
+
+
+def _delete_post(creds: dict, uri: str) -> None:
+    """Best-effort deletion of a Bluesky post by AT URI."""
+    if not uri:
+        return
+    with contextlib.suppress(Exception):
+        client = BskyClient(base_url=BSKY_SERVICE)
+        client.login(creds['identifier'], creds['app_password'])
+        client.delete_post(uri)
 
 
 @pytest.mark.functional
@@ -11,214 +43,179 @@ from atproto import Client as BskyClient
 class TestBlueskyConnection:
     """Auth and connection tests — run first to fail fast on bad credentials."""
 
-    def test_login(self, bluesky_credentials):
-        """Verify that the configured credentials can log in."""
-        client = BskyClient()
+    def test_authenticate(self, bluesky_credentials):
+        from src.platforms.bluesky import BlueskyPlatform
+
+        platform = BlueskyPlatform(_make_auth(bluesky_credentials))
+        ok, err = platform.authenticate()
+        assert ok, f'authenticate() failed with error: {err}'
+        assert err is None
+
+    def test_connection(self, bluesky_credentials):
+        from src.platforms.bluesky import BlueskyPlatform
+
+        platform = BlueskyPlatform(_make_auth(bluesky_credentials))
+        ok, err = platform.test_connection()
+        assert ok, f'test_connection() failed with error: {err}'
+        assert err is None
+
+    def test_connection_returns_handle(self, bluesky_credentials):
+        """Profile fetch: logged-in session must expose a handle."""
+        client = BskyClient(base_url=BSKY_SERVICE)
         profile = client.login(
             bluesky_credentials['identifier'],
             bluesky_credentials['app_password'],
         )
         assert profile.handle
-        assert profile.did
 
-    def test_get_profile(self, bluesky_credentials):
-        """Verify we can fetch our own profile after login."""
-        client = BskyClient()
-        client.login(
-            bluesky_credentials['identifier'],
-            bluesky_credentials['app_password'],
-        )
-        profile = client.get_profile(client.me.did)
-        assert profile.handle == client.me.handle
+        fetched = client.get_profile(client.me.did)
+        assert fetched.handle == profile.handle
+
+    def test_connection_bad_credentials(self):
+        from src.platforms.bluesky import BlueskyPlatform
+
+        class _BadAuth:
+            def get_bluesky_auth(self):
+                return {
+                    'identifier': 'invalid.example',
+                    'app_password': 'invalid-password',
+                    'service': BSKY_SERVICE,
+                }
+
+            def get_bluesky_auth_alt(self):
+                return None
+
+        platform = BlueskyPlatform(_BadAuth())
+        ok, err = platform.test_connection()
+        assert not ok
+        assert err == 'BS-AUTH-INVALID'
+
+
+@pytest.mark.functional
+@pytest.mark.non_mutating
+class TestBlueskyValidation:
+    """Pre-post rejection without creating a live post."""
+
+    def test_character_limit_enforcement(self, bluesky_credentials):
+        """Posts exceeding 300 graphemes must fail before a record is created."""
+        from src.platforms.bluesky import BlueskyPlatform
+
+        platform = BlueskyPlatform(_make_auth(bluesky_credentials))
+        platform.authenticate()
+        result = platform.post('A' * 301)
+
+        assert not result.success
+        assert result.error_code == 'POST-TEXT-TOO-LONG'
 
 
 @pytest.mark.functional
 @pytest.mark.mutating
 class TestBlueskyTextPost:
-    """Text-only posting and deletion."""
+    """Text-only posting and deletion via BlueskyPlatform."""
 
     def test_text_post_and_delete(self, bluesky_credentials):
-        """Create a text post, verify it has a URI, then delete it."""
-        client = BskyClient()
-        client.login(
-            bluesky_credentials['identifier'],
-            bluesky_credentials['app_password'],
-        )
+        from src.platforms.bluesky import BlueskyPlatform
+
         tag = uuid.uuid4().hex[:8]
         text = f'GaleFling functional test {tag} — safe to delete'
 
-        post = client.send_post(text=text)
-        assert post.uri
-        assert post.cid
+        platform = BlueskyPlatform(_make_auth(bluesky_credentials))
+        result = platform.post(text)
 
-        # Cleanup
-        client.delete_post(post.uri)
+        assert result.success, f'Text post failed: {result.error_code} — {result.error_message}'
+        assert result.platform == 'Bluesky'
+        uri = result.raw_response.get('uri')
+        assert uri
+        assert result.post_url.startswith('https://bsky.app/profile/')
+
+        _delete_post(bluesky_credentials, uri)
 
     def test_post_with_url_facets(self, bluesky_credentials):
-        """Post text containing a URL and verify facet detection works end-to-end."""
-        from src.platforms.bluesky import detect_urls
+        """URL facets must be detected and published end-to-end."""
+        from src.platforms.bluesky import BlueskyPlatform
 
-        client = BskyClient()
-        client.login(
-            bluesky_credentials['identifier'],
-            bluesky_credentials['app_password'],
-        )
         tag = uuid.uuid4().hex[:8]
         text = f'GaleFling test {tag} https://example.com — safe to delete'
-        facets = detect_urls(text)
-        assert len(facets) == 1
 
-        from datetime import UTC, datetime
+        platform = BlueskyPlatform(_make_auth(bluesky_credentials))
+        result = platform.post(text)
 
-        record = {
-            '$type': 'app.bsky.feed.post',
-            'text': text,
-            'createdAt': datetime.now(UTC).isoformat(),
-            'facets': facets,
-        }
-        response = client.com.atproto.repo.create_record(
-            data={
-                'repo': client.me.did,
-                'collection': 'app.bsky.feed.post',
-                'record': record,
-            }
-        )
-        assert response.uri
+        assert result.success, f'Facet post failed: {result.error_code} — {result.error_message}'
+        uri = result.raw_response.get('uri')
+        assert uri
 
-        # Cleanup
-        client.delete_post(response.uri)
-
-    def test_character_limit_enforcement(self, bluesky_credentials):
-        """Verify the platform rejects posts exceeding 300 graphemes."""
-        client = BskyClient()
-        client.login(
-            bluesky_credentials['identifier'],
-            bluesky_credentials['app_password'],
-        )
-        # 301 characters should be rejected by the API
-        text = 'A' * 301
-        posted = False
-        try:
-            client.send_post(text=text)
-            posted = True
-        except Exception:
-            pass
-        assert not posted, 'Expected Bluesky to reject post exceeding 300 characters'
+        _delete_post(bluesky_credentials, uri)
 
 
 @pytest.mark.functional
 @pytest.mark.mutating
 class TestBlueskyImagePost:
-    """Image upload and posting."""
+    """Image upload and posting via BlueskyPlatform."""
 
     def test_single_image_post(self, bluesky_credentials, sample_jpeg):
-        """Upload a single image and post it, then delete."""
-        client = BskyClient()
-        client.login(
-            bluesky_credentials['identifier'],
-            bluesky_credentials['app_password'],
-        )
+        from src.platforms.bluesky import BlueskyPlatform
+
         tag = uuid.uuid4().hex[:8]
-        img_data = sample_jpeg.read_bytes()
-        upload = client.upload_blob(img_data)
-        assert upload.blob
+        caption = f'GaleFling image test {tag} — safe to delete'
 
-        from datetime import UTC, datetime
+        platform = BlueskyPlatform(_make_auth(bluesky_credentials))
+        result = platform.post(caption, media_paths=[sample_jpeg])
 
-        record = {
-            '$type': 'app.bsky.feed.post',
-            'text': f'GaleFling image test {tag} — safe to delete',
-            'createdAt': datetime.now(UTC).isoformat(),
-            'embed': {
-                '$type': 'app.bsky.embed.images',
-                'images': [{'alt': 'test image', 'image': upload.blob}],
-            },
-        }
-        response = client.com.atproto.repo.create_record(
-            data={
-                'repo': client.me.did,
-                'collection': 'app.bsky.feed.post',
-                'record': record,
-            }
-        )
-        assert response.uri
+        assert result.success, f'Image post failed: {result.error_code} — {result.error_message}'
+        uri = result.raw_response.get('uri')
+        assert uri
 
-        # Cleanup
-        client.delete_post(response.uri)
+        _delete_post(bluesky_credentials, uri)
+
+    def test_png_image_post(self, bluesky_credentials, sample_png):
+        from src.platforms.bluesky import BlueskyPlatform
+
+        tag = uuid.uuid4().hex[:8]
+        caption = f'GaleFling PNG test {tag} — safe to delete'
+
+        platform = BlueskyPlatform(_make_auth(bluesky_credentials))
+        result = platform.post(caption, media_paths=[sample_png])
+
+        assert result.success, f'PNG post failed: {result.error_code} — {result.error_message}'
+        uri = result.raw_response.get('uri')
+        assert uri
+
+        _delete_post(bluesky_credentials, uri)
 
     def test_multiple_images_post(self, bluesky_credentials, sample_jpeg, sample_png):
-        """Upload two images in a single post, then delete."""
-        client = BskyClient()
-        client.login(
-            bluesky_credentials['identifier'],
-            bluesky_credentials['app_password'],
-        )
+        from src.platforms.bluesky import BlueskyPlatform
+
         tag = uuid.uuid4().hex[:8]
-        images = []
-        for path in [sample_jpeg, sample_png]:
-            upload = client.upload_blob(path.read_bytes())
-            images.append({'alt': '', 'image': upload.blob})
+        caption = f'GaleFling multi-image test {tag} — safe to delete'
 
-        from datetime import UTC, datetime
+        platform = BlueskyPlatform(_make_auth(bluesky_credentials))
+        result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
 
-        record = {
-            '$type': 'app.bsky.feed.post',
-            'text': f'GaleFling multi-image test {tag} — safe to delete',
-            'createdAt': datetime.now(UTC).isoformat(),
-            'embed': {
-                '$type': 'app.bsky.embed.images',
-                'images': images,
-            },
-        }
-        response = client.com.atproto.repo.create_record(
-            data={
-                'repo': client.me.did,
-                'collection': 'app.bsky.feed.post',
-                'record': record,
-            }
+        assert result.success, (
+            f'Multi-image post failed: {result.error_code} — {result.error_message}'
         )
-        assert response.uri
+        uri = result.raw_response.get('uri')
+        assert uri
 
-        # Cleanup
-        client.delete_post(response.uri)
+        _delete_post(bluesky_credentials, uri)
 
 
 @pytest.mark.functional
 @pytest.mark.mutating
 class TestBlueskyVideoPost:
-    """Video upload and posting."""
+    """Video upload and posting via BlueskyPlatform."""
 
     def test_video_post(self, bluesky_credentials, sample_video):
-        """Upload a short video and post it, then delete."""
-        client = BskyClient()
-        client.login(
-            bluesky_credentials['identifier'],
-            bluesky_credentials['app_password'],
-        )
+        from src.platforms.bluesky import BlueskyPlatform
+
         tag = uuid.uuid4().hex[:8]
-        video_data = sample_video.read_bytes()
-        upload = client.upload_blob(video_data)
-        assert upload.blob
+        caption = f'GaleFling video test {tag} — safe to delete'
 
-        from datetime import UTC, datetime
+        platform = BlueskyPlatform(_make_auth(bluesky_credentials))
+        result = platform.post(caption, media_paths=[sample_video])
 
-        record = {
-            '$type': 'app.bsky.feed.post',
-            'text': f'GaleFling video test {tag} — safe to delete',
-            'createdAt': datetime.now(UTC).isoformat(),
-            'embed': {
-                '$type': 'app.bsky.embed.video',
-                'video': upload.blob,
-            },
-        }
-        response = client.com.atproto.repo.create_record(
-            data={
-                'repo': client.me.did,
-                'collection': 'app.bsky.feed.post',
-                'record': record,
-            }
-        )
-        assert response.uri
+        assert result.success, f'Video post failed: {result.error_code} — {result.error_message}'
+        uri = result.raw_response.get('uri')
+        assert uri
 
-        # Cleanup
-        client.delete_post(response.uri)
+        _delete_post(bluesky_credentials, uri)

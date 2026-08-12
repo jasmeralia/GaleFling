@@ -346,8 +346,8 @@ tests/functional/
 ├── webview_helpers.py               # Shared QWebEngineView helpers and per-platform login flows
 ├── .env.example                     # Template showing required vars (committed)
 ├── .env                             # Actual credentials (gitignored)
-├── test_bluesky_post.py             # Bluesky API: auth, text, image, video, char limit
-├── test_twitter_post.py             # Twitter API: auth, text, image, video, char limit
+├── test_bluesky_post.py             # Bluesky API: auth, text/facet, image/video, char limit
+├── test_twitter_post.py             # Twitter API: auth, text, image/video, char limit
 ├── test_meta_instagram_post.py      # Instagram Graph API: auth, validation, image/video/carousel
 ├── test_meta_threads_post.py        # Threads Graph API: auth, text/image/video/carousel posts
 ├── test_meta_facebook_page_post.py  # Facebook Page API: auth, text/photo/video posts
@@ -427,17 +427,21 @@ Tests use UUID tags in post text to avoid duplicate-post rejections and to make 
 |----------------------------|---------|---------|-----------|---------|---------------|
 | Authentication             | x       | x       | x         | x       | x             |
 | Profile fetch              | x       | x       | x         | x       | x             |
+| Bad credentials rejected   | x       | x       | x         | x       | x             |
 | Text-only post + delete    | x       | x       | -         | x       | x             |
 | Post with URL facets       | x       | -       | -         | -       | -             |
 | Single image post          | x       | x       | x         | x       | x             |
+| PNG image post             | x       | x       | x         | x       | x             |
 | Multiple images post       | x       | x       | x         | x       | x             |
 | Mixed image+video carousel | -       | -       | x         | x       | -             |
-| Video post                 | x       | x       | x         | x       | x             |
+| Video post (platform code) | x       | x       | x         | x       | x             |
 | Character limit rejection  | x       | x       | x         | x       | x             |
 | Unsupported format (WEBP)  | -       | -       | x         | x       | x             |
 | Text-only post rejected    | -       | -       | x         | -       | -             |
 
-Instagram and Threads media tests skip when Meta AWS staging credentials are absent.
+Bluesky and Twitter mutating tests route through `BlueskyPlatform` / `TwitterPlatform`
+(the same adapters the app uses). Instagram and Threads media tests skip when Meta AWS
+staging credentials are absent.
 Facebook Page photo and video tests upload directly and do not require AWS staging.
 
 ### Coverage Gaps (functional suite)

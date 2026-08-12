@@ -224,8 +224,27 @@ def _post_has_media(page, tag: str) -> dict:
                 return {{found: true, hasMedia: false, reason: 'no .feed-item ancestor'}};
             }}
 
+            function sourced(m) {{
+                if (/^https?:|^blob:/.test(m.src || m.currentSrc || '')) return true;
+                // A <video> often carries no src of its own: Fansly's video-js player
+                // puts it on a <source> child, and a not-yet-playing video may only
+                // have its poster. Requiring element.src alone reports "no media" on a
+                // perfectly good video post.
+                //
+                // Note this branch is a safety net rather than the observed path: a
+                // published video post renders in the feed as two poster `img.image`
+                // elements (cover + contain), with no <video> until playback. The
+                // player elements do exist elsewhere in the feed, which is why the
+                // case is handled at all.
+                if (m.tagName.toLowerCase() !== 'video') return false;
+                if (/^https?:|^blob:/.test(m.getAttribute('poster') || '')) return true;
+                return Array.from(m.querySelectorAll('source')).some(function(s) {{
+                    return /^https?:|^blob:/.test(s.getAttribute('src') || '');
+                }});
+            }}
+
             var media = Array.from(post.querySelectorAll('img, video')).filter(function(m) {{
-                if (!/^https?:|^blob:/.test(m.src || m.currentSrc || '')) return false;
+                if (!sourced(m)) return false;
                 // The avatar in the post header is not post media.
                 return !m.closest('[class*="feed-item-meta"]');
             }}).map(function(m) {{
@@ -246,7 +265,7 @@ def _post_has_media(page, tag: str) -> dict:
     )
 
 
-def _attach_media_through_ui(view, page, platform, path) -> dict:
+def _attach_media_through_ui(view, page, platform, path, upload_timeout_ms: int = 45000) -> dict:
     """Drive Fansly's own media flow end to end, applying the no-paywall policy.
 
     icon -> Upload New -> native picker (chooseFiles) -> Upload media modal ->
@@ -300,7 +319,7 @@ def _attach_media_through_ui(view, page, platform, path) -> dict:
     _trusted_click_xy(view, point['x'], point['y'])
 
     elapsed = 0
-    while elapsed < 45000:
+    while elapsed < upload_timeout_ms:
         if _composer_media_count(page) > before:
             return {
                 'attached': True,
@@ -858,6 +877,75 @@ class TestFanslyPost:
             media = _post_has_media(page, tag)
             assert media.get('hasMedia'), f'Fansly published the caption but no image: {media}'
             print(f'\n  Fansly image post created (tag {tag}) -> {posted.get("where")}')
+            print(f'  permalinks: {posted.get("permalinks")}  media: {media}')
+            print(f'  MANUAL CLEANUP NEEDED — delete the Fansly post tagged {tag}')
+        finally:
+            close_webview(view, page, platform)
+
+    @pytest.mark.mutating
+    def test_video_post_creates_a_post_with_media(
+        self, galefling_data_dir, fansly_credentials, sample_video
+    ):
+        """Post a real video through the same flow and prove media reached the post.
+
+        The composer flow is identical to an image from the user's side. The timings
+        turned out to be too: the submit control cleared ``disabled`` after ~5 s for a
+        2 s 320x240 clip, the same figure measured for a JPEG. The budgets below stay
+        generous because that is one small clip, not a characterisation of transcoding —
+        a large upload is still unmeasured. The measured figure is printed on every run.
+
+        **What this asserts is that media landed, not that it is a video.** Fansly
+        renders a video post in the feed as a pair of poster ``img`` elements with no
+        ``<video>`` present until playback, so there is no video-specific marker to key
+        on without publishing a post to hunt one down. That is a deliberate limit: the
+        realistic failure — the upload failing and the caption posting alone — produces
+        no poster images and so does fail here.
+        """
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            print('\n  [1/5] establishing session', flush=True)
+            _ensure_session(page, fansly_credentials)
+            ok, final_url = load_page(page, COMPOSER_URL, timeout_ms=30000)
+            assert ok, f'Composer load failed: {final_url}'
+            wait_ms(8000)
+
+            print('  [2/5] attaching video through the composer UI', flush=True)
+            attached = _attach_media_through_ui(
+                view, page, platform, sample_video, upload_timeout_ms=180000
+            )
+            assert attached.get('attached'), f'Video never attached: {attached}'
+
+            perms = attached.get('permissions', {})
+            assert perms.get('state', {}).get('Require Subscription') is False, (
+                f'Post would be paywalled: {perms}'
+            )
+            assert perms.get('state', {}).get('Require Follow') is True, (
+                f'Require Follow not set: {perms}'
+            )
+
+            tag = mutating_post_text()
+            print(f'  [3/5] posting tag {tag} — delete this if the run fails', flush=True)
+            platform._inject_text(tag)
+            wait_ms(2000)
+            injected = _read_composer_text(page)
+            assert injected.get('found') and tag in injected.get('value', ''), (
+                f'Caption not in composer: {injected}'
+            )
+
+            print('  [4/5] clicking Post once it is enabled', flush=True)
+            submit = _click_post_when_enabled(page, timeout_ms=240000)
+            assert submit.get('clicked'), f'Post control not clicked: {submit}'
+            print(f'    submit {submit}', flush=True)
+
+            wait_ms(10000)
+            print('  [5/5] verifying the published post', flush=True)
+            posted = _wait_for_post(page, tag, timeout_ms=90000)
+            assert posted.get('found'), f'Post {tag} not found after submit: {posted}'
+
+            media = _post_has_media(page, tag)
+            assert media.get('hasMedia'), f'Fansly published the caption but no video: {media}'
+            print(f'\n  Fansly video post created (tag {tag}) -> {posted.get("where")}')
             print(f'  permalinks: {posted.get("permalinks")}  media: {media}')
             print(f'  MANUAL CLEANUP NEEDED — delete the Fansly post tagged {tag}')
         finally:

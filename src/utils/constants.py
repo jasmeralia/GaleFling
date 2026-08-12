@@ -50,7 +50,15 @@ class PlatformSpecs:
     supports_text: bool = True
     # Whether text is still supported when media is attached.
     supports_text_with_media: bool = True
-    # Max media attachments per post (images; video is always 1)
+    # Max media attachments per post, counting images.
+    #
+    # "Video is always 1" is GaleFling's own rule, not a property of these platforms:
+    # the composer treats a video as a sole attachment and blocks mixing it with images
+    # (src/gui/post_composer.py::_choose_media). Several platforms accept a mixed
+    # image+video carousel — the Instagram and Threads adapters post one today, and
+    # tests/functional cover it by calling post() directly, which is the only way to
+    # reach that path since the GUI will not produce such a selection. Do not read this
+    # cap as evidence that a platform cannot mix media.
     max_media_attachments: int = 1
     # Whether the user can authenticate inside GaleFling's embedded browser.
     # False for platforms whose login form is gated by a bot check that rejects

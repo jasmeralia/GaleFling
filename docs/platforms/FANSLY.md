@@ -63,6 +63,14 @@ Fansly sessions expire periodically. When your session expires, GaleFling will s
 | Max length | 3000 characters |
 | Text with media | Supported |
 
+### Mixing images and video
+
+Fansly's own composer accepts images and video in the same post. **GaleFling does not
+offer this** — its composer treats a video as a sole attachment for every platform. That
+is a product-level restriction rather than a Fansly limitation; see "Mixing images and
+video in one post" in [PLATFORM_SPECS.md](PLATFORM_SPECS.md). The upload flow below is
+driven once per post, so nothing here is currently exercised with more than one item.
+
 ## Platform Behavior
 
 - **API type**: `webview` — you confirm the post in the embedded browser panel.
@@ -156,3 +164,9 @@ Measured live (2026-08-12), with the composer already holding the attachment:
 | ~5 s later | gone | 1 |
 
 `media-upload-container` gaining a child is therefore **not** the same as being ready to post: the attachment is visible while Fansly is still processing it. Wait for the `disabled` class to clear (`classList.contains`, a whole-token test — never a substring match) before clicking, and treat "control still disabled" as a refusal to click rather than a click that happened to do nothing.
+
+**Video behaves the same.** A 2 s 320 × 240 MP4 cleared `disabled` after ~5 s — the same figure as a JPEG — so the wait is not proportional to clip length at this size. A large upload is unmeasured, and the functional test keeps generous ceilings for that reason.
+
+### Video posts render as poster images in the feed
+
+A published video post contains **no `<video>` element** until playback. Fansly renders it as a pair of `img.image` elements (one `cover`, one `contain`, both 754 × 566 for a 4:3 source). Anything asserting that a video post contains media must therefore accept `img`, or it will report "no media" on a perfectly good post. The corollary is that the feed offers no video-specific marker to distinguish a video post from an image post without playing it.

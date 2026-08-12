@@ -53,6 +53,17 @@ GaleFling handles images and videos with automatic per-platform processing:
 - **Text warnings:** Platforms that don't support text (e.g., Snapchat) show a warning if you've entered text.
 - **Preview:** Click "Preview Media" to see how your image or video will look on each platform after processing.
 
+### Posts Are Never Paywalled
+
+GaleFling publishes the same post to every platform you select, and most of them — Twitter, Instagram, Bluesky — have no paywall at all. Gating that post behind a subscription on one platform would leave your audiences seeing different things, so GaleFling never does it.
+
+Where a platform offers those controls, GaleFling sets them for open access:
+
+- **Fansly:** media uploads do *not* require a subscription. "Require Follow" is set instead, so the post reaches followers without a paywall.
+- **OnlyFans:** posts are never pay-per-view.
+
+If you want to publish paywalled content, post it directly on that platform rather than through GaleFling.
+
 ## Updates
 
 GaleFling checks for updates on startup (configurable).  

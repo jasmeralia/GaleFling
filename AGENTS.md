@@ -77,6 +77,13 @@ galefling/
 - WebView SPA platforms may legitimately report posted results without a captured permalink.
 
 ## Critical Conventions
+- **Posts are never paywalled.** The same post is cross-published to platforms with no
+  paywall concept (Twitter, Instagram, Bluesky), so gating it on one destination breaks
+  parity with every other. On Fansly, media uploads must **uncheck Require Subscription**
+  (checked by default) and **check Require Follow**; Advanced Permissions and Require
+  Purchase stay unchecked. On OnlyFans, posts must not be PPV. Set these by exact field
+  name, never by keyword-matching labels — permission blocks sit next to controls that
+  change monetization or the account avatar.
 - Use account-labeled platform names in UI/results (`Platform (profile_name)` where available).
 - Platform failures should not block posting to other platforms.
 - Keep behavior non-destructive and understandable for non-technical users.

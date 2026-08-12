@@ -81,3 +81,22 @@ Fansly sessions expire periodically. When your session expires, GaleFling will s
 | Text not pre-filled | Cloudflare challenge may still be running. Wait for the page to fully load, then retry or type manually in the WebView panel. |
 | `WV-SESSION-EXPIRED` in results | Session cookies expired. Log in again via Settings. |
 | Cloudflare challenge loop | Clear the Fansly WebView profile (Settings > Accounts > Fansly > Clear Session) and log in again. |
+
+## Media permissions — no paywall
+
+Fansly's **Upload media** modal opens with **Require Subscription checked** ("Any Tier"). GaleFling must clear it and check **Require Follow** instead; Advanced Permissions and Require Purchase stay unchecked. See the "Posts are never paywalled" convention in `AGENTS.md`.
+
+Target these by exact field name. The modal is a permissions block, so a keyword match over labels risks toggling a monetization control — the same hazard as FetLife's `picture[is_avatar]`.
+
+## Media upload flow
+
+Attaching media is a multi-step flow driven by Fansly's own UI, not a single file input:
+
+1. Click the image icon in the composer's button row.
+2. Choose **Upload New** from the dropdown that appears (its items exist in the DOM but are hidden until then).
+3. The native file picker opens; `BaseWebViewPlatform`'s `chooseFiles()` override supplies the staged path.
+4. An **Upload media** modal appears with the permission controls above.
+5. Click **Upload** to confirm — only now does the media reach the composer.
+6. Add the caption and post.
+
+Writing a file onto the input directly does not work, with either a synthetic `DataTransfer` or the picker: Fansly's uploader is never in the call stack, so the modal never opens and the composer stays empty. Posting anyway publishes the caption with **no media attached**.

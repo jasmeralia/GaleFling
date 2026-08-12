@@ -98,6 +98,15 @@ Target these by exact field name. The modal is a permissions block, so a keyword
 
 ## Media upload flow
 
+> **GaleFling does not currently drive this flow.** The shipped post path
+> (`BaseWebViewPlatform._do_prefill()`) dismisses the overlay, injects text, and stops —
+> it never calls `stage_media_for_picker()`, `open_media_picker()`, or
+> `apply_media_permissions()`. The user attaches media by hand in the WebView panel.
+> Everything below is verified against the live site and is exercised by the functional
+> tests, which call those methods directly; it is not yet reachable from the app.
+> Wiring it in is task #417 Level B. See `docs/testing/WEBVIEW_TEST_PLAN.md` → "The
+> whole media path is tested but unreachable".
+
 Attaching media is a multi-step flow driven by Fansly's own UI, not a single file input:
 
 1. Click the image icon in the composer's button row.

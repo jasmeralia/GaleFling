@@ -274,6 +274,54 @@ def _read_media_caption(page, is_video: bool) -> dict:
     )
 
 
+def _caption_capacity(page, platform, is_video: bool, lengths: list[int]) -> dict:
+    """Measure how much text the open composer's caption field actually retains.
+
+    The media composers show no character counter, so their limit is not observable
+    the way the status composer's 690 is — it has to be probed. For each length, the
+    text is injected through shipped ``_inject_media_caption()`` and read straight back
+    out of the DOM; a field that silently truncates reports a shorter ``kept``.
+
+    Also reports ``maxlength``, which would settle the question outright if FetLife
+    sets one, and whether the field is a ``textarea`` (no attribute-level cap implied).
+    """
+    caption_selector = (
+        FetLifePlatform.VIDEO_CAPTION_SELECTOR
+        if is_video
+        else FetLifePlatform.IMAGE_CAPTION_SELECTOR
+    )
+    attrs = run_js(
+        page,
+        f"""
+        (function() {{
+            var el = document.querySelector({json.dumps(caption_selector)});
+            if (!el) return {{found: false}};
+            return {{
+                found: true,
+                tag: el.tagName.toLowerCase(),
+                maxlength: el.getAttribute('maxlength'),
+                name: el.getAttribute('name')
+            }};
+        }})();
+        """,
+    )
+    observed = []
+    for length in lengths:
+        call_platform(platform._inject_media_caption, 'x' * length)
+        wait_ms(400)
+        kept = run_js(
+            page,
+            f"""
+            (function() {{
+                var el = document.querySelector({json.dumps(caption_selector)});
+                return el ? el.value.length : -1;
+            }})();
+            """,
+        )
+        observed.append({'sent': length, 'kept': kept})
+    return {'attrs': attrs, 'observed': observed}
+
+
 def _composer_elements(page, file_selector: str, submit_label: str) -> dict:
     """Report the file input and upload button on an open upload composer."""
     return run_js(
@@ -642,18 +690,24 @@ class TestFetLifeTextPost:
             close_webview(view, page, platform)
 
     @pytest.mark.non_mutating
-    def test_composer_cap_agrees_with_specs(self, galefling_data_dir, fetlife_credentials):
-        """The live composer must cut off exactly where FETLIFE_SPECS says it does.
+    def test_status_composer_cap_agrees_with_specs(self, galefling_data_dir, fetlife_credentials):
+        """The **status** composer must cut off exactly where FETLIFE_SPECS says it does.
 
         Fansly can assert this against the textarea's ``maxlength``; FetLife sets none,
         and enforces the cap by disabling "Say It!" instead. So the boundary is probed
         the way the limit is actually expressed — at the cap the button is live, one
         character past it the button is dead.
 
-        Without this, ``FETLIFE_SPECS.max_text_length`` rests on a manual measurement
-        from 2026-08-11 that nothing re-checks. GaleFling truncates to that number
-        before posting, so if FetLife moves the cap down the app silently produces
-        statuses the composer will refuse.
+        ``FETLIFE_SPECS.max_text_length = 690`` is well established for *this* composer:
+        FetLife displays the number itself, and it has been measured empirically more
+        than once. What this test adds is that nothing re-checks it on an ongoing basis,
+        and ``main_window`` refuses to send a post longer than it — so if FetLife moved
+        the cap down, GaleFling would keep accepting statuses the composer rejects.
+
+        **Scope is text-only posts.** The picture and video composers have their own
+        caption fields with no visible counter, and their limits are a separate open
+        question — see ``test_picture_caption_capacity``. Do not read a pass here as
+        saying anything about captions.
 
         Never submits: the text is injected and read back only.
         """
@@ -826,6 +880,57 @@ class TestFetLifePicturePost:
         finally:
             close_webview(view, page, platform)
 
+    @pytest.mark.non_mutating
+    def test_picture_caption_capacity(self, galefling_data_dir, fetlife_credentials):
+        """`picture[caption]` must hold at least as much text as GaleFling will send.
+
+        **This is an open question being narrowed, not a known limit being guarded.**
+        ``FETLIFE_SPECS.max_text_length = 690`` was established against the *status*
+        composer, which displays its own count; the caption field shows no counter and
+        its ceiling has never been measured. ``main_window`` applies the single
+        ``max_text_length`` to every FetLife post regardless of composer, so the two
+        being different matters as soon as captions are wired into the post flow
+        (task #417 Level B).
+
+        Only one direction is a defect, so only that direction is asserted: if the
+        caption holds *less* than 690, GaleFling will send text FetLife silently
+        truncates. Holding more is a missed opportunity, not a bug, and is reported
+        rather than failed — the probe results are printed so the real ceiling can be
+        read off the run and the specs updated deliberately.
+
+        Never submits, and never attaches a file: the caption field is present on the
+        empty composer.
+        """
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fetlife_credentials)
+            ok, final_url = load_page(page, IMAGE_COMPOSER_URL, timeout_ms=20000)
+            assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
+            wait_ms(2000)
+
+            cap = platform.get_specs().max_text_length
+            # _inject_media_caption() picks its field from the staged media's suffix;
+            # with nothing staged it targets picture[caption], which is what we want.
+            assert platform._image_path is None, 'expected an unstaged composer'
+
+            probe = _caption_capacity(page, platform, is_video=False, lengths=[cap, cap * 4])
+            print(f'\n  picture caption probe: {probe}', flush=True)
+
+            attrs = probe.get('attrs', {})
+            assert attrs.get('found'), (
+                f'{FetLifePlatform.IMAGE_CAPTION_SELECTOR} not on the composer: {attrs}'
+            )
+
+            at_cap = probe['observed'][0]
+            assert at_cap['kept'] == cap, (
+                f'picture[caption] holds only {at_cap["kept"]} of {cap} characters — '
+                f'FetLife caps captions below FETLIFE_SPECS.max_text_length, so a media '
+                f'post at the spec limit would be silently truncated: {probe}'
+            )
+        finally:
+            close_webview(view, page, platform)
+
     @pytest.mark.mutating
     def test_picture_upload_creates_a_post(
         self, galefling_data_dir, fetlife_credentials, sample_jpeg
@@ -964,6 +1069,60 @@ class TestFetLifeVideoPost:
 
             page_state = _upload_form_state(page, 'videos/new')
             assert page_state.get('stillOnComposer'), 'Must not navigate away without submit'
+        finally:
+            close_webview(view, page, platform)
+
+    @pytest.mark.non_mutating
+    def test_video_caption_capacity(self, galefling_data_dir, fetlife_credentials, sample_video):
+        """`video[description]` must hold at least as much text as GaleFling will send.
+
+        The picture-composer counterpart, with the same open-question framing — see
+        ``test_picture_caption_capacity``. The video form is probed separately because
+        nothing says the two fields share a limit, and ``video[title]`` is a third
+        (``<input>``, not ``<textarea>``) whose own ceiling is reported here too.
+
+        Never submits.
+        """
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fetlife_credentials)
+            ok, final_url = load_page(page, VIDEO_COMPOSER_URL, timeout_ms=20000)
+            assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
+            wait_ms(2000)
+
+            cap = platform.get_specs().max_text_length
+            # Route _inject_media_caption() at video[description] rather than the
+            # picture field, without attaching anything.
+            platform._image_path = sample_video
+
+            probe = _caption_capacity(page, platform, is_video=True, lengths=[cap, cap * 4])
+            title = run_js(
+                page,
+                f"""
+                (function() {{
+                    var el = document.querySelector(
+                        {json.dumps(FetLifePlatform.VIDEO_TITLE_SELECTOR)}
+                    );
+                    return el
+                        ? {{maxlength: el.getAttribute('maxlength'), kept: el.value.length}}
+                        : {{found: false}};
+                }})();
+                """,
+            )
+            print(f'\n  video description probe: {probe}\n  video[title]: {title}', flush=True)
+
+            attrs = probe.get('attrs', {})
+            assert attrs.get('found'), (
+                f'{FetLifePlatform.VIDEO_CAPTION_SELECTOR} not on the composer: {attrs}'
+            )
+
+            at_cap = probe['observed'][0]
+            assert at_cap['kept'] == cap, (
+                f'video[description] holds only {at_cap["kept"]} of {cap} characters — '
+                f'FetLife caps descriptions below FETLIFE_SPECS.max_text_length, so a '
+                f'video post at the spec limit would be silently truncated: {probe}'
+            )
         finally:
             close_webview(view, page, platform)
 

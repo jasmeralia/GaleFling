@@ -559,7 +559,9 @@ class TestFetLifeTextPost:
                 delete_outcome = _delete_status_by_tag(page, test_text)
             print(f'  Delete attempt: {delete_outcome}')
             if not delete_outcome.get('deleted'):
-                print(f'  MANUAL CLEANUP NEEDED — status {test_text} is still on the feed')
+                print(
+                    f'  CLEANUP PENDING (leave up until any follow-up inspection is done) — status {test_text} is still on the feed'
+                )
         finally:
             close_webview(view, page, platform)
 
@@ -690,7 +692,9 @@ class TestFetLifePicturePost:
                 f'No picture post after upload — url={post_url}, caption not found: {posted}'
             )
             print(f'\n  FetLife picture uploaded (tag {tag}) -> {post_url}')
-            print(f'  MANUAL CLEANUP NEEDED — delete the picture tagged {tag}')
+            print(
+                f'  CLEANUP PENDING (leave up until any follow-up inspection is done) — delete the picture tagged {tag}'
+            )
         finally:
             close_webview(view, page, platform)
 
@@ -804,6 +808,8 @@ class TestFetLifeVideoPost:
                 f'Video {tag} never appeared in the gallery after upload: {posted}'
             )
             print(f'\n  FetLife video uploaded (tag {tag}) -> {posted.get("gallery")}')
-            print(f'  MANUAL CLEANUP NEEDED — delete the video tagged {tag}')
+            print(
+                f'  CLEANUP PENDING (leave up until any follow-up inspection is done) — delete the video tagged {tag}'
+            )
         finally:
             close_webview(view, page, platform)

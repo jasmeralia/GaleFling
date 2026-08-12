@@ -820,7 +820,9 @@ class TestFanslyPost:
                 f'Fansly post {tag} not found after submit — nothing was created: {posted}'
             )
             print(f'\n  Fansly post created (tag {tag}) -> {posted.get("where")}')
-            print(f'  MANUAL CLEANUP NEEDED — delete the Fansly post tagged {tag}')
+            print(
+                f'  CLEANUP PENDING (leave up until any follow-up inspection is done) — delete the Fansly post tagged {tag}'
+            )
         finally:
             close_webview(view, page, platform)
 
@@ -878,7 +880,9 @@ class TestFanslyPost:
             assert media.get('hasMedia'), f'Fansly published the caption but no image: {media}'
             print(f'\n  Fansly image post created (tag {tag}) -> {posted.get("where")}')
             print(f'  permalinks: {posted.get("permalinks")}  media: {media}')
-            print(f'  MANUAL CLEANUP NEEDED — delete the Fansly post tagged {tag}')
+            print(
+                f'  CLEANUP PENDING (leave up until any follow-up inspection is done) — delete the Fansly post tagged {tag}'
+            )
         finally:
             close_webview(view, page, platform)
 
@@ -947,6 +951,8 @@ class TestFanslyPost:
             assert media.get('hasMedia'), f'Fansly published the caption but no video: {media}'
             print(f'\n  Fansly video post created (tag {tag}) -> {posted.get("where")}')
             print(f'  permalinks: {posted.get("permalinks")}  media: {media}')
-            print(f'  MANUAL CLEANUP NEEDED — delete the Fansly post tagged {tag}')
+            print(
+                f'  CLEANUP PENDING (leave up until any follow-up inspection is done) — delete the Fansly post tagged {tag}'
+            )
         finally:
             close_webview(view, page, platform)

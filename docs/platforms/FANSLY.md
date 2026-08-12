@@ -117,4 +117,18 @@ Two traps:
 - **`div.xdModal.back-drop` overlays the page.** `document.elementFromPoint()` at the icon's centre returns the backdrop, not the icon, and the **first click is absorbed dismissing it**. Retry the open-menu click — attempt 1 fails, attempt 2 succeeds, reproducibly.
 - **`fa-image` vs `fa-images`.** The composer's control is the singular `fa-image`; the surrounding feed is full of plural `fa-images` in the right-hand column. A substring match on `fa-image` hits both and lands you on a feed icon ~1000px away. Match the class as a whole token.
 
-**Still unknown:** the Media Permissions toggles are **not** `input[type="checkbox"]` — a scan of the open modal found none. They are custom components, as FetLife's styled checkboxes are. Identifying how they are represented is the remaining blocker for applying the no-paywall policy, and therefore for any Fansly media test.
+### The permission toggles are Angular components, not checkboxes
+
+There is no `input[type="checkbox"]` anywhere in the modal. Each row is:
+
+```html
+<app-xd-checkbox class="margin-right-1">
+  <div class="checkbox">                                    <!-- unchecked -->
+  <div class="checkbox selected"><i class="fa-check">       <!-- checked -->
+```
+
+The checked state is the **`selected`** class on the inner `div.checkbox`. Confirmed live: of the four rows, only **Require Subscription** carries it by default.
+
+`FanslyPlatform.apply_media_permissions()` implements the no-paywall policy against this structure. It matches each row by **exact label text**, clicks the `<app-xd-checkbox>` host only when the current state differs from the policy, touches only the rows named in `MEDIA_PERMISSION_POLICY` (so Advanced Permissions and Require Purchase are left as found), and reads the state back afterwards rather than assuming the clicks landed.
+
+**Not yet verified end to end.** The selectors come from the live modal, but no run has yet applied the policy and completed an upload — that requires publishing a real post.

@@ -222,6 +222,31 @@ def test_suppress_native_file_dialog_defaults_off():
     assert FanslyPlatform(account_id='fansly_1').suppress_native_file_dialog is False
 
 
+def test_fansly_media_permission_policy_is_never_paywalled():
+    """GaleFling posts are cross-published to platforms with no paywall concept."""
+    policy = FanslyPlatform.MEDIA_PERMISSION_POLICY
+    assert policy['Require Subscription'] is False
+    assert policy['Require Follow'] is True
+    # Rows GaleFling must not touch stay out of the policy entirely.
+    assert 'Require Purchase' not in policy
+    assert 'Advanced Permissions' not in policy
+
+
+def test_fansly_media_permissions_match_rows_by_exact_label():
+    """Fuzzy matching here would toggle a neighbouring monetization control."""
+    platform, page = _fansly_with_page()
+    platform.apply_media_permissions()
+
+    script = page.js_calls[0]
+    assert json.dumps(FanslyPlatform.MEDIA_PERMISSION_POLICY) in script
+    # Exact text equality, not includes()/indexOf().
+    assert "(e.textContent || '').trim() === label" in script
+    assert 'app-xd-checkbox' in script
+    # State is read back after clicking rather than assumed.
+    assert 'result.state' in script
+    assert 'classList.contains' in script
+
+
 def test_bare_origin_login_url_does_not_match_every_page():
     """A LOGIN_URL that is a bare origin must not classify the whole site as login.
 

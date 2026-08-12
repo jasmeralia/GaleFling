@@ -1,5 +1,8 @@
 """Fansly platform implementation using WebView."""
 
+import json
+from collections.abc import Callable
+
 from src.platforms.base_webview import BaseWebViewPlatform
 from src.utils.constants import FANSLY_SPECS, PlatformSpecs
 
@@ -54,3 +57,83 @@ class FanslyPlatform(BaseWebViewPlatform):
 
     def get_specs(self) -> PlatformSpecs:
         return FANSLY_SPECS
+
+    # Media Permissions rows in the "Upload media" modal. Each is an Angular
+    # <app-xd-checkbox> wrapping <div class="checkbox">; "selected" on that inner div
+    # is the checked state. There is no <input type="checkbox"> anywhere in the modal.
+    MEDIA_PERMISSION_POLICY = {
+        # GaleFling posts are never paywalled — see AGENTS.md "Critical Conventions".
+        # Fansly checks Require Subscription by default; it must be cleared.
+        'Require Subscription': False,
+        'Require Follow': True,
+    }
+
+    def apply_media_permissions(self, callback: 'Callable[[dict], None] | None' = None) -> None:
+        """Set the upload modal's permissions so the post is not paywalled.
+
+        Clears **Require Subscription** (Fansly checks it by default, "Any Tier") and
+        sets **Require Follow**. Advanced Permissions and Require Purchase are left
+        exactly as found — this touches only the rows named in
+        ``MEDIA_PERMISSION_POLICY``.
+
+        Rows are matched by their exact label text, never by keyword. These controls
+        govern monetization and sit beside each other, so a fuzzy match here is the
+        same hazard class as FetLife's ``picture[is_avatar]``.
+        """
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+
+        js = f"""
+        (function() {{
+            var policy = {json.dumps(self.MEDIA_PERMISSION_POLICY)};
+            var result = {{applied: [], missing: [], unchanged: []}};
+
+            Object.keys(policy).forEach(function(label) {{
+                var leaf = Array.from(document.querySelectorAll('*')).filter(function(e) {{
+                    return e.children.length === 0
+                        && (e.textContent || '').trim() === label;
+                }})[0];
+                if (!leaf) {{ result.missing.push(label); return; }}
+
+                var row = leaf.parentElement;
+                for (var d = 0; d < 3 && row && !row.querySelector('app-xd-checkbox'); d++) {{
+                    row = row.parentElement;
+                }}
+                var host = row && row.querySelector('app-xd-checkbox');
+                var box = host && host.querySelector('div.checkbox');
+                if (!box) {{ result.missing.push(label); return; }}
+
+                var isOn = box.classList.contains('selected');
+                if (isOn === policy[label]) {{ result.unchanged.push(label); return; }}
+                host.click();
+                result.applied.push(label);
+            }});
+
+            // Read the state back rather than trusting the clicks.
+            result.state = {{}};
+            Object.keys(policy).forEach(function(label) {{
+                var leaf = Array.from(document.querySelectorAll('*')).filter(function(e) {{
+                    return e.children.length === 0
+                        && (e.textContent || '').trim() === label;
+                }})[0];
+                if (!leaf) return;
+                var row = leaf.parentElement;
+                for (var d = 0; d < 3 && row && !row.querySelector('app-xd-checkbox'); d++) {{
+                    row = row.parentElement;
+                }}
+                var box = row && row.querySelector('app-xd-checkbox div.checkbox');
+                if (box) result.state[label] = box.classList.contains('selected');
+            }});
+            result.ok = Object.keys(policy).every(function(label) {{
+                return result.state[label] === policy[label];
+            }});
+            return result;
+        }})();
+        """
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)

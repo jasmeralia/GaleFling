@@ -14,6 +14,8 @@
 
 11. **Durable feedback belongs in `AGENTS.md`, not only in agent-specific memory.** When the user gives guidance that is not specific to one agent or tool — a working convention, a hazard, a sequencing rule, a correction worth keeping — record it in `AGENTS.md` (or the relevant page under `docs/`) so it reaches every agent, every session, and every human contributor. Claude's own memory store is an acceptable *additional* safeguard, never the only one: it is invisible to other agents, to other contributors, and to code review, so guidance kept solely there is guidance the project does not actually have. When both exist, `AGENTS.md` is canonical and the memory should point at it rather than restate it, so the two cannot drift apart.
 
+12. **Never stage with `git add -A` or `git add .`.** Stage the paths you actually changed, by name. A blanket add sweeps up whatever else is sitting in the working tree — scratch files, sample media, a credential export, a log dump — and commits it under a message that does not mention it. This has already happened: a `test.txt` the operator had created to measure FetLife's caption limit was silently committed as part of an unrelated change to the WebView activation primitive, and was only noticed because the operator offered to delete it. Run `git status` first, stage explicitly, and check `git show --stat` before pushing. The hazard is worst for exactly the files that must never be committed, since those are untracked by design.
+
 Trigger phrase: **"follow the release checklist"**
 - When the user says this, execute every step in the Release Checklist below.
 

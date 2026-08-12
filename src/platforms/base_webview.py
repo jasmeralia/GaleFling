@@ -30,7 +30,8 @@ from src.utils.constants import VIDEO_EXTENSIONS
 # bypass the application entry point. Keep the process-wide policy consistent.
 disable_conditional_passkey_ui()
 
-from PyQt6.QtCore import QDateTime, QEventLoop, QTimer, QUrl
+from PyQt6.QtCore import QDateTime, QEvent, QEventLoop, QPointF, Qt, QTimer, QUrl
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtNetwork import QNetworkCookie
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineScript
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -1058,6 +1059,95 @@ class BaseWebViewPlatform(BasePlatform):
         """How many times the file picker has been satisfied for this platform."""
         return self._picker_invocations
 
+    def trusted_click(
+        self, selector: str | tuple[str, ...], callback: Callable[[dict], None] | None = None
+    ) -> None:
+        """Click a visible element with a real Qt mouse event, granting user activation.
+
+        Chromium refuses to open a file picker without user activation, and JavaScript
+        cannot grant it — a ``runJavaScript``-driven click is rejected outright. A
+        synthesised ``QMouseEvent`` delivered to the render widget *is* trusted, and the
+        activation it grants then lets a subsequent JS ``input.click()`` through.
+
+        Measured 2026-08-12 against a local page, comparing every candidate mechanism:
+
+        | Mechanism | ``userActivation`` | ``chooseFiles()`` |
+        |---|---|---|
+        | JS ``.click()`` alone | False | not called |
+        | ``QApplication.sendEvent`` | True | called |
+        | ``QApplication.postEvent`` | True | called |
+        | ``QTest.mouseClick`` | True | called |
+
+        So this needs no ``QtTest`` import — that module is a test-harness dependency and
+        has no business in shipped code. The event must go to the view's **focusProxy**
+        (the render widget), not the view itself.
+
+        *selector* may be a tuple; the first match with real dimensions wins. The element
+        must be genuinely visible: composers hide their file inputs, so a hidden input has
+        no coordinates to click and this reports failure rather than clicking at (0, 0).
+        """
+        if not self._view:
+            if callback:
+                callback({'clicked': False, 'reason': 'no webview'})
+            return
+        page = self._view.page()
+        if not page:
+            if callback:
+                callback({'clicked': False, 'reason': 'no page'})
+            return
+
+        selectors = (selector,) if isinstance(selector, str) else tuple(selector)
+
+        def _measured(rect):
+            if not isinstance(rect, dict) or not rect.get('found'):
+                if callback:
+                    callback({'clicked': False, 'reason': 'no visible element', 'detail': rect})
+                return
+            x, y = int(rect['x']), int(rect['y'])
+            self._send_trusted_click(x, y)
+            if callback:
+                callback({'clicked': True, 'x': x, 'y': y, 'selector': rect.get('selector')})
+
+        js = f"""
+        (function() {{
+            var selectors = {json.dumps(list(selectors))};
+            for (var i = 0; i < selectors.length; i++) {{
+                var el = document.querySelector(selectors[i]);
+                if (!el) continue;
+                el.scrollIntoView({{block: 'center', inline: 'center'}});
+                var r = el.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) continue;
+                var x = Math.round(r.left + r.width / 2);
+                var y = Math.round(r.top + r.height / 2);
+                if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) {{
+                    continue;
+                }}
+                return {{found: true, x: x, y: y, selector: selectors[i]}};
+            }}
+            return {{found: false, tried: selectors}};
+        }})();
+        """
+        page.runJavaScript(js, _measured)
+
+    def _send_trusted_click(self, x: int, y: int) -> None:
+        """Deliver a press/release pair at viewport coordinates to the render widget."""
+        if not self._view:
+            return
+        target = self._view.focusProxy() or self._view
+        pos = QPointF(x, y)
+        for event_type in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+            QApplication.sendEvent(
+                target,
+                QMouseEvent(
+                    event_type,
+                    pos,
+                    pos,
+                    Qt.MouseButton.LeftButton,
+                    Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.NoModifier,
+                ),
+            )
+
     def open_media_picker(
         self, path: Path | None = None, callback: Callable[[dict], None] | None = None
     ) -> None:
@@ -1067,8 +1157,15 @@ class BaseWebViewPlatform(BasePlatform):
         own. Chromium accepts it only if a *trusted* gesture has already activated the
         page — verified 2026-08-12: a JS ``input.click()`` fires chooseFiles when
         ``navigator.userActivation.isActive`` is true, and is refused with "File chooser
-        dialog can only be shown with a user activation" when it is not. Callers are
-        responsible for that gesture.
+        dialog can only be shown with a user activation" when it is not. Use
+        ``trusted_click()`` to supply that gesture first.
+
+        **Refuses to click without activation** rather than clicking anyway. Chromium
+        swallows the refused click silently, so the JS still completes and an
+        ``opened: true`` return would be indistinguishable from success — measured
+        directly: without a prior gesture this reported ``opened: true`` while
+        ``picker_invocations`` never moved. Reporting the refusal is what makes the
+        return mean what it says.
         """
         if not self._view:
             return
@@ -1086,8 +1183,15 @@ class BaseWebViewPlatform(BasePlatform):
             var input = document.querySelector({json.dumps(selector)});
             if (!input) return {{opened: false, reason: 'file input not found'}};
             var active = !!(navigator.userActivation && navigator.userActivation.isActive);
+            if (!active) {{
+                return {{
+                    opened: false,
+                    reason: 'no user activation — call trusted_click() first',
+                    userActivationActive: false
+                }};
+            }}
             input.click();
-            return {{opened: true, userActivationActive: active}};
+            return {{opened: true, userActivationActive: true}};
         }})();
         """
         if callback:

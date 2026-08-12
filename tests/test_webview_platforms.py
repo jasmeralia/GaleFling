@@ -1,6 +1,7 @@
 """Tests for concrete WebView platform implementations."""
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -203,6 +204,67 @@ def test_open_media_picker_clicks_the_media_input():
     assert json.dumps(FanslyPlatform.MEDIA_FILE_SELECTOR) in script
     assert 'input.click()' in script
     assert 'navigator.userActivation' in script
+
+
+def test_open_media_picker_refuses_without_user_activation():
+    """Chromium swallows the refused click, so clicking anyway reports a false success.
+
+    Measured 2026-08-12 against a local page: with no prior trusted gesture this
+    returned ``opened: true`` while ``picker_invocations`` never moved. The refusal
+    branch is what makes the return distinguishable from a picker that really opened.
+    """
+    platform, page = _fansly_with_page()
+    platform.open_media_picker()
+
+    script = page.js_calls[0]
+    assert 'if (!active)' in script
+    assert 'no user activation' in script
+    # The click must sit *after* the guard, never before it.
+    assert script.index('if (!active)') < script.index('input.click()')
+
+
+def test_trusted_click_measures_visible_elements_only():
+    """A hidden file input has no coordinates; clicking at (0, 0) would hit something else.
+
+    Composers hide their file inputs, so the element that grants activation has to be a
+    visible control. The measurement rejects zero-size and off-viewport elements rather
+    than returning a point that lands somewhere arbitrary.
+    """
+    platform, page = _fansly_with_page()
+    platform.trusted_click(('#first', '#second'))
+
+    script = page.js_calls[0]
+    assert json.dumps(['#first', '#second']) in script
+    assert 'r.width <= 0 || r.height <= 0' in script
+    assert 'x >= window.innerWidth' in script
+    assert 'scrollIntoView' in script
+
+
+def test_trusted_click_reports_failure_when_nothing_is_visible():
+    """No visible target must report a refusal, not a click that silently did nothing."""
+    platform, page = _fansly_with_page()
+    results: list = []
+    # _RecordingPage hands the callback a stub with no 'found', i.e. nothing measured.
+    platform.trusted_click('#missing', callback=results.append)
+
+    assert len(results) == 1
+    assert results[0]['clicked'] is False
+    assert results[0]['reason'] == 'no visible element'
+    assert page.js_calls, 'measurement should still have been attempted'
+
+
+def test_trusted_click_does_not_import_qttest():
+    """QtTest is a test-harness module and must not be pulled into shipped code.
+
+    A synthesised QMouseEvent through QApplication grants Chromium user activation just
+    as well — measured 2026-08-12 against a local page, alongside QTest.mouseClick as
+    the control, with a plain JS click as the negative baseline.
+    """
+    source = Path('src/platforms/base_webview.py').read_text(encoding='utf-8')
+    # Match import statements only — the docstring explains *why* QtTest is avoided,
+    # and a bare substring check would fire on that explanation.
+    assert not re.search(r'^\s*(from|import)\s+.*QtTest', source, re.MULTILINE)
+    assert 'QMouseEvent' in source
 
 
 def test_open_media_picker_reports_platforms_with_no_media_input():

@@ -459,8 +459,11 @@ def test_fetlife_success_url_pattern():
     assert re.search(pattern, 'https://fetlife.com/posts/67890')
     assert re.search(pattern, 'https://fetlife.com/pictures/67890')
     assert re.search(pattern, 'https://fetlife.com/videos/67890')
-    # Status permalinks use the username form, which is what a text post produces.
+    # Real FetLife permalinks are username-scoped — statuses and media alike.
     assert re.search(pattern, 'https://fetlife.com/Jasmeralia/s/11543410072')
+    assert re.search(pattern, 'https://fetlife.com/Jasmeralia/pictures/222741611')
+    assert re.search(pattern, 'https://fetlife.com/Jasmeralia/videos/12345')
+    assert not re.search(pattern, 'https://fetlife.com/pictures/new?source=Main+Navigation')
     assert not re.search(pattern, 'https://fetlife.com/')
     assert not re.search(pattern, 'https://fetlife.com/home')
     assert not re.search(pattern, 'https://fetlife.com/posts/new?source=Feed')

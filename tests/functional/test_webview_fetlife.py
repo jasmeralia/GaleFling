@@ -39,10 +39,8 @@ VIDEO_COMPOSER_URL = FetLifePlatform.VIDEO_COMPOSER_URL
 PICTURE_FILE_SELECTOR = FetLifePlatform.IMAGE_FILE_SELECTOR
 VIDEO_FILE_SELECTOR = FetLifePlatform.VIDEO_FILE_SELECTOR
 
-POST_URL_PATTERN = re.compile(
-    r'fetlife\.com/(?:users/\d+/)?(?:posts|pictures|videos)/(\d+)',
-    re.IGNORECASE,
-)
+# FetLife permalinks are username-scoped (/<username>/pictures/<id>, /<username>/s/<id>).
+POST_URL_PATTERN = re.compile(FetLifePlatform.SUCCESS_URL_PATTERN, re.IGNORECASE)
 
 
 def _dismiss_maybe_later(page) -> bool:
@@ -275,6 +273,95 @@ def _delete_status_by_tag(page, tag: str) -> dict:
     wait_ms(3000)
     gone = not _status_exists_in_feed(page, tag).get('found')
     return {'deleted': gone, 'confirm': confirm}
+
+
+def _own_profile_href(page) -> str | None:
+    """Resolve the logged-in account's profile path (e.g. /Jasmeralia)."""
+    return run_js(
+        page,
+        """
+        (function() {
+            var a = Array.from(document.querySelectorAll('a[href^="/"]')).find(function(x) {
+                return /view profile/i.test(x.textContent || '');
+            });
+            return a ? a.getAttribute('href').split('?')[0] : null;
+        })();
+        """,
+        timeout_ms=10000,
+    )
+
+
+def _wait_for_media_in_gallery(page, kind: str, tag: str, timeout_ms: int = 180000) -> dict:
+    """Poll the account's own gallery until media carrying *tag* appears.
+
+    Uploads are asynchronous — FetLife stays on the composer while the file transfers
+    and transcodes — so the composer URL never changes and cannot signal success.
+    """
+    profile = _own_profile_href(page)
+    if not profile:
+        load_page(page, TEXT_COMPOSER_URL, timeout_ms=20000)
+        wait_ms(2500)
+        profile = _own_profile_href(page)
+    if not profile:
+        return {'found': False, 'reason': 'could not resolve own profile path'}
+
+    gallery = f'https://fetlife.com{profile}/{kind}'
+    elapsed = 0
+    while elapsed <= timeout_ms:
+        load_page(page, gallery, timeout_ms=25000)
+        wait_ms(3000)
+        hit = _status_exists_in_feed(page, tag)
+        if hit.get('found'):
+            return {'found': True, 'gallery': gallery, 'context': hit.get('context')}
+        wait_ms(7000)
+        elapsed += 10000
+    return {'found': False, 'gallery': gallery, 'waited_ms': elapsed}
+
+
+def _wait_for_enabled_submit(page, label: str, timeout_ms: int = 60000) -> dict:
+    """Poll until an exactly-labelled submit button is enabled, then click it.
+
+    Both upload buttons start disabled and enable only once the form is satisfied
+    (file attached, consent certified), so clicking immediately does nothing.
+    """
+    elapsed = 0
+    status: dict = {}
+    while elapsed <= timeout_ms:
+        status = run_js(
+            page,
+            f"""
+            (function() {{
+                var btn = Array.from(document.querySelectorAll(
+                    'button[type="submit"], input[type="submit"]'
+                )).find(function(b) {{
+                    return (b.textContent || b.value || '').trim()
+                        .indexOf({json.dumps(label)}) === 0;
+                }});
+                return {{
+                    found: !!btn,
+                    disabled: btn ? !!btn.disabled : null
+                }};
+            }})();
+            """,
+        )
+        if isinstance(status, dict) and status.get('found') and not status.get('disabled'):
+            return _click_submit_button(page, label)
+        wait_ms(1500)
+        elapsed += 1500
+    return {'clicked': False, 'reason': 'submit stayed disabled', 'detail': status}
+
+
+def _avatar_checkbox_state(page) -> dict:
+    """Report picture[is_avatar] — it must never be set by GaleFling or its tests."""
+    return run_js(
+        page,
+        f"""
+        (function() {{
+            var cb = document.querySelector({json.dumps(FetLifePlatform.AVATAR_CHECKBOX_SELECTOR)});
+            return {{present: !!cb, checked: cb ? !!cb.checked : false}};
+        }})();
+        """,
+    )
 
 
 def _click_submit_button(page, label_fragments: str | list[str]) -> dict:
@@ -543,6 +630,59 @@ class TestFetLifePicturePost:
         finally:
             close_webview(view, page, platform)
 
+    @pytest.mark.mutating
+    def test_picture_upload_creates_a_post(
+        self, galefling_data_dir, fetlife_credentials, sample_jpeg
+    ):
+        """Upload a real picture and prove the post exists.
+
+        Cleanup is manual by decision — the run prints the caption tag. Deletion is not
+        attempted; see _delete_status_by_tag for why FetLife's delete control resists
+        automation.
+        """
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fetlife_credentials)
+            ok, final_url = load_page(page, IMAGE_COMPOSER_URL, timeout_ms=20000)
+            assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
+            wait_ms(2000)
+            _dismiss_maybe_later(page)
+
+            tag = mutating_post_text()
+            platform._image_path = sample_jpeg
+
+            attach = _call_platform(platform._attach_media, sample_jpeg)
+            assert attach.get('dispatched'), f'Attach failed: {attach}'
+            state = _wait_for_attachment(platform)
+            assert state.get('attached'), f'Form never accepted the file: {state}'
+
+            caption = _call_platform(platform._inject_media_caption, tag)
+            assert caption.get('caption'), f'Caption not filled: {caption}'
+
+            consent = _call_platform(platform._certify_upload_consent)
+            assert consent.get('certified'), f'Consent not certified: {consent}'
+
+            avatar = _avatar_checkbox_state(page)
+            assert avatar.get('present'), f'Avatar checkbox missing — form changed: {avatar}'
+            assert not avatar.get('checked'), (
+                'picture[is_avatar] is checked; refusing to submit and replace the account avatar'
+            )
+
+            submit = _wait_for_enabled_submit(page, FetLifePlatform.IMAGE_SUBMIT_LABEL)
+            assert submit.get('clicked'), f'Upload not clicked: {submit}'
+
+            wait_ms(15000)
+            post_url = page.url().toString()
+            posted = _status_exists_in_feed(page, tag)
+            assert POST_URL_PATTERN.search(post_url) or posted.get('found'), (
+                f'No picture post after upload — url={post_url}, caption not found: {posted}'
+            )
+            print(f'\n  FetLife picture uploaded (tag {tag}) -> {post_url}')
+            print(f'  MANUAL CLEANUP NEEDED — delete the picture tagged {tag}')
+        finally:
+            close_webview(view, page, platform)
+
 
 @pytest.mark.functional
 class TestFetLifeVideoPost:
@@ -605,5 +745,55 @@ class TestFetLifeVideoPost:
 
             page_state = _upload_form_state(page, 'videos/new')
             assert page_state.get('stillOnComposer'), 'Must not navigate away without submit'
+        finally:
+            close_webview(view, page, platform)
+
+    @pytest.mark.mutating
+    def test_video_upload_creates_a_post(
+        self, galefling_data_dir, fetlife_credentials, sample_video
+    ):
+        """Upload a real video and prove it appears in the account's video gallery.
+
+        The composer URL does not change on success — FetLife transfers and transcodes
+        in place — so the gallery is the only honest post-condition. Cleanup is manual;
+        the run prints the tag.
+        """
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fetlife_credentials)
+            ok, final_url = load_page(page, VIDEO_COMPOSER_URL, timeout_ms=20000)
+            assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
+            wait_ms(2000)
+            _dismiss_maybe_later(page)
+
+            tag = mutating_post_text()
+            platform._image_path = sample_video
+
+            attach = _call_platform(platform._attach_media, sample_video)
+            assert attach.get('dispatched'), f'Attach failed: {attach}'
+            state = _wait_for_attachment(platform)
+            assert state.get('attached'), f'Form never accepted the file: {state}'
+
+            caption = _call_platform(platform._inject_media_caption, tag)
+            assert caption.get('caption'), f'Description not filled: {caption}'
+            assert caption.get('title'), f'video[title] not filled: {caption}'
+
+            consent = _call_platform(platform._certify_upload_consent)
+            assert consent.get('certified'), f'Consent not certified: {consent}'
+
+            submit = _wait_for_enabled_submit(page, FetLifePlatform.VIDEO_SUBMIT_LABEL)
+            assert submit.get('clicked'), f'Upload not clicked: {submit}'
+
+            # The composer URL never changes: FetLife transfers and transcodes the
+            # video asynchronously in place, so navigation cannot signal success.
+            # Only the gallery proves the video landed.
+            wait_ms(20000)
+            posted = _wait_for_media_in_gallery(page, 'videos', tag)
+            assert posted.get('found'), (
+                f'Video {tag} never appeared in the gallery after upload: {posted}'
+            )
+            print(f'\n  FetLife video uploaded (tag {tag}) -> {posted.get("gallery")}')
+            print(f'  MANUAL CLEANUP NEEDED — delete the video tagged {tag}')
         finally:
             close_webview(view, page, platform)

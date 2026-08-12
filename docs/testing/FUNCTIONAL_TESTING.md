@@ -414,7 +414,7 @@ Tests that create a post attempt to delete it in the same test. Cleanup is **bes
 | Threads | Yes | Graph API delete (text, image, video, carousel) |
 | Facebook Page | Yes | Graph API delete (text, photo, multi-photo, video) |
 | FetLife (text) | Best-effort | UI delete when post URL is captured; feed redirect needs manual cleanup |
-| FetLife (picture/video) | **No mutating tests** | Attach is covered non-mutatingly; Upload is never clicked — see warning below |
+| FetLife (picture/video) | **Manual** | Upload is exercised for real; FetLife's delete control resists automation, so the run prints the tag and you delete it |
 
 Tests use UUID tags in post text to avoid duplicate-post rejections and to make manual cleanup easy.
 
@@ -466,8 +466,8 @@ The tables above show what **is** tested. The gaps below map missing functional 
 | Gap | OnlyFans | Fansly | FetLife |
 |-----|----------|--------|---------|
 | Mutating post submit + delete | — | — | text only |
-| Media / image upload post | — | — | attach-only (non-mutating) |
-| Video upload post | — | — | attach-only (non-mutating) |
+| Media / image upload post | — | — | **covered** (mutating) |
+| Video upload post | — | — | **covered** (mutating) |
 | Media upload wired into post flow | — | — | — (task #417 Level B) |
 | Paid / schedule / tier UI flows | — | — | — |
 | Media processing functional tests | unit only | unit only | — |
@@ -484,7 +484,7 @@ excluded from routine runs (`disabled_platform`). Image→video pipeline tests i
 **Priority gaps to close next** (tracked in Odoo task #166):
 
 1. **OnlyFans + Fansly mutating smoke tests** — submit a tagged post and delete, mirroring FetLife.
-2. **FetLife media upload in the post flow** — `_attach_media()` and `_certify_upload_consent()` exist and are covered, but nothing calls them outside tests; wiring them into `_do_prefill()` is task #417 Level B.
+2. **FetLife media upload in the post flow** — `_attach_media()`, `_certify_upload_consent()` and `_inject_media_caption()` exist and are covered by mutating tests, but nothing calls them outside tests; wiring them into `_do_prefill()` is task #417 Level B.
 3. **Media processing** — add resize/validation cases for Threads, Facebook Page, OnlyFans, and Fansly specs.
 4. **Second-account slots** — no functional test exercises `twitter_2`, `bluesky_alt`, `meta_instagram_2`, or `meta_threads_2`.
 
@@ -507,8 +507,8 @@ Snapchat session tests exist but are `disabled_platform` (excluded from routine 
 | Composer click expansion     | -       | -      | x        |
 | Text injection (platform)    | x       | x      | x        |
 | Text post submit + delete    | x       | -      | -        |
-| Picture post submit + delete | -       | -      | -        |
-| Video post submit + delete   | -       | -      | -        |
+| Picture upload (real post)   | x       | -      | -        |
+| Video upload (real post)     | x       | -      | -        |
 | Picture attach via platform (no submit) | x | -  | -        |
 | Video attach via platform (no submit)   | x | -  | -        |
 | Picture composer elements    | x       | -      | -        |
@@ -577,16 +577,28 @@ Why it cannot: FetLife's Delete control is an `<a href="#0">` whose payload is a
 ### FetLife post not auto-deleted
 FetLife redirects to `/posts` after text submission instead of the individual post page. When a permalink is captured, the test attempts UI delete; otherwise search your feed for the UUID tag from the test output.
 
-### FetLife picture/video tests — do not auto-submit
-**Mutating picture/video functional tests were removed.** An earlier helper blindly checked every checkbox on the upload form (including **set as avatar**) and submitted real uploads during debugging.
+### FetLife picture/video uploads — real, and cleaned up by hand
+Mutating upload tests exist again and create **real** pictures and videos. They were once removed because an earlier helper blindly checked every checkbox on the upload form — including **set as avatar** — and submitted real uploads while debugging.
+
+The guard against a repeat is structural, not procedural: `_certify_upload_consent()` matches the certification field by exact name and cannot reach `picture[is_avatar]`, and `test_picture_upload_creates_a_post` asserts that box is unchecked **immediately before clicking Upload**, refusing to submit otherwise.
 
 Current coverage:
-- **Non-mutating:** composer loads, file input present, `FetLifePlatform._attach_media()` loads the file into the form, `FetLifePlatform._certify_upload_consent()` ticks the certification box — **never clicks Upload**
-- **Mutating:** text posts only
+- **Non-mutating:** composer loads, file input present, `_attach_media()` loads the file into the form, `_certify_upload_consent()` ticks the certification box — never clicks Upload
+- **Mutating:** text status, picture upload, video upload — each proves the post exists before passing
+
+Every mutating media run leaves a real post; the run prints `MANUAL CLEANUP NEEDED` with the tag. Delete them from your gallery afterwards.
+
+#### Verifying a media upload: what actually signals success
+Neither upload announces itself by navigation in the way you would expect, and getting this wrong produces a test that passes while nothing was created:
+
+| | How success is detected |
+|---|---|
+| Picture | Redirects to the permalink `/<username>/pictures/<id>`; the caption tag is on the page |
+| Video | **Stays on `/videos/new`.** The transfer and transcode happen in place, so the URL never changes — the only honest check is polling `/<username>/videos` for the tag |
 
 `_certify_upload_consent()` matches `picture[is_certified]` / `video[is_certified]` by **exact field name**. It cannot touch `picture[is_avatar]`, and `test_picture_attach_via_platform` asserts that box stays unchecked. Do not reintroduce keyword or substring matching over checkbox labels.
 
-Manual cleanup if test uploads occurred: delete the stray pictures from your gallery, restore your previous avatar in FetLife profile settings, and search for any text posts containing the UUID tag from the failed run.
+Manual cleanup after a mutating run: delete the tagged picture and video from your gallery. If an old run ever set an avatar, restore it in FetLife profile settings.
 
 Wiring media upload into the actual post flow is task #417 Level B. That should override `QWebEnginePage.chooseFiles()` rather than extend the current base64/`DataTransfer` attach, which inlines the whole file into a script and so only suits test-sized media.
 

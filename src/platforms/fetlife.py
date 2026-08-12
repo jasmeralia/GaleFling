@@ -28,10 +28,12 @@ class FetLifePlatform(BaseWebViewPlatform):
     COMPOSER_URL = TEXT_COMPOSER_URL
     TEXT_SELECTOR = 'textarea[name="body"]'
     TEXT_SUBMIT_LABEL = 'Say It!'
-    # Status permalinks are /<username>/s/<id> (e.g. /Jasmeralia/s/11543410072) — not
-    # /users/<id>/statuses/<id>.  Verified against a live status on 2026-08-11; without
-    # the username form, URL capture never matches a text post.
-    SUCCESS_URL_PATTERN = r'fetlife\.com/(?:users/\d+/(?:statuses|posts|pictures|videos)/\d+|(?:posts|pictures|videos)/\d+|[A-Za-z0-9_.-]+/s/\d+)'
+    # FetLife permalinks are username-scoped: /<username>/s/<id> for a status,
+    # /<username>/pictures/<id> and /<username>/videos/<id> for media — not the
+    # /users/<id>/... form this originally expected.  Verified 2026-08-11 against a live
+    # status and a live picture upload; without the username forms, URL capture never
+    # matched any FetLife post.
+    SUCCESS_URL_PATTERN = r'fetlife\.com/(?:users/\d+/(?:statuses|posts|pictures|videos)/\d+|[A-Za-z0-9_.-]+/(?:s|posts|pictures|videos)/\d+|(?:posts|pictures|videos)/\d+)'
     SUCCESS_SELECTOR = ''
     COOKIE_DOMAINS = ['fetlife.com']
     AUTH_COOKIE_NAMES = ['_fl_sessionid', 'remember_user_token', '_fl_session_remember_me']
@@ -43,6 +45,18 @@ class FetLifePlatform(BaseWebViewPlatform):
     # (`picture[attachments][]`) carries no accept list — see _attach_media().
     IMAGE_FILE_SELECTOR = 'input[type="file"][accept*="image"]'
     VIDEO_FILE_SELECTOR = 'input[type="file"][accept*="video"]'
+    IMAGE_SUBMIT_LABEL = 'Upload Your Picture'
+    VIDEO_SUBMIT_LABEL = 'Upload Your Video'
+
+    # Media composers carry their own caption fields, and the video form additionally
+    # requires a title.  `/videos/new` posts to `/videos/draft`, so a video upload lands
+    # on a draft rather than publishing outright.
+    IMAGE_CAPTION_SELECTOR = 'textarea[name="picture[caption]"]'
+    VIDEO_CAPTION_SELECTOR = 'textarea[name="video[description]"]'
+    VIDEO_TITLE_SELECTOR = 'input[name="video[title]"]'
+
+    # Never set.  Ticking this replaces the account avatar with the uploaded picture.
+    AVATAR_CHECKBOX_SELECTOR = 'input[type="checkbox"][name="picture[is_avatar]"]'
 
     # Both upload forms require an age/consent certification before they will submit.
     # Matched by exact field name — never by keyword, so no unrelated control (notably
@@ -360,6 +374,54 @@ class FetLifePlatform(BaseWebViewPlatform):
             });
             return {attached: total > 0, fileCount: total, holders: holders};
         })();
+        """
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
+
+    def _inject_media_caption(
+        self, text: str, callback: Callable[[dict], None] | None = None
+    ) -> None:
+        """Fill the caption on the open upload composer (and the title, for video).
+
+        FetLife's picture and video composers both accept a caption, so a media post is
+        not necessarily text-free — ``FETLIFE_SPECS.supports_text_with_media`` says
+        otherwise and looks stale.  The video form additionally has a ``video[title]``;
+        it is filled from the first line so an upload is not rejected the way a titleless
+        writing is.
+        """
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+
+        is_video = bool(self._image_path and self._image_path.suffix.lower() in VIDEO_EXTENSIONS)
+        caption_selector = self.VIDEO_CAPTION_SELECTOR if is_video else self.IMAGE_CAPTION_SELECTOR
+        title = text.splitlines()[0][:100] if text else ''
+
+        js = f"""
+        (function() {{
+            function fill(el, value) {{
+                if (!el) return false;
+                var proto = el.tagName === 'TEXTAREA'
+                    ? window.HTMLTextAreaElement.prototype
+                    : window.HTMLInputElement.prototype;
+                Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
+                el.dispatchEvent(new Event('input', {{bubbles: true}}));
+                el.dispatchEvent(new Event('change', {{bubbles: true}}));
+                return true;
+            }}
+            var caption = document.querySelector({json.dumps(caption_selector)});
+            var titleEl = {json.dumps(is_video)}
+                ? document.querySelector({json.dumps(self.VIDEO_TITLE_SELECTOR)})
+                : null;
+            return {{
+                caption: fill(caption, {json.dumps(text)}),
+                title: titleEl ? fill(titleEl, {json.dumps(title)}) : null
+            }};
+        }})();
         """
         if callback:
             page.runJavaScript(js, callback)

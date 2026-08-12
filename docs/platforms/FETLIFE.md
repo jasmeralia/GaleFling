@@ -94,7 +94,9 @@ FetLife sessions expire periodically (especially without "remember me"). When yo
   before they will submit. `FetLifePlatform._certify_upload_consent()` matches these by exact
   name — the picture form also carries `picture[is_avatar]`, which replaces the account avatar,
   so keyword matching over checkbox labels must never be used here.
-- **Success detection**: FetLife supports URL capture. Status permalinks use `fetlife.com/<username>/s/<id>` (e.g. `/Jasmeralia/s/11543410072`) — **not** `users/<id>/statuses/<id>`. Media posts use `fetlife.com/(users/<id>/)?(posts|pictures|videos)/<id>`. All forms are covered by `SUCCESS_URL_PATTERN`.
+- **Success detection**: FetLife permalinks are **username-scoped**: `fetlife.com/<username>/s/<id>` for a status, `/<username>/pictures/<id>` and `/<username>/videos/<id>` for media. The `users/<id>/...` form this originally expected does not occur in practice, so URL capture never matched any post until fixed. All forms are covered by `SUCCESS_URL_PATTERN`.
+- **Media captions**: both media composers accept text — `picture[caption]` and `video[description]` — and the video form additionally requires a `video[title]`. `FETLIFE_SPECS.supports_text_with_media` is still `False`, which appears stale: GaleFling shows a "text will be ignored" warning for FetLife media posts even though FetLife has a caption field for both. `_inject_media_caption()` fills them, but nothing outside the functional tests calls it yet.
+- **Video uploads are asynchronous and stay put**: clicking **Upload Your Video** does not navigate. FetLife transfers and transcodes in place on `/videos/new`, so the composer URL never changes — success can only be confirmed from `/<username>/videos`. Picture uploads do redirect to the new picture's permalink.
 
 ### Post Cleanup Note
 

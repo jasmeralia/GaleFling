@@ -361,17 +361,25 @@ Gmail specifics worth pinning down before implementation:
   used, so the sending identity is whoever owns the mailbox.
 - Free-account sending limits are around 500 messages/day, which is irrelevant here.
 
-**Open decision — which mailbox.** This matters more than the transport:
+**Mailbox — decided: a dedicated Google Workspace account**, roughly $5/month for the
+extra user.
 
-| Option | Assessment |
-|--------|------------|
-| **A dedicated account created for this** | **Recommended.** Contains the blast radius; the App Password grants nothing but SMTP send from a mailbox that holds nothing. |
-| Jas's personal account | Puts an App Password for Jas's Google identity on someone else's computer. Avoid. |
-| Rin's own account | She would have to enable 2-Step Verification and generate an App Password herself — precisely the kind of step R5 exists to remove. |
+The reasoning is a trust-boundary one rather than a technical one. gelfling, rinling, and
+TrueNAS are single-operator machines, so personal credentials on them are acceptable.
+Rin's desktop is not: an application running on a machine someone else uses should not
+hold a credential tied to a personal identity, however narrowly that credential is scoped.
+Having her generate her own is equally wrong — it would require walking her through
+enabling 2-Step Verification, exactly the class of step R5 exists to remove.
 
-The App Password is a credential like any other: stored through `AuthManager` (`keyring`
-is already a dependency), never logged, and covered by the same handling rules as platform
-credentials.
+A dedicated account contains the blast radius to "can send mail from a mailbox that holds
+nothing," and it is the same account intended to consolidate server-generated mail — see
+Odoo task **#427**, routing exim on rin-city.com through the Workspace SMTP relay instead
+of sending directly from EC2.
+
+Use a **separate App Password per host**, so Rin's machine can be revoked independently of
+the servers. The App Password is a credential like any other: stored through `AuthManager`
+(`keyring` is already a dependency), never logged, and covered by the same handling rules
+as platform credentials.
 
 #### Explicitly not in scope: monitoring Rin's machine
 
@@ -501,9 +509,7 @@ once the architecture stops fighting the platforms.
 1. Rin's sleep settings and autologon state — Jas to confirm; expected to already be correct.
 2. Does mDNS resolve end-to-end on Rin's actual network — her iPhone to her desktop
    through the Dream Machine? Everything about discovery rests on this. (Phase 0.4)
-3. Which mailbox sends the failure emails? A dedicated account is recommended — see
-   [Email configuration](#email-configuration).
-4. What staleness threshold should startup reconciliation use before marking a due post
+3. What staleness threshold should startup reconciliation use before marking a due post
    missed rather than posting it late?
 
 ---
@@ -582,7 +588,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 | Date | Change |
 |------|--------|
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + mobile web client. |
-| 2026-08-13 | Failure notification settled on SMTP over SES (Jas), delivered through the existing credential-import file as a new `smtp` section so Rin configures nothing. Gmail App Password requirements documented; which mailbox to send from raised as an open decision, with a dedicated account recommended over Jas's personal one. |
+| 2026-08-13 | Failure notification settled on SMTP over SES (Jas), delivered through the existing credential-import file as a new `smtp` section so Rin configures nothing. Gmail App Password requirements documented. Mailbox decided: a dedicated Google Workspace account, on the trust-boundary reasoning that a machine someone else uses should not hold personal credentials. Shared with Odoo #427 (exim relay). |
 | 2026-08-13 | Separated two problems that had been conflated (Jas): GaleFling reporting its own posting failures is in scope and best served by email; whether Rin's machine is up is **not** monitored and not Jas's responsibility. Dead-man's switch dropped entirely rather than scoped. Startup reconciliation reframed as queue correctness rather than alerting, with a staleness threshold noted as an open design question. |
 | 2026-08-13 | Rewrote R4/alerting: split app-running from app-not-running failures, promoted startup queue reconciliation to the primary defence, scoped the dead-man's switch to sustained outages only, and removed a stale reference to pushing to paired devices — there is no push channel in the baseline. |
 | 2026-08-13 | Clarified what plain HTTP actually costs (Jas): push is moot since GaleFling has no notification model, and "offline" means the app will not open at all while off-LAN, i.e. no compose-while-away. Both sit behind the same secure-context gate, so the TLS upgrade is one decision rather than two. |

@@ -67,7 +67,9 @@ Moving the work to the always-on desktop deletes all of them at once:
 From Rin:
 
 1. **R1** — Compose and post from her phone (iPhone).
-2. **R2** — Schedule a post for a future time.
+2. **R2** — Schedule a post for a future time, and **manage what is queued**: hold several
+   pending posts at once, see them, and edit or cancel any of them before it fires.
+   Carried over from Odoo #392, folded into #426 as a duplicate.
 
 Derived:
 
@@ -293,9 +295,17 @@ valuable part: for OnlyFans and Fansly the desktop does not need to be awake at 
 at all, and the riskiest automation runs once, while someone is around, rather than
 unattended at 2 a.m.
 
-**Facebook via Instagram crosspost.** Facebook Page posts have no scheduling path of their
-own here, but Instagram does, and an Instagram post can crosspost to a linked Facebook
-Page. A scheduled Instagram post can therefore carry Facebook with it, leaving nothing for
+**Facebook — check the Graph API before building the workaround.** Earlier research
+(Odoo #392, 2026-07-31) recorded `POST /{page-id}/feed` with `published=false` and a future
+`scheduled_publish_time` as a genuine server-side schedule. The 2026-08-13 review concluded
+Facebook does not appear to support scheduling. Both can hold if the later check looked at
+the Facebook UI rather than the Graph API, or if the parameter is now restricted by API
+version or permission. **Resolve this first**: if `scheduled_publish_time` works, Facebook
+delegates directly and the crosspost workaround below is unnecessary.
+
+**Facebook via Instagram crosspost (fallback).** If direct scheduling is genuinely gone,
+Instagram's scheduling can carry Facebook with it, since an Instagram post can crosspost to
+a linked Page. A scheduled Instagram post can therefore carry Facebook with it, leaving nothing for
 the local queue. Conditions to verify in Phase 0: the accounts must be linked with
 crossposting enabled; the post must satisfy Instagram's constraints — media required, no
 text-only — even when Facebook alone would have accepted it; and the two become coupled,
@@ -310,8 +320,14 @@ falls back — only one of which drives a browser.
 
 For the remainder: a SQLite-backed queue in the existing app data directory, a due-time
 poller in the poster process, and per-item state (`pending` → `in_flight` → `posted` /
-`failed`). Missed windows on wake are executed late with a visible "posted N minutes
-late" status rather than silently dropped or silently skipped.
+`failed`).
+
+**Queue management is part of R2, not a later nicety.** Several posts may be pending at
+once, and Rin must be able to see the queue, edit a pending item, and cancel one — from
+the desktop GUI and from the mobile client alike. Editing an item already delegated to a
+platform means reaching back into that platform's own scheduler to amend or cancel it,
+which is materially harder than editing a locally-held item; the two paths should not be
+assumed symmetric in the UI.
 
 ### Not failing silently (R4)
 
@@ -444,7 +460,8 @@ outright. Neither is required to satisfy R1 and R2.
 |---|-------------|-------|---------------|
 | 0.1 | Confirm Rin's sleep + autologon settings | Jas | Written into this doc |
 | 0.2 | Delegated scheduling spike | Agent + operator | Existing automation sets a *future* post on Fansly **or** OnlyFans; operator confirms it fires |
-| 0.3 | Facebook-via-Instagram crosspost | Agent + operator | A *scheduled* Instagram post reaches the linked Facebook Page; coupling constraints documented |
+| 0.3 | Facebook: direct Graph API scheduling | Agent | Determine whether `published=false` + `scheduled_publish_time` still works on `/{page-id}/feed`. Resolves a contradiction between #392 and the 2026-08-13 review, and decides whether 0.3b is needed at all |
+| 0.3b | Facebook-via-Instagram crosspost *(only if 0.3 fails)* | Agent + operator | A *scheduled* Instagram post reaches the linked Facebook Page; coupling constraints documented |
 | 0.4 | mDNS + media upload from Rin's iPhone | Agent + operator | `galefling.local` resolves from her phone through the Dream Machine; a photo and a short video reach a local endpoint from a home-screen web app over plain HTTP |
 | 0.5 | Go/no-go | Both | Delegation viable for the platforms that support it; local queue scoped to the remainder |
 
@@ -595,6 +612,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 | Date | Change |
 |------|--------|
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + mobile web client. |
+| 2026-08-13 | Folded in Odoo #392 ("Look into scheduling support"), closed as a duplicate. Added queue management to R2 — multiple pending posts, editable and cancellable — which the plan had not stated. Flagged a direct contradiction on Facebook: #392 recorded `scheduled_publish_time` as working, the 2026-08-13 review did not; resolving it is now Phase 0.3, and the Instagram-crosspost workaround demoted to a fallback. |
 | 2026-08-13 | Noted that Rin (Nevada) and Jas (Washington) are remote from each other, so R5's "unaided" has no in-person fallback and support is screen-share only. Both on Pacific time. |
 | 2026-08-13 | Failure notification settled on SMTP over SES (Jas), delivered through the existing credential-import file as a new `smtp` section so Rin configures nothing. Gmail App Password requirements documented. Mailbox decided: a dedicated Google Workspace account, on the trust-boundary reasoning that a machine someone else uses should not hold personal credentials. Shared with Odoo #427 (exim relay). |
 | 2026-08-13 | Separated two problems that had been conflated (Jas): GaleFling reporting its own posting failures is in scope and best served by email; whether Rin's machine is up is **not** monitored and not Jas's responsibility. Dead-man's switch dropped entirely rather than scoped. Startup reconciliation reframed as queue correctness rather than alerting, with a staleness threshold noted as an open design question. |

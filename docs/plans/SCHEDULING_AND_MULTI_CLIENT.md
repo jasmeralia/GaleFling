@@ -19,8 +19,8 @@ together with the second, the correct response is a **topology change, not a rew
 
 | Component | Runs on | Status |
 |-----------|---------|--------|
-| **GaleFling desktop** — the whole app: composer, posting, media pipeline, scheduler, **and the HTTPS server that serves mobile clients** | Windows or Linux, always-on (Rin: Win11, 24×7) | Existing app + scheduler + embedded server |
-| **PWA client** | iPhone, Android tablet, any browser — served *by the desktop app itself, directly over the LAN* | New |
+| **GaleFling desktop** — the whole app: composer, posting, media pipeline, scheduler, **and the web server that serves mobile clients** | Windows or Linux, always-on (Rin: Win11, 24×7) | Existing app + scheduler + embedded server |
+| **Mobile client** | iPhone, Android tablet, any browser — served *by the desktop app itself, reached over the LAN at `galefling.local`* | New |
 
 **There is no relay, no VPN, and no hosted component.** Rin's desktop is on the router by
 ethernet and her phone by wifi; they talk to each other directly. Off-LAN access is
@@ -107,13 +107,14 @@ Derived:
                 |                                    |
                 +------ wifi ------------------------+
                                                      |
-                         direct HTTPS over the LAN   |  ethernet
+                      direct HTTP over the LAN, via  |  ethernet
+                      mDNS (galefling.local)         |
                                                      |
     +----------------------------------------------------------+
     |  GaleFling desktop  —  Windows or Linux, always-on        |
     |                                                            |
     |  full GUI: composer, setup wizard, settings, WebView tabs  |
-    |  embedded HTTPS server: serves the PWA + its API           |
+    |  embedded web server: serves the mobile client + its API   |
     |  schedule queue (SQLite)                                   |
     |  API tier: Twitter, Bluesky, Meta                          |
     |  WebView tier: OnlyFans, Fansly, FetLife (Qt WebEngine)    |
@@ -126,27 +127,68 @@ The desktop app is a peer, not a headless daemon: everything it can do from its 
 can also do on behalf of a mobile client, and the mobile client is served by the same
 process. Nothing leaves the house, and there is no third party in the path.
 
-### The one constraint LAN-direct imposes: TLS is mandatory
+### Discovery and TLS
 
-A PWA needs a **secure context**. Service workers, push notifications, and home-screen
-installability all require HTTPS, and the only non-HTTPS exception is `localhost` —
-**there is no exemption for private IP addresses**. `http://192.168.1.x:8443` gets
-"Page is not served from a secure origin" and no service worker, on both iOS and Android.
+Two separate problems, and it is worth not conflating them: **how the phone finds the
+desktop**, and **whether the connection is a secure context**.
 
-So the embedded server must serve real TLS. Options, best first:
+Neither may assume a known or stable IP address. Rin's desktop takes a DHCP lease from a
+UniFi Dream Machine; nobody knows its address, it is not reserved, and configuring a
+reservation is not something to ask of her — nor is it obvious to a non-technical user why
+it would matter. Any design that starts with "point a record at 192.168.x.y" has pushed
+its hardest step onto the person least able to do it, which fails R5.
 
-1. **A real certificate for a hostname that resolves to the LAN IP.** Jas already owns
-   domains and runs DNS; a DNS-01 ACME challenge issues a publicly-trusted cert without
-   any inbound exposure, and renewal needs outbound internet only. The phone trusts it with
-   no prompts and Rin does nothing. **Recommended.**
-2. Self-signed cert plus manual trust on each device — works, but it is an iOS
-   trust-profile dance per device, which fails R5.
-3. Plain HTTP — viable only if the client is downgraded to a plain web page: no
-   installability, no push, no offline. Loses the "add to home screen" experience.
+#### Discovery: mDNS
 
-This is a genuine design item for Phase 2 and the main thing that makes LAN-direct less
-trivial than it first appears. It is **not** an argument for a relay: option 1 needs no
-inbound connectivity and no hosted service.
+**`http://galefling.local:<port>`.** The app advertises itself over mDNS; the name
+resolves with no configuration anywhere, and it keeps working when DHCP hands out a
+different address. iOS implements RFC 6762 natively — Bonjour is Apple's own technology,
+so `.local` resolution in Safari is a first-class path. Android has resolved `.local` in
+Chrome since the DNS Resolver Mainline update, roughly Android 12+, which covers Jas's
+tablet.
+
+Caveat: mDNS is link-local, so phone and desktop must share a subnet. A default Dream
+Machine setup puts wifi and ethernet clients on the same LAN, so this holds; VLAN
+segregation would require mDNS reflection on the UDM.
+
+#### Secure context: the real constraint
+
+Service workers, push notifications, and offline support require HTTPS. **There is no
+exemption for private IP addresses** — `localhost` is the only non-HTTPS exception — so
+`http://192.168.1.x` yields "not served from a secure origin" and no service worker.
+`.local` cannot be certified either: publicly-trusted CAs have been barred from issuing
+for internal names since 2015.
+
+What plain HTTP does **not** cost, contrary to an earlier draft of this document:
+
+- **Add to Home Screen still works on iOS.** It is a manual user action, not Chrome's
+  `beforeinstallprompt` install criteria, and has never required HTTPS. With
+  `apple-mobile-web-app-capable` the app still opens standalone, without browser chrome.
+- **Picking photos and videos still works.** `<input type="file">` is not a
+  secure-context-gated API, unlike `getUserMedia`.
+
+So over plain HTTP Rin can add the app to her home screen, open it standalone, compose,
+attach media from her library, choose platforms and a time, and watch status. What is lost
+is **push notifications and offline drafting** — and given that she is at home and beside
+the desktop, which shows post results in its own GUI, push is a convenience rather than a
+requirement. R4 is satisfied by the desktop GUI and Jas's alerting regardless.
+
+#### Recommendation
+
+**Baseline for Phase 2: HTTP over mDNS.** Zero configuration for Rin, immune to DHCP
+changes, no certificates, no secrets on her machine, and it delivers R1 in full.
+
+**Upgrade path, only if push turns out to matter:** a publicly-trusted certificate for a
+real hostname whose **public** DNS A record points at her private IP — legal in DNS, and
+the model Plex uses. The app knows its own address and updates the record itself, so there
+is still no static IP and nothing for Rin to configure; the certificate comes from a
+DNS-01 challenge needing no inbound connectivity. Costs: a scoped DNS API credential
+living on her machine, propagation lag when the address changes, and exposure to DNS
+rebinding protection, which some resolvers apply by discarding public answers that contain
+RFC 1918 addresses. Worth doing deliberately later, not as a precondition for shipping.
+
+Self-signed certificates are rejected outright: trusting one on iOS is a per-device
+configuration-profile dance, which is exactly the kind of step R5 exists to eliminate.
 
 ### Linux and Windows parity (R6)
 
@@ -199,7 +241,7 @@ into scope.
 while she is at home; the phone and the desktop are on the same router. Nothing in R1 or
 R2 requires reaching the desktop from outside the LAN.
 
-This is a defensible feature to add later — the client speaks HTTPS to the same API
+This is a defensible feature to add later — the client speaks HTTP to the same API
 regardless of how the packets arrive, so a relay or Tailscale could be introduced without
 touching the client — but it is a separate feature with its own hosting, exposure, and
 onboarding costs, and shipping any mobile support at all comes first. Treat a request for
@@ -299,7 +341,8 @@ Measured against the current tree (~17,043 LOC in `src/`):
 | `src/utils/` — constants, helpers | 537 | Reused as-is |
 | `src/gui/` + `theme.py` + `main.py` | 7,857 | Reused; gains a headless/tray mode |
 
-New code: schedule queue, embedded HTTPS server and its API, device pairing/auth, PWA client.
+New code: schedule queue, embedded web server and its API, mDNS advertisement, device
+auth, mobile client.
 
 For contrast, the superseded plan's Option B was 3–5 months and reimplemented the
 1,813-line WebView base against a second engine; Option C discarded `src/` and `tests/`
@@ -316,7 +359,7 @@ outright. Neither is required to satisfy R1 and R2.
 | 0.1 | Confirm Rin's sleep + autologon settings | Jas | Written into this doc |
 | 0.2 | Delegated scheduling spike | Agent + operator | Existing automation sets a *future* post on Fansly **or** OnlyFans; operator confirms it fires |
 | 0.3 | Facebook-via-Instagram crosspost | Agent + operator | A *scheduled* Instagram post reaches the linked Facebook Page; coupling constraints documented |
-| 0.4 | PWA media upload from iPhone Safari | Agent + operator | Photo and short video reach a local endpoint from a home-screen web app |
+| 0.4 | mDNS + media upload from Rin's iPhone | Agent + operator | `galefling.local` resolves from her phone through the Dream Machine; a photo and a short video reach a local endpoint from a home-screen web app over plain HTTP |
 | 0.5 | Go/no-go | Both | Delegation viable for the platforms that support it; local queue scoped to the remainder |
 
 0.2 is the highest-value item: it is what keeps the unattended scheduler down to four
@@ -329,22 +372,22 @@ delegated-vs-local routing per platform. Deliverable: **a post scheduled from th
 desktop GUI fires correctly with the app minimized**, on both Windows and Linux. No phone
 involved yet. This alone satisfies R2.
 
-### Phase 2 — Embedded HTTPS server + PWA (~3–4 weeks)
+### Phase 2 — Embedded server + mobile client (~3–4 weeks)
 
-The desktop app gains a TLS-terminating HTTP server that serves the PWA and its API: draft
-submission, media upload, platform selection, schedule picker, status. Touch-first client,
-home-screen installable, Declarative Web Push for post results, Persistent Storage API to
-protect the auth token from eviction, chunked/resumable upload for video.
+The desktop app gains an HTTP server that serves the mobile client and its API: draft
+submission, media upload, platform selection, schedule picker, status. Touch-first,
+addable to the home screen and standalone via `apple-mobile-web-app-capable`, with
+chunked/resumable upload for video. No service worker in the baseline, so post results are
+shown on open rather than pushed.
 
-Includes the certificate story from
-[TLS is mandatory](#the-one-constraint-lan-direct-imposes-tls-is-mandatory) and device
-pairing/auth. Bind, TLS, auth, and pairing must work identically on Windows and Linux
+Includes mDNS advertisement and device auth per
+[Discovery and TLS](#discovery-and-tls); no certificates in the baseline. Bind, TLS, auth, and pairing must work identically on Windows and Linux
 (R6). Completing this phase satisfies **R1** outright.
 
 ### Phase 3 — Onboarding (R5) (~1 week)
 
 Treated as engineering, not documentation: installer defaults that enable autostart, a
-first-run flow that ends with her phone paired and the PWA on her home screen, a
+first-run flow that ends with her phone paired and the client on her home screen, a
 one-page setup guide, and a way for Jas to see whether her side is healthy. **Success is
 Rin completing setup unaided, not the existence of instructions.**
 
@@ -362,10 +405,11 @@ delivers scheduling on its own, Phase 2 delivers phone posting.
 | Desktop sleeps despite being powered | Medium | High | Confirm in 0.1; disable sleep; wake timers |
 | Delegated scheduling breaks when a composer changes | Medium | Medium | Same fragility as posting today; reconcile after the fact |
 | **Windows** drifts out of parity — development and first-pass testing happen on Kubuntu | Medium | High | Existing practice already covers this: releases ship as pre-releases and are promoted to stable only after explicit Windows verification, now via the `galefling-win11` VM. Windows is Rin's platform, so the promotion gate is the control that matters. |
-| Certificate expiry silently breaks the phone client | Medium | Medium | Automated renewal; surface cert validity in the desktop GUI rather than only in logs |
+| mDNS fails — VLAN segregation, or a client that will not resolve `.local` | Low | Medium | Verify in Phase 0.4 on Rin's actual network; fall back to a discovery step in the desktop GUI that displays the current address |
+| Push notifications later judged necessary, forcing the TLS upgrade path | Medium | Low | Deliberate later work; the client and API are unchanged by it |
 | Embedded server listening on the LAN | Medium | Medium | TLS plus device auth from the first commit, not retrofitted; explicit bind address, never `0.0.0.0` by default |
 | Large video upload from Safari over cellular stalls | Medium | Medium | Chunked/resumable upload; no background upload on iOS |
-| iOS evicts PWA storage, losing the auth token | Low | Low | Persistent Storage API; re-pair flow |
+| iOS clears the auth token from local storage | Medium | Low | Keep re-pairing cheap — a QR code or short code from the desktop GUI, not a credential re-entry |
 | No Web Share Target on iOS | Certain | **Accepted** | Rin opens the app and picks media — confirmed acceptable |
 | Cloudflare behavior changes on Fansly/OnlyFans | Medium | High | Unchanged from today; posting stays on her machine and IP |
 
@@ -377,10 +421,9 @@ once the architecture stops fighting the platforms.
 ## Open questions
 
 1. Rin's sleep settings and autologon state — Jas to confirm; expected to already be correct.
-2. Which domain issues the LAN certificate, and does DNS-01 renewal fit existing tooling?
-3. How does the phone find the desktop — fixed hostname resolving to a DHCP reservation,
-   or mDNS/`.local` discovery? Affects R5 more than anything technical.
-4. Should Rin's instance ping something Jas operates so a total outage is noticed
+2. Does mDNS resolve end-to-end on Rin's actual network — her iPhone to her desktop
+   through the Dream Machine? Everything about discovery rests on this. (Phase 0.4)
+3. Should Rin's instance ping something Jas operates so a total outage is noticed
    out-of-band? Outbound-only, no inbound exposure — but it is the one hosted-adjacent
    piece worth reconsidering.
 
@@ -389,7 +432,7 @@ once the architecture stops fighting the platforms.
 ## Appendix A — Mobile-native port analysis (deferred)
 
 Retained from the superseded `ANDROID_PORT.md` and the follow-on stack analysis. Relevant
-only if the PWA proves insufficient. Because the client is thin, a native client at that
+only if the web client proves insufficient. Because the client is thin, a native client at that
 point would be a small app, not a port of GaleFling.
 
 ### Qt / Python on mobile
@@ -459,7 +502,8 @@ sustained rental and is the only option that supports an interactive debug loop.
 
 | Date | Change |
 |------|--------|
-| 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + relay + PWA. |
+| 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + mobile web client. |
+| 2026-08-13 | Discovery reworked (Jas): Rin's desktop has no static IP or DHCP reservation and configuring one is not something to ask of her, so any address-based scheme fails R5. Baseline is now mDNS (`galefling.local`) over plain HTTP. Corrected an error in the previous revision — plain HTTP does **not** prevent Add to Home Screen on iOS, nor `<input type=file>`; only service workers, push, and offline are lost. TLS via dynamic public DNS pointing at the private IP is retained as a deliberate later upgrade. |
 | 2026-08-13 | Relay/Tailscale dropped entirely (Jas): phone and desktop are on the same router, so they connect directly. Off-LAN access moved to explicit non-goals. Added R7 and the TLS/secure-context constraint that LAN-direct imposes. Corrected the parity risk — Linux is the primary development platform since the move to Kubuntu; Windows is the side that drifts, controlled by the existing pre-release-then-promote gate. Noted the WSL functional path as effectively dead. |
 | 2026-08-13 | Facebook Page scheduling reframed as delegable indirectly, by letting a scheduled Instagram post crosspost to the linked Page (Jas). Added as Phase 0.3. |
 | 2026-08-13 | Native-scheduling table confirmed by Jas (Threads and Instagram yes; Facebook and FetLife no). Added R6 — full functionality on both Windows and Linux, with the desktop app itself serving mobile clients. Relay demoted to optional off-LAN transport; phases reordered so LAN-only phone posting lands before any hosted component. |

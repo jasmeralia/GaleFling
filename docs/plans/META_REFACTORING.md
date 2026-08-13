@@ -387,7 +387,7 @@ before. No unexpected prompts, no custom protocol dialogs.
 
 ## Credential JSON import format
 
-GaleFling exposes an advanced settings option to import Meta (and Twitter/X) app-level
+GaleFling exposes an advanced settings option to import Meta (and Twitter) app-level
 credentials from a JSON file. This is the mechanism for distributing credentials to
 trusted users like Rin without embedding them in the codebase.
 

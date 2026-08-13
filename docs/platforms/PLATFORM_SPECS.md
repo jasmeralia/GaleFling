@@ -7,7 +7,7 @@ Quick reference for all platform limits and capabilities. For credential setup a
 | Platform | Doc | Type |
 |---|---|---|
 | Bluesky | [BLUESKY.md](BLUESKY.md) | API |
-| Twitter / X | [TWITTER.md](TWITTER.md) | API |
+| Twitter | [TWITTER.md](TWITTER.md) | API |
 | Instagram | [INSTAGRAM.md](INSTAGRAM.md) | API |
 | Threads | [THREADS.md](THREADS.md) | API |
 | Facebook | [FACEBOOK.md](FACEBOOK.md) | API |

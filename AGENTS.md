@@ -25,6 +25,8 @@ GaleFling is a Windows GUI application for posting to multiple social platforms 
 
 12. **Never stage with `git add -A` or `git add .`.** Stage the paths you actually changed, by name. A blanket add sweeps up whatever else is sitting in the working tree — scratch files, sample media, a credential export, a log dump — and commits it under a message that does not mention it. This has already happened: a `test.txt` the operator had created to measure FetLife's caption limit was silently committed as part of an unrelated change to the WebView activation primitive, and was only noticed because the operator offered to delete it. Run `git status` first, stage explicitly, and check `git show --stat` before pushing. The hazard is worst for exactly the files that must never be committed, since those are untracked by design.
 
+13. **Platform names, credits, and trademark disclaimers must stay accurate.** Use canonical platform-name casing everywhere humans read the name (GUI strings, logs, user-facing errors, tests, comments, and docs): Fansly, OnlyFans, FetLife, Bluesky, Snapchat, Instagram, Threads, and Twitter (never "X"). Do not rename filenames, identifiers, account IDs, platform keys, URLs, selectors, or env var names. `PlatformSpecs.platform_name` is a display value and must use canonical casing. Keep the **Help > About** dependency list aligned with significant `requirements.txt` entries (sorted alphabetically, case-insensitive, with links to official project sites). Keep AI-tooling credits current. Maintain the trademark disclaimer in both `README.md` and the About dialog.
+
 Trigger phrase: **"follow the release checklist"**
 - When the user says this, execute every step in the checklist below.
 

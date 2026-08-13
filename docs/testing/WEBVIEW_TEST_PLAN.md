@@ -1,17 +1,17 @@
 # WebView Functional Testing — Multi-Phase Plan
 
-**Status:** Phases 1 and 3 implemented; Phase 2 in progress; Phases 4–7 not started
+**Status:** Phases 1 and 3 implemented; Phases 2 and 5 in progress; Phases 4, 6–7 not started
 **Created:** 2026-08-10
-**Last updated:** 2026-08-11
+**Last updated:** 2026-08-11 (OnlyFans auth + checkbox scope)
 **Owner:** Jas
 **Tracks:** GitHub issue #1 (WebView2 migration), `debug_state.md`
 
 ## Purpose
 
-Establish a reproducible loop for debugging the three long-standing WebView defect
-classes — renderer crashes, checkbox clicks not registering, and sessions not
-persisting — by making Linux the primary test host and adding a scriptable Windows
-VM for target-platform confirmation.
+Establish a reproducible loop for debugging WebView defect classes — renderer
+crashes, session persistence, and (where functional tests demonstrate a need)
+embedded-browser interaction — by making Linux the primary test host and adding
+a scriptable Windows VM for target-platform confirmation.
 
 Windows remains the primary target platform. Linux does not replace Windows testing;
 it narrows the gap so Windows testing can be targeted and infrequent.
@@ -21,7 +21,7 @@ it narrows the gap so Windows testing can be targeted and infrequent.
 | Class | Status as of 2026-08-11 |
 |---|---|
 | Sessions not persisting | **Root-caused and fixed.** Every WebView ran in an off-the-record profile, because `setPage()` does not pass ownership to Python and the page was garbage-collected, so no cookie database was ever written. Retest remaining reports before assuming they survive. Durability across a process boundary is still unproven — see Phase 6. |
-| Checkbox clicks not registering | **Changed shape.** The 2FA checkbox that motivated it is unreachable: GaleFling no longer logs in to OnlyFans at all. The injected fix is generic and still applies to composer checkboxes, which is where Phase 6 should now aim. |
+| Checkbox clicks not registering | **Closed for OnlyFans login.** The 2FA checkbox that motivated the injected fix is unreachable: GaleFling no longer logs in to OnlyFans (auth.json import only). No composer checkbox defect has been reproduced by functional tests. Phase 6 does **not** include standing OnlyFans checkbox coverage — add interaction tests only if a future functional test (e.g. mutating post with PPV/schedule options) demonstrates a real failure. FetLife login still has a separate remember-me checkbox fix. |
 | Renderer crashes | **Open, but no longer Snapchat-shaped.** A genuine navigation loop was found and fixed in `SnapchatPlatform`; with it fixed the app renders on Chromium 140 with no crash. Snapchat itself is now disabled (no automatable posting surface), so this class needs a different subject. |
 
 OnlyFans authentication changed materially in the same period: its login form is gated
@@ -273,7 +273,6 @@ Three of the four known defect classes need no GPU at all:
 | Defect | Needs GPU? | Rationale |
 |---|---|---|
 | Snapchat renderer crash | No in principle | Issue #1 states `--disable-gpu` does not prevent it. **In practice the GPU-less VM cannot test it**: WebGL is blocklisted there, so Snapchat bounces to the marketing page and the bundle never runs. Needs Phase 4 or a Linux host. |
-| OnlyFans checkbox clicks | No | Blink hit-tests the layout tree, not the compositor. Target composer checkboxes — the 2FA form is unreachable now that OnlyFans login is import-only. |
 | Session persistence | No | SQLite cookie flush on shutdown. Root cause since found and fixed; note the flush is lazy (20–35 s), so a test polling the database immediately reports a false negative. |
 | `VSyncService`/`QDxgi` abort | Unknown | DXGI runs under WARP — test rather than assume |
 
@@ -350,10 +349,12 @@ Three things were learned building it that are worth keeping:
   for Phase 2 — the bundle that crash-looped never executed, exactly as in the
   earlier logged-out probe — but the cause is now identified: the GPU-less VM has no
   WebGL. **Phase 2 cannot be answered in this VM without the GPU work in Phase 4.**
-- **OnlyFans authenticates in the guest.** `test_page_loads_authenticated` passes;
-  only `test_composer_accessible` fails, reporting `editables=1` but no
-  `div[contenteditable="true"].b-make-post__text`. That is a selector question, not a
-  session or crash question — worth checking whether the composer markup has drifted.
+- **OnlyFans session tests pass; composer tests need a valid imported session.**
+  Functional tests no longer log in with email/password — they require
+  `webprofiles/onlyfans_1/` or `ONLYFANS_AUTH_JSON`. When the guest profile lacks
+  imported-session metadata (`galefling_session.json`), composer tests fail at the
+  login-form check even though cookie-based `has_valid_session()` may pass. Re-import
+  auth.json on the guest or set `ONLYFANS_AUTH_JSON` on the share.
 - **Fansly and FetLife session tests pass**, having logged in earlier in the same run.
 
 ### Remaining
@@ -361,7 +362,7 @@ Three things were learned building it that are worth keeping:
 - Time a `--revert` run and confirm the 60 s target.
 - Snapchat needs a session in the guest (its 2 session tests fail with "No Snapchat
   cookie databases found") and a GPU before it can be meaningfully tested at all.
-- Investigate the OnlyFans composer selector against the current markup.
+- Investigate OnlyFans composer failures against current markup and session-import state.
 - The `mutating` tests have not been run in the guest; they create real posts.
 
 ### Non-goals
@@ -405,22 +406,163 @@ Do not perform the BIOS change before this phase reports. It may prove unnecessa
 
 **Goal:** Make the production WebView code reachable by tests.
 **Prerequisites:** Phase 1.
+**Status:** **In progress.** The shared infrastructure landed 2026-08-11 —
+`webview_helpers.create_webview()` delegates to `BaseWebViewPlatform.create_webview()`,
+and login helpers remain as test-only harnesses for Fansly/FetLife/Snapchat session
+refresh (no platform has an automated login path). What is *not* finished is the
+per-platform-family pass: each family's tests have to be read and confirmed to drive
+shipped code rather than a copy of it.
+
+Infrastructure alone does not deliver the phase. Every WebView family used
+`create_webview()` from day one and still injected text, dismissed prompts, or hardcoded
+selectors itself — so the tests exercised production page/profile setup while quietly
+testing their own composer logic.
+
+| Platform family | Routed through shipped code | Verified live |
+|---|---|---|
+| Bluesky, Twitter | Yes — `227348d` | Yes |
+| Meta (Instagram, Threads, Facebook Page) | Yes — `084909e` | Yes |
+| FetLife (WebView) | Yes | Yes — full suite, incl. mutating. Post-conditions re-tightened 2026-08-12 (below); the tightened assertions are **not yet re-run live** |
+| Fansly (WebView) | Yes | Yes — incl. mutating text, image, and video posts |
+| OnlyFans (WebView) | Yes — injection and selector rerouted | **No** |
+| Snapchat (WebView) | n/a — `disabled_platform` | n/a |
+
+> **The OnlyFans reroute is a live question, not a cleanup.** The test previously
+> injected with `execCommand('insertText')`; shipped `_inject_text()` assigns
+> `el.textContent` on a contenteditable. Those are not equivalent on a
+> framework-controlled editor, so the rerouted test may legitimately fail and expose a
+> real injection defect. Treat a red OnlyFans test after this change as a finding.
+
+### Violations found by the FetLife pass (2026-08-11)
+
+Recorded because they are the pattern to look for in the remaining families, and none of
+them were visible from the acceptance criteria below:
+
+- **FetLife** re-implemented the "Maybe later" dismissal that
+  `FetLifePlatform._inject_checkbox_fix()` already runs from a MutationObserver. A broken
+  shipped dismissal would not have failed a single test. The test now asserts the prompt
+  is *absent* rather than dismissing it.
+- **Fansly** injected text with its own `el.value =` block instead of `_inject_text()`.
+- **OnlyFans** injected with `execCommand` and copied
+  `div[contenteditable="true"].b-make-post__text` to four call sites instead of reading
+  `OnlyFansPlatform.TEXT_SELECTOR`, so a selector change in shipped code could not fail
+  the test.
+
+The generalisable smell: a test that *makes the page ready* (dismissing, expanding,
+selecting, injecting) is probably duplicating shipped behaviour. A test that *observes*
+or that *stands in for the user's own click* is not.
+
+### Weak post-conditions found by the FetLife re-pass (2026-08-12)
+
+Phase 5 asks whether a test drives shipped code. It does not ask whether the test's
+*post-condition* can fail — and routing a test through the real adapter does nothing if
+what it asserts afterwards was never capable of catching the failure. The Fansly media
+work surfaced this class; re-reading FetLife against it found four instances:
+
+- **An `or` that made half the assertion decorative.** The picture test asserted
+  `POST_URL_PATTERN.search(url) or caption_found`. The left branch is satisfied by
+  navigation to *any* picture permalink, including one that already existed, so the
+  test could pass without the right branch ever being consulted. Now both are required.
+- **No test anywhere proved media landed.** Neither media test looked at the published
+  artifact for an image or video — only for the caption, which FetLife renders from the
+  submitted form field whether or not the attachment survived. This is the failure the
+  Fansly suite hit for real (`0f3eca0`, "Fix Fansly media posts publishing nothing").
+- **An assertion that could not fail.** `assert caption.get('caption')` read the return
+  of `_inject_media_caption()`, whose inner `fill()` returns `true` when it *finds* the
+  element — never that the value stuck. Same shape as clicking a disabled `<div>` and
+  reporting a submit. The tests now read the value back out of the DOM.
+- **Submit labels hardcoded as string literals** in the non-mutating composer tests
+  while the mutating ones read `FetLifePlatform.IMAGE_SUBMIT_LABEL` — the drift hazard
+  already documented at the top of `test_webview_fansly.py`, where a hardcoded selector
+  copy *had* drifted.
+
+The generalisable question to ask of each remaining family, alongside the one above:
+**if the thing under test silently did nothing, which assertion goes red?** If the
+answer is "none, the caption/URL/return value would still look right", the
+post-condition is decorative regardless of what code path produced it.
+
+### The WebView media path is wired (2026-08-12)
+
+Task #417 Level B connected the verified media helpers to the shipped
+`BaseWebViewPlatform._do_prefill()` entry point for Fansly and FetLife. Media remains
+opt-in, so OnlyFans, Snapchat, and future WebView adapters keep their prior text-only
+behavior until they implement a complete platform sequence.
+
+The orchestration is callback-based and never blocks the GUI thread. A small sequencer
+logs every named step, stops at the first refusal, and uses bounded `QTimer.singleShot`
+polls for DOM state that changes asynchronously. A failed permission policy, missing
+control, absent attachment, or disabled control therefore cannot fall through to later
+steps.
+
+| Platform | Shipped `_do_prefill()` media behavior | Final state |
+|---|---|---|
+| FetLife | Stage → trusted **Choose File** click → picker → retain attachment → fill media caption/title → certify exact consent field → recheck avatar replacement | Form ready; upload submit untouched |
+| Fansly | Dismiss overlay → fill text → stage → open image dropdown → exact **Upload New** → picker → modal → no-paywall permissions → enabled **Upload** → attachment poll → wait for Post to enable | Composer ready; Post untouched |
+
+`_attach_media()` remains for the established functional tests, but it is not the
+production route: its base64-in-JavaScript design cannot support FetLife's 500 MB video
+limit. The shipped path uses the `chooseFiles()` override and passes a filesystem path.
+
+The FetLife `/pictures/new` and `/videos/new` paths were verified live and
+non-mutatively through `_do_prefill()` on 2026-08-12: exactly one picker invocation per
+run, each file retained in the correct form field, caption/title injected, consent
+checked, and `picture[is_avatar]` still off on the picture form. No upload submit was
+clicked.
+
+#### Trusted activation implementation (2026-08-12)
+
+Wiring media in needs a *trusted* gesture: Chromium refuses a file picker without user
+activation, and JavaScript cannot grant it. The functional tests got one from
+`QTest.mouseClick`, which is a test-harness module and cannot be used in `src/` — so it
+was unclear whether shipped code could drive any of this at all.
+
+Measured against a local page, no site and no credentials:
+
+| Mechanism | `userActivation` | `chooseFiles()` |
+|---|---|---|
+| JS `.click()` alone | False | not called |
+| `QApplication.sendEvent` | True | called |
+| `QApplication.postEvent` | True | called |
+| `QTest.mouseClick` (control) | True | called |
+
+A plain synthesised `QMouseEvent` is sufficient. `BaseWebViewPlatform.trusted_click()`
+now provides it, and `tests/functional/test_webview_user_activation.py` guards the whole
+chain — gesture, activation, picker receiving the staged path — **on Linux and in the
+Windows 11 VM**, the latter GPU-less. Because it drives a local `setHtml` page it needs
+no credentials, so it runs on every functional pass rather than only when some platform
+session happens to be valid, and re-running it on Windows costs nothing.
+
+That verification also caught a false success in shipped code: `open_media_picker()`
+returned `opened: true` with no activation, because the JS completes and Chromium drops
+the click silently while `picker_invocations` never moves. It refuses now.
+
+The production sequence also waits one event-loop turn after the trusted click before
+using `open_media_picker()` as a fallback. Live FetLife testing found that Chromium can
+deliver the page's click handler just after Qt event dispatch returns; an immediate
+fallback opened a second picker whose empty selection cleared the first attachment.
+The bounded delay lets the visible control's picker win and only uses the hidden-input
+fallback when no `chooseFiles()` invocation occurred.
+
+FetLife's status deletion also moved from "documented as impossible" to implemented:
+its `<a href="#0">` Delete control binds its handler in JS and ignores a synthetic
+click, which is exactly the trusted-click case Phase 6 prescribes. The shared
+`trusted_click_at()` / `element_center_js()` helpers in `webview_helpers.py` now serve
+both it and Fansly's dropdown.
 
 ### Background
 
-`tests/functional/webview_helpers.py` (~700 lines) builds its own `QWebEngineProfile`,
+`tests/functional/webview_helpers.py` (~500 lines) builds its own `QWebEngineProfile`,
 its own page, and its own login JS. `src/platforms/base_webview.py` (~1130 lines) does
 all of it differently — a class-level `_profile_registry` for Cloudflare fingerprint
 stability, `_LoggingWebEnginePage`, `renderProcessTerminated` handlers,
 `SESSION_EXPIRED_SELECTORS`, and platform-specific timing constants.
 
-The tests validate a reimplementation. Every defect under investigation lives in the
-code the tests do not touch: the checkbox fix is
-`src/platforms/onlyfans.py:_inject_2fa_checkbox_fix` (never invoked by any test — and
-now misnamed, since the 2FA form it was written for is unreachable, though the script
-itself patches every checkbox on every page), and the abort is dialog/profile lifecycle
-in `src/gui/settings_dialog.py` (never invoked). The tests create a fresh profile per
-test where the app deliberately shares one.
+The tests validate a reimplementation. Defects under investigation live in the code
+the tests do not touch — for example dialog/profile lifecycle in
+`src/gui/settings_dialog.py` (never invoked by functional tests), Snapchat URL redirect
+handling in `SnapchatPlatform._on_url_changed`, and `import_session()` timing against
+Chromium's lazy cookie flush. The tests create a fresh profile per case where the app
+deliberately shares one via `_profile_registry`.
 
 **This is no longer hypothetical.** On 2026-08-11 the Snapchat redirect loop was found
 precisely because the two paths disagreed: the shipped `SnapchatPlatform` was rate
@@ -443,15 +585,38 @@ verifying against a file Chromium had not yet written.
 
 ### Acceptance criteria
 
-- No functional test constructs a `QWebEngineProfile` directly.
-- A deliberate break in `base_webview.py` fails at least one functional test.
-- `make lint` and `make test-ci` pass.
+- [x] No functional test constructs a `QWebEngineProfile` directly.
+- [x] A deliberate break in `base_webview.py` fails at least one functional test
+  (unit tests assert `create_webview` delegates to the platform implementation).
+- [ ] **Per family, no test re-implements shipped composer behaviour.** Done for
+  Bluesky/Twitter, Meta, and FetLife; Fansly and OnlyFans are rerouted but unverified
+  against the live sites. This criterion is what the original tick missed: the two above
+  are satisfied by `create_webview()` alone, which every family already used while still
+  injecting text and dismissing prompts itself.
+- [ ] A deliberate break in each platform's `_inject_text()` / injected scripts fails
+  that platform's functional tests.
+- [x] `make lint` and `make test-ci` pass.
+- [x] Shared profile is fully **released** after each functional test — `close_webview()`
+  clears `platform._profile`, pumps deferred deletes, then evicts and collects
+  (`_evict_webview_profiles_after_functional_test` remains as a backstop).
+
+  > **Eviction is not release.** `_evict_profile()` only drops the registry key. The
+  > `QWebEngineProfile` lives until its last Python reference goes, and a *failing* test
+  > keeps `view`/`page`/`platform` alive in pytest's retained traceback. Leaving that
+  > reference in place let a second profile open on the same `persistentStoragePath`,
+  > after which every page load returned an empty URL and the process wedged at exit —
+  > one failing assertion took out every WebView test behind it. See
+  > `docs/testing/FUNCTIONAL_TESTING.md` → "A WebView test failure wedges every test
+  > after it".
 
 ---
 
 ## Phase 6 — Real persistence and interaction tests
 
-**Goal:** Cover the two defect classes that no current test can detect.
+**Goal:** Cover defect classes that no current test can detect — primarily session
+durability across a process boundary. Interaction/click tests are added **only when
+functional tests demonstrate a real failure** (not as standing coverage for
+hypothetical composer checkboxes).
 **Prerequisites:** Phase 5; Phase 3 for the Windows half.
 
 ### Session persistence
@@ -486,25 +651,29 @@ cheaply.
 
 ### Interaction / clicks
 
-Replace "assert `checked === true` after our JS ran" with a genuine
-`QTest.mouseClick` at the element's viewport coordinates, then assert the resulting
-Vue state. That distinguishes *"our workaround sets the property"* from *"a user's
-click reaches the input"* — precisely the OnlyFans `.b-chckbox` failure mode, where
-decorator `<span>` and icon elements absorb the click before it reaches the hidden
-`<input>`.
+**Not in scope by default.** The OnlyFans 2FA checkbox that originally motivated
+`_inject_2fa_checkbox_fix` is unreachable — GaleFling no longer logs in to OnlyFans
+(auth.json import only). Current functional tests exercise text injection only; they
+have not reproduced a composer checkbox failure. Do **not** add Phase 6 click tests for
+OnlyFans unless a functional test (for example a future mutating post that toggles PPV
+or schedule options) fails because a real `QTest.mouseClick` does not reach the input.
 
-The OnlyFans 2FA checkbox is no longer reachable, since GaleFling no longer logs in to
-OnlyFans (see "Status of the three defect classes" above); target the composer's
-checkboxes instead. The injected fix is generic — it patches every
-`input[type="checkbox"]` on every page — so the composer exercises the same code path
-the 2FA form used to.
+When interaction tests *are* warranted, the pattern is: replace "assert
+`checked === true` after our JS ran" with a genuine `QTest.mouseClick` at the
+element's viewport coordinates, then assert the resulting framework state. That
+distinguishes *"our workaround sets the property"* from *"a user's click reaches the
+input."*
+
+**FetLife** remains the one platform where login-form checkbox interaction is still
+reachable via WebView and may justify a targeted test once Phase 5 routes tests through
+the shipped platform code.
 
 ### Acceptance criteria
 
 - Persistence test fails if cookies are not durable across a process boundary.
-- Click test fails if a real click is absorbed before reaching the input, even when
-  `_inject_2fa_checkbox_fix` has run.
-- Both pass on Linux and in the Windows VM.
+- Interaction tests exist only for UI paths that functional tests have shown to fail;
+  no standing OnlyFans checkbox suite.
+- Persistence test passes on Linux and in the Windows VM.
 
 ---
 

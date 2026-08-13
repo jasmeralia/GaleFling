@@ -11,6 +11,8 @@ from src.core.logger import get_logger
 from src.platforms.base import BasePlatform
 from src.utils.constants import TWITTER_SPECS, PlatformSpecs, PostResult
 
+_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.m4v', '.3gp'}
+
 
 class TwitterPlatform(BasePlatform):
     """Twitter posting via Tweepy (OAuth 1.0a + v2 API)."""
@@ -98,6 +100,17 @@ class TwitterPlatform(BasePlatform):
             get_logger().error(f'Twitter connection test failed: {e}')
             return False, 'TW-AUTH-INVALID'
 
+    def _validate_pre_post(self, text: str, media_paths: list[Path] | None) -> str | None:
+        """Validate text length before posting. Returns an error code or None."""
+        specs = TWITTER_SPECS
+        if specs.max_text_length is not None and len(text) > specs.max_text_length:
+            get_logger().warning(
+                f'Twitter pre-post validation failed: text too long '
+                f'({len(text)} > {specs.max_text_length})'
+            )
+            return 'POST-TEXT-TOO-LONG'
+        return None
+
     def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
         if not self._client:
             success, error = self.authenticate()
@@ -108,13 +121,23 @@ class TwitterPlatform(BasePlatform):
         if client is None or api_v1 is None:
             return create_error_result('TW-AUTH-INVALID', 'Twitter')
 
+        error_code = self._validate_pre_post(text, media_paths)
+        if error_code:
+            return create_error_result(error_code, 'Twitter')
+
         media_ids = None
         if media_paths:
             media_ids = []
-            for image_path in media_paths:
+            for media_path in media_paths:
                 try:
-                    get_logger().debug(f'Twitter uploading media: {image_path.name}')
-                    media = api_v1.media_upload(filename=str(image_path))
+                    get_logger().debug(f'Twitter uploading media: {media_path.name}')
+                    if media_path.suffix.lower() in _VIDEO_EXTENSIONS:
+                        media = api_v1.media_upload(
+                            filename=str(media_path),
+                            media_category='tweet_video',
+                        )
+                    else:
+                        media = api_v1.media_upload(filename=str(media_path))
                     get_logger().debug(f'Twitter media uploaded: media_id={media.media_id}')
                     media_ids.append(media.media_id)
                 except tweepy.TooManyRequests:
@@ -124,7 +147,7 @@ class TwitterPlatform(BasePlatform):
                         'IMG-UPLOAD-FAILED',
                         'Twitter',
                         exception=e,
-                        details={'image_path': str(image_path)},
+                        details={'image_path': str(media_path)},
                     )
 
         try:

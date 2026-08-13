@@ -57,7 +57,7 @@ done
 
 pytest_args=("$@")
 if [[ ${#pytest_args[@]} -eq 0 ]]; then
-    pytest_args=(tests/functional -m functional)
+    pytest_args=(tests/functional -m 'functional and not disabled_platform')
 fi
 pytest_args+=(-v --no-header)
 

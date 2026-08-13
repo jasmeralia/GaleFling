@@ -30,9 +30,9 @@ On first launch, the app walks you through adding credentials for each platform.
 ### Platform-Specific Guides
 
 - **[Twitter Setup](docs/platforms/TWITTER.md)** — Developer portal setup, API keys, and PIN-based OAuth flow (up to 2 accounts).
-- **[Instagram Setup](docs/platforms/INSTAGRAM.md)** — Graph API credentials, Business/Creator account requirements, and token management.
+- **[Meta platforms (API)](docs/platforms/META_APPS.md)** — OAuth connect for [Threads](docs/platforms/THREADS.md), [Instagram](docs/platforms/INSTAGRAM.md), and [Facebook Page](docs/platforms/FACEBOOK.md). Image and video posts for Threads and Instagram are staged to S3 first.
 - **[Bluesky Setup](docs/platforms/BLUESKY.md)** — Enter your handle and an app password (create one at [bsky.app/settings/app-passwords](https://bsky.app/settings/app-passwords)). Supports up to 2 accounts.
-- **WebView platforms** — Log in via the embedded browser during setup. Session cookies are stored locally: [Snapchat](docs/platforms/SNAPCHAT.md) | [OnlyFans](docs/platforms/ONLYFANS.md) | [Fansly](docs/platforms/FANSLY.md) | [FetLife](docs/platforms/FETLIFE.md) | [Threads](docs/platforms/THREADS.md)
+- **WebView platforms** — Log in via the embedded browser during setup. Session cookies are stored locally: [Snapchat](docs/platforms/SNAPCHAT.md) | [OnlyFans](docs/platforms/ONLYFANS.md) | [Fansly](docs/platforms/FANSLY.md) | [FetLife](docs/platforms/FETLIFE.md)
 
 ## Using GaleFling
 
@@ -52,6 +52,17 @@ GaleFling handles images and videos with automatic per-platform processing:
 - **Snapchat framing controls:** For Snapchat media that needs portrait reframing, choose `Crop to vertical` or `Rotate to vertical` in the composer.
 - **Text warnings:** Platforms that don't support text (e.g., Snapchat) show a warning if you've entered text.
 - **Preview:** Click "Preview Media" to see how your image or video will look on each platform after processing.
+
+### Posts Are Never Paywalled
+
+GaleFling publishes the same post to every platform you select, and most of them — Twitter, Instagram, Bluesky — have no paywall at all. Gating that post behind a subscription on one platform would leave your audiences seeing different things, so GaleFling never does it.
+
+Where a platform offers those controls, GaleFling sets them for open access:
+
+- **Fansly:** media uploads do *not* require a subscription. "Require Follow" is set instead, so the post reaches followers without a paywall.
+- **OnlyFans:** posts are never pay-per-view.
+
+If you want to publish paywalled content, post it directly on that platform rather than through GaleFling.
 
 ## Updates
 

@@ -153,6 +153,54 @@ def test_twitter_post_multiple_media(monkeypatch, tmp_path):
     assert platform._client.last_media_ids == ['media1', 'media2']
 
 
+def test_twitter_post_video(monkeypatch, tmp_path):
+    import src.platforms.twitter as twitter_mod
+
+    class _RecordingAPI(_FakeTwitterAPI):
+        def __init__(self, auth):
+            super().__init__(auth)
+            self.last_upload_kwargs = None
+
+        def media_upload(self, filename, media_category=None):
+            self.last_upload_kwargs = {
+                'filename': filename,
+                'media_category': media_category,
+            }
+            return SimpleNamespace(media_id='vid123')
+
+    fake_tweepy = SimpleNamespace(
+        OAuth1UserHandler=_FakeOAuth,
+        API=_RecordingAPI,
+        Client=_FakeTwitterClient,
+        Unauthorized=_UnauthorizedError,
+        TooManyRequests=_TooManyRequestsError,
+        Forbidden=_ForbiddenError,
+    )
+    monkeypatch.setattr(twitter_mod, 'tweepy', fake_tweepy)
+
+    auth = _FakeAuth(
+        twitter={
+            'api_key': 'k',
+            'api_secret': 's',
+            'access_token': 't',
+            'access_token_secret': 'ts',
+            'username': 'tester',
+        }
+    )
+    platform = TwitterPlatform(auth)
+
+    video_path = tmp_path / 'clip.mp4'
+    video_path.write_bytes(b'fake-video')
+
+    result = platform.post('Video tweet', media_paths=[video_path])
+
+    assert result.success
+    assert platform._api_v1.last_upload_kwargs == {
+        'filename': str(video_path),
+        'media_category': 'tweet_video',
+    }
+
+
 def test_twitter_test_connection_unauthorized(monkeypatch):
     import src.platforms.twitter as twitter_mod
 
@@ -284,6 +332,45 @@ def test_bluesky_post_multiple_media(monkeypatch, tmp_path):
     assert embed_images[1]['image'] == 'blob2'
 
 
+def test_bluesky_post_video(monkeypatch, tmp_path):
+    import src.platforms.bluesky as bluesky_mod
+
+    class _RecordingBskyClient(_FakeBskyClient):
+        def __init__(self, base_url=None):
+            super().__init__(base_url)
+            self.last_create_record_data = None
+            self.com = SimpleNamespace(
+                atproto=SimpleNamespace(
+                    repo=SimpleNamespace(create_record=self._recording_create_record)
+                )
+            )
+
+        def _recording_create_record(self, data):
+            self.last_create_record_data = data
+            return SimpleNamespace(uri='at://did/app.bsky.feed.post/vid123', cid='cidvid')
+
+    monkeypatch.setattr(bluesky_mod, 'BskyClient', _RecordingBskyClient)
+
+    auth = _FakeAuth(
+        bluesky={
+            'identifier': 'user.bsky.social',
+            'app_password': 'pw',
+            'service': 'https://bsky.social',
+        }
+    )
+    platform = BlueskyPlatform(auth)
+
+    video_path = tmp_path / 'clip.mp4'
+    video_path.write_bytes(b'fake-video')
+
+    result = platform.post('Video caption', media_paths=[video_path])
+
+    assert result.success
+    embed = platform._client.last_create_record_data['record']['embed']
+    assert embed['$type'] == 'app.bsky.embed.video'
+    assert embed['video'] == 'blobdata'
+
+
 def test_bluesky_image_upload_failure(monkeypatch, tmp_path):
     import src.platforms.bluesky as bluesky_mod
 
@@ -350,6 +437,37 @@ def test_twitter_post_no_auth(monkeypatch):
     result = platform.post('Hello')
     assert not result.success
     assert result.error_code == 'AUTH-MISSING'
+
+
+def test_twitter_post_text_too_long(monkeypatch):
+    import src.platforms.twitter as twitter_mod
+
+    fake_tweepy = SimpleNamespace(
+        OAuth1UserHandler=_FakeOAuth,
+        API=_FakeTwitterAPI,
+        Client=_FakeTwitterClient,
+        Unauthorized=_UnauthorizedError,
+        TooManyRequests=_TooManyRequestsError,
+        Forbidden=_ForbiddenError,
+    )
+    monkeypatch.setattr(twitter_mod, 'tweepy', fake_tweepy)
+
+    auth = _FakeAuth(
+        twitter={
+            'api_key': 'k',
+            'api_secret': 's',
+            'access_token': 't',
+            'access_token_secret': 'ts',
+            'username': 'tester',
+        }
+    )
+    platform = TwitterPlatform(auth)
+    platform.authenticate()
+
+    result = platform.post('A' * 281)
+
+    assert not result.success
+    assert result.error_code == 'POST-TEXT-TOO-LONG'
 
 
 def test_twitter_post_text_only(monkeypatch):
@@ -605,6 +723,27 @@ def test_bluesky_authenticate_missing_creds(monkeypatch):
     success, error = platform.authenticate()
     assert not success
     assert error == 'AUTH-MISSING'
+
+
+def test_bluesky_post_text_too_long(monkeypatch):
+    import src.platforms.bluesky as bluesky_mod
+
+    monkeypatch.setattr(bluesky_mod, 'BskyClient', _FakeBskyClient)
+
+    auth = _FakeAuth(
+        bluesky={
+            'identifier': 'user.bsky.social',
+            'app_password': 'pw',
+            'service': 'https://bsky.social',
+        }
+    )
+    platform = BlueskyPlatform(auth)
+    platform.authenticate()
+
+    result = platform.post('A' * 301)
+
+    assert not result.success
+    assert result.error_code == 'POST-TEXT-TOO-LONG'
 
 
 def test_bluesky_authenticate_invalid(monkeypatch):

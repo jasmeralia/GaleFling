@@ -1,21 +1,48 @@
 """Shared helpers for WebView functional tests.
 
-Provides QWebEngineView creation, page loading, JS execution, event loop
-utilities, and per-platform login helpers used by the per-platform webview
-posting test modules.
+Provides page loading, JS execution, event loop utilities, platform-backed
+WebView creation via ``BaseWebViewPlatform.create_webview()``, and test-only
+login helpers for platforms that still support automated session refresh.
 """
 
 import contextlib
+import gc
 import json
 from pathlib import Path
+from unittest.mock import patch
 
-from PyQt6.QtCore import QEventLoop, Qt, QTimer, QUrl
+from PyQt6.QtCore import QEventLoop, QPoint, Qt, QTimer, QUrl
 from PyQt6.QtTest import QTest
-from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
+from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication
 
-from src.core.webview_environment import chrome_compatible_user_agent
+from src.platforms.base_webview import BaseWebViewPlatform
+from src.platforms.fansly import FanslyPlatform
+from src.platforms.fetlife import FetLifePlatform
+from src.platforms.onlyfans import OnlyFansPlatform
+from src.platforms.snapchat import SnapchatPlatform
+
+_PLATFORM_CLASSES: dict[str, type[BaseWebViewPlatform]] = {
+    'onlyfans': OnlyFansPlatform,
+    'fansly': FanslyPlatform,
+    'fetlife': FetLifePlatform,
+    'snapchat': SnapchatPlatform,
+}
+
+# Non-zero while close_webview() is deliberately destroying a page.  The renderer
+# crash monitor in conftest uses this to tell an intentional teardown apart from a
+# renderer that exited on its own mid-test.
+_TEARDOWN_DEPTH = 0
+
+
+def platform_class_for_account(account_id: str) -> type[BaseWebViewPlatform]:
+    """Return the WebView platform class for a GaleFling account id."""
+    prefix = account_id.split('_', 1)[0]
+    platform_cls = _PLATFORM_CLASSES.get(prefix)
+    if platform_cls is None:
+        raise ValueError(f'No WebView platform registered for account_id {account_id!r}')
+    return platform_cls
 
 
 def get_or_create_app():
@@ -96,43 +123,291 @@ def run_js(page: QWebEnginePage, js: str, timeout_ms: int = 5000):
     return state['value']
 
 
-def create_webview(data_dir: Path, account_id: str):
-    """Create a QWebEngineView with persistent cookies from the given profile.
+def call_platform(method, *args, timeout_ms: int = 20000) -> dict:
+    """Call a platform method whose result arrives via an async runJavaScript callback.
 
-    Uses the same profile name and storage path as the app so that Chromium loads
-    the full persisted browser context (including Cloudflare fingerprint state) from
-    prior app sessions.  The app must NOT be running simultaneously — Chromium holds
-    an exclusive SQLite WAL lock on the cookie database.
+    Platform helpers like ``_attach_media()`` and ``_certify_upload_consent()`` hand
+    their result to a callback rather than returning it, so a test cannot read one
+    synchronously.  A non-dict result is wrapped rather than discarded: a timed-out
+    call and a call that genuinely returned ``None`` are different failures and the
+    caller needs to be able to tell them apart.
     """
-    storage = data_dir / 'webprofiles' / account_id
-    # Use the same profile name as the app (_get_profile_storage_path returns
-    # get_app_data_dir() / 'webprofiles' / account_id and passes .name to
-    # QWebEngineProfile).  A different name creates a fresh Chromium context with
-    # no Cloudflare session state, causing re-challenges on protected sites.
-    profile = QWebEngineProfile(account_id, None)
-    profile.setHttpUserAgent(chrome_compatible_user_agent(profile.httpUserAgent()))
-    profile.setPersistentStoragePath(str(storage))
-    profile.setPersistentCookiesPolicy(
-        QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies
+    state: dict = {'done': False, 'value': None}
+
+    def callback(value):
+        state['done'] = True
+        state['value'] = value
+
+    method(*args, callback=callback)
+
+    elapsed = 0
+    while not state['done'] and elapsed < timeout_ms:
+        wait_ms(100)
+        elapsed += 100
+
+    value = state['value']
+    if isinstance(value, dict):
+        return value
+    return {'timed_out': not state['done'], 'raw': value}
+
+
+def wait_for_attachment(platform: BaseWebViewPlatform, timeout_ms: int = 15000) -> dict:
+    """Poll ``_media_attachment_state()`` until the open form reports a file.
+
+    Upload forms move the file from the picker to their own field asynchronously, so
+    acceptance cannot be read back from the attach call itself.  Returns the last
+    observed state on timeout so a failure message says what the form was holding.
+    """
+    elapsed = 0
+    state: dict = {}
+    while elapsed < timeout_ms:
+        state = call_platform(platform._media_attachment_state)
+        if state.get('attached'):
+            return state
+        wait_ms(500)
+        elapsed += 500
+    return state
+
+
+# Deliberately no shared delete-confirmation snippet either.
+#
+# One existed and was removed 2026-08-12, alongside the JS-click delete helper above.
+# It scoped with `document.querySelector('[role="dialog"], ..., .modal, dialog[open],
+# ...')` and applied **no visibility test**, so on FetLife it selected the account
+# sidebar — an invisible `<aside role="dialog">` earlier in document order than the
+# real modal. It then searched that empty drawer and returned
+# `{confirmed: false, scoped: true}`, which reads as "the dialog had no confirm button"
+# rather than "we were scoped to the wrong element". Measured against a live status.
+#
+# The replacement lives with its platform: `_CONFIRM_DELETE_CONTROL_JS` in
+# test_webview_fetlife.py scopes to a *visible* modal footer and is clicked with a
+# trusted mouse event. Any future platform needs its own, verified the same way —
+# a shared "find something that says delete" snippet is how the wrong element gets
+# clicked on a page full of destructive controls.
+
+
+def element_center_js(page: QWebEnginePage, js_expr: str) -> tuple[int, int] | None:
+    """Viewport centre of the element *js_expr* evaluates to, or None.
+
+    Takes an expression rather than a selector because the controls that need a
+    trusted click are often only identifiable by their text — FetLife's Delete entry
+    is an ``<a href="#0">`` indistinguishable from its siblings by CSS alone.
+    """
+    rect = run_js(
+        page,
+        f"""
+        (function() {{
+            var el = {js_expr};
+            if (!el) return null;
+            // Scroll into view first: an element below the fold reports viewport
+            // coordinates outside the widget, so the synthetic click would land
+            // somewhere else entirely (or nowhere) and grant no activation.
+            el.scrollIntoView({{block: 'center', inline: 'center'}});
+            var r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return null;
+            return {{
+                x: Math.round(r.left + r.width / 2),
+                y: Math.round(r.top + r.height / 2),
+                viewportH: window.innerHeight,
+                viewportW: window.innerWidth
+            }};
+        }})();
+        """,
+        timeout_ms=10000,
     )
-    page = QWebEnginePage(profile)
-    view = QWebEngineView()
-    view.setPage(page)
-    view.resize(1280, 900)
-    view.show()
-    return view, page, profile
+    if not isinstance(rect, dict):
+        return None
+    x, y = int(rect['x']), int(rect['y'])
+    if not (0 <= x < int(rect['viewportW']) and 0 <= y < int(rect['viewportH'])):
+        return None
+    return x, y
 
 
-def close_webview(view: QWebEngineView, page: QWebEnginePage, profile: QWebEngineProfile) -> None:
-    """Destroy a test WebView before reopening its persistent profile."""
-    with contextlib.suppress(RuntimeError):
-        view.close()
-        page.deleteLater()
-        view.deleteLater()
-    wait_ms(500)
-    with contextlib.suppress(RuntimeError):
-        profile.deleteLater()
-    wait_ms(500)
+def element_center(page: QWebEnginePage, selector: str) -> tuple[int, int] | None:
+    """Viewport centre of the first element matching *selector*, or None."""
+    return element_center_js(page, f'document.querySelector({json.dumps(selector)})')
+
+
+def trusted_click_at(view: QWebEngineView, x: int, y: int, settle_ms: int = 1200) -> None:
+    """Hover then click at viewport coordinates with real Qt mouse events.
+
+    The hover is not decoration: menus that open on pointer entry never render if the
+    click is the first event the element sees, so the click lands on nothing.
+    """
+    target = view.focusProxy() or view
+    QTest.mouseMove(target, QPoint(x, y))
+    wait_ms(350)
+    QTest.mouseClick(
+        target, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(x, y)
+    )
+    wait_ms(settle_ms)
+
+
+def trusted_click(
+    view: QWebEngineView, page: QWebEnginePage, selector: str | tuple[str, ...]
+) -> bool:
+    """Click a visible element with a real Qt mouse event, granting user activation.
+
+    Chromium refuses to open a file picker without user activation, and JavaScript
+    cannot grant it — a ``runJavaScript``-driven click is rejected with "File chooser
+    dialog can only be shown with a user activation". A ``QTest`` mouse event is
+    trusted, and the activation it grants then lets a *subsequent* JS ``input.click()``
+    through (verified 2026-08-12).
+
+    This stands in for the user's own click; it is not a reimplementation of anything
+    the platform does.
+    """
+    selectors = (selector,) if isinstance(selector, str) else tuple(selector)
+    point = None
+    for candidate in selectors:
+        point = element_center(page, candidate)
+        if point is not None:
+            break
+    if point is None:
+        return False
+    wait_ms(400)  # let the scroll settle before clicking the measured point
+
+    trusted_click_at(view, *point, settle_ms=300)
+    return bool(run_js(page, '!!(navigator.userActivation && navigator.userActivation.isActive)'))
+
+
+def attach_via_file_picker(
+    view: QWebEngineView,
+    page: QWebEnginePage,
+    platform: BaseWebViewPlatform,
+    path: Path,
+    activation_selector: str | tuple[str, ...],
+    timeout_ms: int = 15000,
+) -> dict:
+    """Stage *path* and drive the composer's picker into taking it.
+
+    ``activation_selector`` must be a *visible* element safe to click — the composer's
+    own attach control. Clicking the file input itself will not do: composers hide it
+    (``class="hidden"``, zero size), so it has no clickable coordinates.
+    """
+    platform.suppress_native_file_dialog = True
+    before = platform.picker_invocations
+    platform.stage_media_for_picker(path)
+
+    activated = trusted_click(view, page, activation_selector)
+    if not activated:
+        return {'attached': False, 'reason': f'no user activation from {activation_selector!r}'}
+
+    platform.open_media_picker(path)
+
+    elapsed = 0
+    while platform.picker_invocations == before and elapsed < timeout_ms:
+        wait_ms(250)
+        elapsed += 250
+
+    if platform.picker_invocations == before:
+        return {'attached': False, 'reason': 'file picker never opened', 'activated': True}
+    return {'attached': True, 'activated': True, 'elapsed_ms': elapsed}
+
+
+# Deliberately no shared "delete the current post" helper.
+#
+# One existed and was removed 2026-08-12: it drove deletion with JavaScript clicks,
+# which cannot work on the only platform whose delete control has been investigated.
+# FetLife's Delete is an <a href="#0"> whose handler is bound in JavaScript, so a
+# synthetic .click() never reaches it and no confirmation is raised. It also matched
+# destructive controls by substring ("delete this", aria-label "more"), and it
+# reported success from a confirmation *click* without ever verifying the artifact
+# was gone. Nothing called it.
+#
+# Deletion needs trusted_click() plus a reload-and-confirm-absent check; see
+# _delete_status_by_tag() in test_webview_fetlife.py for the shape, and Odoo task 420
+# for the opt-in cleanup pass that will generalise it.
+
+
+def create_webview(
+    data_dir: Path, account_id: str
+) -> tuple[QWebEngineView, QWebEnginePage, BaseWebViewPlatform]:
+    """Create a WebView through the shipped platform implementation.
+
+    Uses ``BaseWebViewPlatform.create_webview()`` so functional tests exercise
+    the same profile registry, page lifecycle, URL handlers, and injected scripts
+    as the application.  The app must NOT be running simultaneously — Chromium
+    holds an exclusive SQLite WAL lock on the cookie database.
+    """
+    data_path = Path(data_dir)
+    platform_cls = platform_class_for_account(account_id)
+    with patch('src.platforms.base_webview.get_app_data_dir', return_value=data_path):
+        platform = platform_cls(account_id=account_id)
+        view = platform.create_webview()
+        view.resize(1280, 900)
+        view.show()
+        page = platform._page
+        if page is None:
+            raise RuntimeError(
+                f'{platform_cls.__name__}.create_webview() did not retain a page reference'
+            )
+        return view, page, platform
+
+
+def teardown_in_progress() -> bool:
+    """Whether a test WebView is currently being torn down by close_webview()."""
+    return _TEARDOWN_DEPTH > 0
+
+
+def _pump_deferred_deletes(ms: int = 500) -> None:
+    """Run pending deleteLater() calls so C++ objects are destroyed before we continue."""
+    app = QApplication.instance()
+    if app is not None:
+        app.processEvents()
+    wait_ms(ms)
+    if app is not None:
+        app.processEvents()
+
+
+def close_webview(
+    view: QWebEngineView,
+    page: QWebEnginePage,
+    platform: BaseWebViewPlatform,
+) -> None:
+    """Tear down a platform-backed test WebView and fully release its shared profile.
+
+    ``BaseWebViewPlatform._evict_profile()`` only drops the registry key — it does not
+    destroy the ``QWebEngineProfile`` or release Chromium's lock on the profile's
+    persistent storage directory.  The profile lives until its last Python reference
+    goes away, and ``platform._profile`` is one of them.
+
+    That distinction is load-bearing.  When a test *fails*, pytest keeps the assertion
+    traceback alive, which keeps the test frame's ``view`` / ``page`` / ``platform``
+    locals alive with it.  If this function does not clear every reference itself, the
+    old profile survives the test, the next ``create_webview()`` builds a *second*
+    profile against the same ``persistentStoragePath``, and Chromium deadlocks — so one
+    failing assertion wedges every WebView test that runs after it.
+    """
+    global _TEARDOWN_DEPTH
+
+    account_id = platform._account_id or 'default'
+    _TEARDOWN_DEPTH += 1
+    try:
+        platform._view = None
+        platform._page = None
+        platform._profile = None
+
+        if view is not None:
+            with contextlib.suppress(RuntimeError):
+                view.close()
+            with contextlib.suppress(RuntimeError):
+                view.deleteLater()
+        if page is not None:
+            with contextlib.suppress(RuntimeError):
+                page.deleteLater()
+
+        # Destroy the pages before dropping the profile: Qt requires a profile to
+        # outlive every page using it.
+        _pump_deferred_deletes()
+        BaseWebViewPlatform._evict_profile(account_id)
+        # The caller's own locals may still reference the profile transitively; a
+        # collection pass drops those cycles so the C++ object is destroyed here
+        # rather than at some arbitrary point during a later test.
+        gc.collect()
+        _pump_deferred_deletes()
+    finally:
+        _TEARDOWN_DEPTH -= 1
 
 
 def has_cookie_db(data_dir: Path, account_id: str) -> bool:
@@ -354,223 +629,6 @@ def login_fansly(page: QWebEnginePage, email: str, password: str) -> bool:
         """,
     )
     return bool(logged_in)
-
-
-def login_onlyfans(
-    page: QWebEnginePage,
-    email: str,
-    password: str,
-    totp_secret: str | None = None,
-) -> bool:
-    """Attempt to log in to OnlyFans via the inline login form.
-
-    OnlyFans renders its login form at / without redirecting. If a TOTP
-    secret is provided and a 2FA code prompt appears after credential
-    submission, the current TOTP code is generated and submitted.
-
-    Returns True if the session is valid after the attempt.
-    """
-    # Wait for Vue.js rendering + Cloudflare challenge
-    wait_ms(8000)
-
-    # Check whether the login form is present
-    form_check = run_js(
-        page,
-        """
-        (function() {
-            var form = document.querySelector('.b-loginreg__form, .b-login-wrapper');
-            var emailInput = document.querySelector(
-                'input[name="email"], input[autocomplete*="username"], '
-                + 'input[type="email"]'
-            );
-            var passwordInput = document.querySelector('input[type="password"]');
-            return {
-                hasForm: !!(form || emailInput),
-                hasEmailInput: !!emailInput,
-                hasPasswordInput: !!passwordInput
-            };
-        })();
-        """,
-    )
-    if not isinstance(form_check, dict) or not form_check.get('hasForm'):
-        # No login form detected — session appears active
-        return True
-
-    # OnlyFans ignores synthetic input events. Use trusted keyboard events and
-    # keep credentials out of the JavaScript execution boundary.
-    email_selector = (
-        '.b-loginreg__form input[name="email"], input[name="email"], '
-        'input[autocomplete*="username"], input[type="email"]'
-    )
-    password_selector = (
-        '.b-loginreg__form input[type="password"], input[name="password"], input[type="password"]'
-    )
-    if not type_into_web_input(page, email_selector, email):
-        return False
-    if not type_into_web_input(page, password_selector, password):
-        return False
-    if not submit_focused_web_form():
-        return False
-
-    # Wait for credential submission to reach either 2FA or the signed-in page.
-    for _ in range(20):
-        login_state = run_js(
-            page,
-            """
-            (function() {
-                return {
-                    hasPassword: !!document.querySelector('input[type="password"]'),
-                    hasCode: !!document.querySelector(
-                        'input[name="code"], input[autocomplete="one-time-code"], '
-                        + 'input[type="text"][maxlength="6"], '
-                        + '.b-2fa input[type="text"], .b-2fa input[type="number"], '
-                        + 'input[placeholder*="code" i], input[placeholder*="2fa" i]'
-                    )
-                };
-            })();
-            """,
-        )
-        if isinstance(login_state, dict) and (
-            login_state.get('hasCode') or not login_state.get('hasPassword')
-        ):
-            break
-        wait_ms(1000)
-
-    # Check for TOTP / 2FA prompt
-    totp_check = run_js(
-        page,
-        """
-        (function() {
-            var codeInput = document.querySelector(
-                'input[name="code"], input[autocomplete="one-time-code"], '
-                + 'input[type="text"][maxlength="6"], '
-                + '.b-2fa input[type="text"], .b-2fa input[type="number"], '
-                + 'input[placeholder*="code" i], input[placeholder*="2fa" i]'
-            );
-            return {hasCodeInput: !!codeInput};
-        })();
-        """,
-    )
-
-    if isinstance(totp_check, dict) and totp_check.get('hasCodeInput'):
-        if not totp_secret:
-            # 2FA is required but no TOTP secret was provided
-            return False
-        try:
-            import pyotp
-
-            code = pyotp.TOTP(totp_secret).now()
-        except Exception:
-            return False
-
-        # Check the "remember me / trust this device" checkbox before submitting
-        # so the resulting session cookie has a longer expiry.
-        run_js(
-            page,
-            """
-            (function() {
-                var cb = document.querySelector(
-                    '.b-2fa input[type="checkbox"], '
-                    + 'input[name="remember_me"], input[name="trust"], '
-                    + 'input[id*="remember" i], input[id*="trust" i]'
-                );
-                if (!cb || cb.checked) return;
-                var desc = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'checked'
-                );
-                if (desc && desc.set) { desc.set.call(cb, true); }
-                else { cb.checked = true; }
-                cb.dispatchEvent(new Event('input', {bubbles: true}));
-                cb.dispatchEvent(new Event('change', {bubbles: true}));
-            })();
-            """,
-        )
-
-        code_selector = (
-            'input[name="code"], input[autocomplete="one-time-code"], '
-            'input[type="text"][maxlength="6"], '
-            '.b-2fa input[type="text"], .b-2fa input[type="number"], '
-            'input[placeholder*="code" i], input[placeholder*="2fa" i]'
-        )
-        if not type_into_web_input(page, code_selector, code):
-            return False
-        if not submit_focused_web_form():
-            return False
-        for _ in range(20):
-            still_logging_in = run_js(
-                page,
-                """!!document.querySelector(
-                    '.b-loginreg__form, .b-login-wrapper, input[type="password"], '
-                    + 'input[name="code"], input[autocomplete="one-time-code"]'
-                )""",
-            )
-            if not still_logging_in:
-                break
-            wait_ms(1000)
-
-    # Confirm no login form remains
-    final_check = run_js(
-        page,
-        """
-        (function() {
-            var form = document.querySelector(
-                '.b-loginreg__form, .b-login-wrapper, input[type="password"]'
-            );
-            return {hasLoginForm: !!form};
-        })();
-        """,
-    )
-    logged_in = not (isinstance(final_check, dict) and final_check.get('hasLoginForm'))
-    if logged_in:
-        # Chromium flushes its cookie store to SQLite asynchronously. Give it
-        # time to write the new session cookies before any has_valid_session()
-        # check reads the DB directly.
-        wait_ms(4000)
-    return logged_in
-
-
-def login_threads(page: QWebEnginePage, username: str, password: str) -> bool:
-    """Attempt to log in to Threads via threads.com/login (Meta/Instagram form).
-
-    Returns True if threads.com is the current host after the attempt.
-    """
-    ok, final_url = load_page(page, 'https://www.threads.com/login', timeout_ms=15000)
-    if not ok:
-        return False
-
-    # If /login redirected away, we're already logged in
-    if 'threads.com/login' not in final_url and 'threads.net/login' not in final_url:
-        return 'threads.com' in final_url or 'threads.net' in final_url
-
-    wait_ms(2000)
-
-    result = run_js(
-        page,
-        f"""
-        (function() {{
-            var usernameInput = document.querySelector(
-                'input[name="username"], input[type="text"], input[type="email"]'
-            );
-            var passwordInput = document.querySelector('input[name="password"], input[type="password"]');
-            if (!usernameInput || !passwordInput) return {{found: false}};
-            usernameInput.focus();
-            document.execCommand('insertText', false, {json.dumps(username)});
-            usernameInput.dispatchEvent(new Event('input', {{bubbles: true}}));
-            passwordInput.focus();
-            document.execCommand('insertText', false, {json.dumps(password)});
-            passwordInput.dispatchEvent(new Event('input', {{bubbles: true}}));
-            var submitBtn = document.querySelector('button[type="submit"]');
-            if (submitBtn) submitBtn.click();
-            return {{found: true}};
-        }})();
-        """,
-    )
-    if not isinstance(result, dict) or not result.get('found'):
-        return False
-
-    wait_ms(5000)
-    current = page.url().toString()
-    return ('threads.com' in current or 'threads.net' in current) and '/login' not in current
 
 
 def login_snapchat(page: QWebEnginePage, username: str, password: str) -> tuple[bool, str]:

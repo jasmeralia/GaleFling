@@ -44,53 +44,50 @@ JSON target list.
 
 ---
 
-## Troubleshooting: OnlyFans Checkboxes
+## Troubleshooting: OnlyFans WebView (legacy checkbox notes)
 
-### Background
+> **Historical context.** Earlier builds debugged an OnlyFans **2FA "remember this
+> device" checkbox** during embedded login. That flow is **obsolete**: GaleFling no
+> longer logs in to OnlyFans (reCAPTCHA blocks embedded browsers; sessions are
+> imported via `auth.json`). Phase 6 functional tests do **not** include standing
+> OnlyFans checkbox coverage — interaction tests are added only if a functional test
+> demonstrates a real composer checkbox failure.
 
-> **The 2FA flow this section was written for is no longer reachable.** OnlyFans
-> gates its login form with reCAPTCHA Enterprise, which rejects embedded browsers,
-> so GaleFling no longer logs in to OnlyFans — sessions are imported from a normal
-> browser instead. The same injected script still patches every checkbox on every
-> page, so the procedure below remains valid for composer checkboxes; just reproduce
-> against the composer rather than the MFA form.
-
-OnlyFans renders checkboxes as Vue.js custom components (`.b-chckbox`). In the
-embedded WebView the native `<input type="checkbox">` is hidden and clicks are
-absorbed by decorator `<span>` and icon elements before reaching the input.
-GaleFling injects a MutationObserver script (`galefling_onlyfans_checkbox_fix`)
-to work around this, but the fix may not cover all cases.
+GaleFling still injects a legacy MutationObserver script
+(`galefling_onlyfans_checkbox_fix`) on every OnlyFans WebView. It was written for the
+unreachable login/2FA path. Use the procedure below **only** when diagnosing a
+**reproducible** composer checkbox problem (functional test failure or confirmed manual
+repro on current builds) — not as routine setup.
 
 ### What to Capture
 
-After connecting DevTools to the OnlyFans WebView tab, reproduce the checkbox
-problem in the composer and collect the following:
+After connecting DevTools to the OnlyFans WebView tab, reproduce the problem and
+collect the following:
 
 #### 1. Console output
 
-The injected script already emits diagnostic lines. In the **Console** tab,
-filter by `[GaleFling]` to isolate them:
+The injected script emits diagnostic lines. In the **Console** tab, filter by
+`[GaleFling]`:
 
 ```
-[GaleFling] checkbox found class=... disabled=... display=... visibility=... pointerEvents=... opacity=...
+[GaleFling] OF checkbox found class=... disabled=... display=... visibility=... pointerEvents=... opacity=...
 [GaleFling] CF iframe w=... h=... pos=... z=...
-[GaleFling] forwarded click to checkbox, checked=...
+[GaleFling] OF forwarded container click, checked=...
 ```
 
-Copy all `[GaleFling]` lines and note whether `forwarded click` ever appears
-when the checkbox is clicked.
+Copy all `[GaleFling]` lines and note whether a forwarded click ever appears when
+the checkbox is clicked.
 
 #### 2. Element inspection
 
-In the **Elements** tab, find the form containing the checkbox. Locate the `.b-chckbox` wrapper
-and its `<input type="checkbox">` child. Check and record:
+In the **Elements** tab, find the form containing the checkbox. Locate the
+`.b-chckbox` wrapper and its `<input type="checkbox">` child. Check and record:
 
 - `pointer-events` on `.b-chckbox`, `.b-chckbox__icon`, `.b-chckbox__label`,
   and the `<input>` itself (Computed tab → filter `pointer`)
 - `z-index` and `position` of any ancestor with `position: relative/absolute`
-  (Computed tab → filter `z-index`)
 - Whether any `<iframe>` from `challenges.cloudflare.com` or `turnstile` sits
-  in the stacking context above the checkbox (Layers panel or 3D view)
+  above the checkbox (Layers panel or 3D view)
 
 #### 3. Event tracing
 
@@ -104,30 +101,23 @@ document.querySelectorAll('input[type="checkbox"]').forEach(el => {
 ```
 
 Then try clicking the checkbox. If neither `[manual] click` nor `[manual]
-change` fire, the click is being swallowed above the input in the DOM — note
-which element the DevTools **Event Listeners** panel shows as the top
-handler.
+change` fire, the click is being swallowed above the input in the DOM.
 
 #### 4. Network tab — HAR export
 
-If the issue seems related to Cloudflare challenge timing (checkbox appears
-disabled until the challenge resolves):
+If Cloudflare timing is suspected:
 
 1. Switch to the **Network** tab before reproducing the problem.
 2. Enable **Preserve log**.
-3. Reproduce the checkbox interaction.
+3. Reproduce the interaction.
 4. Right-click any request → **Save all as HAR with content**.
-
-Include the HAR file when reporting — it shows whether the Turnstile
-challenge response arrives before or after the checkbox is rendered.
 
 ### What to Send
 
-When reporting the issue to Jas, include:
+When reporting a confirmed issue, include:
 
 - All `[GaleFling]` console lines
-- A screenshot of the `.b-chckbox` element in the Elements panel with the
-  Computed styles expanded
+- A screenshot of the checkbox element with Computed styles expanded
 - Output of the manual event listener snippet above
 - The HAR file if Cloudflare timing is suspected
 - GaleFling app log (Help → View Logs or the `logs/` folder in the app data

@@ -17,10 +17,11 @@ All media is staged to S3 first so the Graph API can fetch it by public URL.
 from __future__ import annotations
 
 import contextlib
-import uuid
 
 import pytest
 import requests
+
+from tests.functional.conftest import mutating_post_text
 
 INSTAGRAM_API_BASE = 'https://graph.instagram.com'
 
@@ -78,6 +79,19 @@ class TestInstagramConnection:
         assert ok, f'test_connection() failed with error: {err}'
         assert err is None
 
+    def test_connection_returns_username(self, instagram_credentials):
+        """Profile fetch: Graph API must return a username for the token."""
+        resp = requests.get(
+            f'{INSTAGRAM_API_BASE}/me',
+            params={
+                'fields': 'username',
+                'access_token': instagram_credentials['access_token'],
+            },
+            timeout=15,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json().get('username')
+
     def test_connection_bad_token(self):
         """A bogus access token must produce an auth error, not an exception."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
@@ -123,6 +137,16 @@ class TestInstagramValidation:
         assert not result.success
         assert result.error_code == 'POST-TEXT-TOO-LONG'
 
+    def test_webp_image_rejected(self, instagram_credentials, sample_webp):
+        """WEBP is not in Instagram specs; reject before any API or S3 staging."""
+        from src.platforms.meta_instagram import MetaInstagramPlatform
+
+        platform = MetaInstagramPlatform(_make_auth(instagram_credentials))
+        result = platform.post('caption', media_paths=[sample_webp])
+
+        assert not result.success
+        assert result.error_code == 'IMG-INVALID-FORMAT'
+
 
 # ── Image post tests ──────────────────────────────────────────────────────────
 
@@ -136,8 +160,7 @@ class TestInstagramImagePost:
         """Stage a JPEG to S3, post it to Instagram, verify permalink, then delete."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling functional test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg])
@@ -157,8 +180,7 @@ class TestInstagramImagePost:
         """PNG images must also be accepted by the API."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling PNG test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_png])
@@ -183,8 +205,7 @@ class TestInstagramVideoPost:
         """Stage an MP4 to S3, post it as a Reel, verify success, then delete."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling video test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_video])
@@ -212,13 +233,37 @@ class TestInstagramCarouselPost:
         """Post a 2-image carousel, verify the carousel container is published."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling carousel test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
 
         assert result.success, f'Carousel post failed: {result.error_code} — {result.error_message}'
+        assert result.platform == 'Instagram'
+        media_id = result.raw_response.get('id')
+        assert media_id
+
+        # Cleanup
+        _delete_media(instagram_credentials['access_token'], media_id)
+
+    def test_carousel_image_and_video(
+        self,
+        instagram_credentials,
+        meta_aws_credentials,
+        sample_jpeg,
+        sample_video,
+    ):
+        """Post a mixed image+video carousel, verify publish, then delete."""
+        from src.platforms.meta_instagram import MetaInstagramPlatform
+
+        caption = mutating_post_text()
+
+        platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
+        result = platform.post(caption, media_paths=[sample_jpeg, sample_video])
+
+        assert result.success, (
+            f'Mixed carousel post failed: {result.error_code} — {result.error_message}'
+        )
         assert result.platform == 'Instagram'
         media_id = result.raw_response.get('id')
         assert media_id

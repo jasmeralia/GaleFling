@@ -17,7 +17,7 @@ from src.platforms.fansly import FanslyPlatform
 from src.platforms.fetlife import FetLifePlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
-from tests.functional.conftest import fail_or_skip
+from tests.functional.conftest import skip_if_no_cookie_db, skip_if_no_cookie_dbs
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -26,33 +26,24 @@ def _cookie_db_path(data_dir: Path, account_id: str) -> Path:
     return data_dir / 'webprofiles' / account_id / 'Cookies'
 
 
-def _has_cookie_db(data_dir: Path, account_id: str) -> bool:
-    return _cookie_db_path(data_dir, account_id).exists()
-
-
 # ── Snapchat ─────────────────────────────────────────────────────────
 
 
 @pytest.mark.functional
 @pytest.mark.non_mutating
+@pytest.mark.disabled_platform
 class TestSnapchatSession:
     """Snapchat WebView session validation."""
 
     def test_session_cookies_exist(self, galefling_data_dir):
         """Verify that at least one Snapchat account has a cookie database."""
-        account_ids = ['snapchat_1', 'snapchat_2']
-        found = [aid for aid in account_ids if _has_cookie_db(galefling_data_dir, aid)]
-        if not found:
-            fail_or_skip('No Snapchat cookie databases found')
+        found = skip_if_no_cookie_dbs(galefling_data_dir, ['snapchat_1', 'snapchat_2'], 'Snapchat')
         for account_id in found:
             assert _cookie_db_path(galefling_data_dir, account_id).stat().st_size > 0
 
     def test_has_valid_session(self, galefling_data_dir):
         """Verify has_valid_session() returns True for accounts with cookies."""
-        account_ids = ['snapchat_1', 'snapchat_2']
-        found = [aid for aid in account_ids if _has_cookie_db(galefling_data_dir, aid)]
-        if not found:
-            fail_or_skip('No Snapchat cookie databases found')
+        found = skip_if_no_cookie_dbs(galefling_data_dir, ['snapchat_1', 'snapchat_2'], 'Snapchat')
         for account_id in found:
             platform = SnapchatPlatform(account_id=account_id)
             with patch(
@@ -82,14 +73,12 @@ class TestOnlyFansSession:
 
     def test_session_cookies_exist(self, galefling_data_dir):
         """Verify that the OnlyFans account has a cookie database."""
-        if not _has_cookie_db(galefling_data_dir, 'onlyfans_1'):
-            fail_or_skip('No OnlyFans cookie database found')
+        skip_if_no_cookie_db(galefling_data_dir, 'onlyfans_1', 'OnlyFans')
         assert _cookie_db_path(galefling_data_dir, 'onlyfans_1').stat().st_size > 0
 
     def test_has_valid_session(self, galefling_data_dir):
         """Verify has_valid_session() returns True for the OnlyFans account."""
-        if not _has_cookie_db(galefling_data_dir, 'onlyfans_1'):
-            fail_or_skip('No OnlyFans cookie database found')
+        skip_if_no_cookie_db(galefling_data_dir, 'onlyfans_1', 'OnlyFans')
         platform = OnlyFansPlatform(account_id='onlyfans_1')
         with patch('src.platforms.base_webview.get_app_data_dir', return_value=galefling_data_dir):
             assert platform.has_valid_session(), 'OnlyFans session invalid'
@@ -114,14 +103,12 @@ class TestFanslySession:
 
     def test_session_cookies_exist(self, galefling_data_dir):
         """Verify that the Fansly account has a cookie database."""
-        if not _has_cookie_db(galefling_data_dir, 'fansly_1'):
-            fail_or_skip('No Fansly cookie database found')
+        skip_if_no_cookie_db(galefling_data_dir, 'fansly_1', 'Fansly')
         assert _cookie_db_path(galefling_data_dir, 'fansly_1').stat().st_size > 0
 
     def test_has_valid_session(self, galefling_data_dir):
         """Verify has_valid_session() returns True for the Fansly account."""
-        if not _has_cookie_db(galefling_data_dir, 'fansly_1'):
-            fail_or_skip('No Fansly cookie database found')
+        skip_if_no_cookie_db(galefling_data_dir, 'fansly_1', 'Fansly')
         platform = FanslyPlatform(account_id='fansly_1')
         with patch('src.platforms.base_webview.get_app_data_dir', return_value=galefling_data_dir):
             assert platform.has_valid_session(), 'Fansly session invalid'
@@ -146,14 +133,12 @@ class TestFetLifeSession:
 
     def test_session_cookies_exist(self, galefling_data_dir):
         """Verify that the FetLife account has a cookie database."""
-        if not _has_cookie_db(galefling_data_dir, 'fetlife_1'):
-            fail_or_skip('No FetLife cookie database found')
+        skip_if_no_cookie_db(galefling_data_dir, 'fetlife_1', 'FetLife')
         assert _cookie_db_path(galefling_data_dir, 'fetlife_1').stat().st_size > 0
 
     def test_has_valid_session(self, galefling_data_dir):
         """Verify has_valid_session() returns True for the FetLife account."""
-        if not _has_cookie_db(galefling_data_dir, 'fetlife_1'):
-            fail_or_skip('No FetLife cookie database found')
+        skip_if_no_cookie_db(galefling_data_dir, 'fetlife_1', 'FetLife')
         platform = FetLifePlatform(account_id='fetlife_1')
         with patch('src.platforms.base_webview.get_app_data_dir', return_value=galefling_data_dir):
             assert platform.has_valid_session(), 'FetLife session invalid'
@@ -164,5 +149,5 @@ class TestFetLifeSession:
         specs = platform.get_specs()
         assert specs.platform_name == 'FetLife'
         assert specs.api_type == 'webview'
-        assert not specs.supports_text_with_media
+        assert specs.supports_text_with_media
         assert specs.max_accounts == 1

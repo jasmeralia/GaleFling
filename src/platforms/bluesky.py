@@ -13,6 +13,8 @@ from src.core.logger import get_logger
 from src.platforms.base import BasePlatform
 from src.utils.constants import BLUESKY_SPECS, PlatformSpecs, PostResult
 
+_VIDEO_EXTENSIONS = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.m4v', '.3gp'}
+
 
 def detect_urls(text: str) -> list[dict]:
     """Find all HTTP(S) URLs in text and create facet objects.
@@ -114,6 +116,17 @@ class BlueskyPlatform(BasePlatform):
             get_logger().error(f'Bluesky connection test failed: {e}')
             return False, 'BS-AUTH-INVALID'
 
+    def _validate_pre_post(self, text: str, media_paths: list[Path] | None) -> str | None:
+        """Validate text length before posting. Returns an error code or None."""
+        specs = BLUESKY_SPECS
+        if specs.max_text_length is not None and len(text) > specs.max_text_length:
+            get_logger().warning(
+                f'Bluesky pre-post validation failed: text too long '
+                f'({len(text)} > {specs.max_text_length})'
+            )
+            return 'POST-TEXT-TOO-LONG'
+        return None
+
     def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
         if not self._client:
             success, error = self.authenticate()
@@ -123,28 +136,49 @@ class BlueskyPlatform(BasePlatform):
         if client is None:
             return create_error_result('BS-AUTH-INVALID', 'Bluesky')
 
+        error_code = self._validate_pre_post(text, media_paths)
+        if error_code:
+            return create_error_result(error_code, 'Bluesky')
+
         try:
             facets = detect_urls(text)
             embed: dict[str, object] | None = None
 
             if media_paths:
                 try:
-                    images: list[dict[str, object]] = []
-                    for media_path in media_paths:
-                        get_logger().debug(f'Bluesky uploading blob: {media_path.name}')
-                        img_data = media_path.read_bytes()
-                        upload = client.upload_blob(img_data)
-                        get_logger().debug(f'Bluesky blob uploaded: {media_path.name}')
-                        images.append(
-                            {
-                                'alt': '',
-                                'image': upload.blob,
-                            }
-                        )
-                    embed = {
-                        '$type': 'app.bsky.embed.images',
-                        'images': images,
-                    }
+                    if len(media_paths) == 1 and media_paths[0].suffix.lower() in _VIDEO_EXTENSIONS:
+                        media_path = media_paths[0]
+                        get_logger().debug(f'Bluesky uploading video blob: {media_path.name}')
+                        video_data = media_path.read_bytes()
+                        upload = client.upload_blob(video_data)
+                        get_logger().debug(f'Bluesky video blob uploaded: {media_path.name}')
+                        embed = {
+                            '$type': 'app.bsky.embed.video',
+                            'video': upload.blob,
+                        }
+                    else:
+                        images: list[dict[str, object]] = []
+                        for media_path in media_paths:
+                            if media_path.suffix.lower() in _VIDEO_EXTENSIONS:
+                                return create_error_result(
+                                    'VID-INVALID-FORMAT',
+                                    'Bluesky',
+                                    details={'media_paths': [str(p) for p in media_paths]},
+                                )
+                            get_logger().debug(f'Bluesky uploading blob: {media_path.name}')
+                            img_data = media_path.read_bytes()
+                            upload = client.upload_blob(img_data)
+                            get_logger().debug(f'Bluesky blob uploaded: {media_path.name}')
+                            images.append(
+                                {
+                                    'alt': '',
+                                    'image': upload.blob,
+                                }
+                            )
+                        embed = {
+                            '$type': 'app.bsky.embed.images',
+                            'images': images,
+                        }
                 except Exception as e:
                     return create_error_result(
                         'IMG-UPLOAD-FAILED',
@@ -189,7 +223,9 @@ class BlueskyPlatform(BasePlatform):
 
         except Exception as e:
             error_str = str(e).lower()
-            if 'rate' in error_str or 'limit' in error_str:
+            if 'grapheme too big' in error_str:
+                return create_error_result('POST-TEXT-TOO-LONG', 'Bluesky', exception=e)
+            if 'rate limit' in error_str or 'too many requests' in error_str:
                 return create_error_result('BS-RATE-LIMIT', 'Bluesky', exception=e)
             if 'auth' in error_str or 'expired' in error_str or 'token' in error_str:
                 return create_error_result('BS-AUTH-EXPIRED', 'Bluesky', exception=e)

@@ -79,3 +79,157 @@ def test_renderer_crash_monitor_records_status_exit_code_and_url():
         match='WebEngine renderer process terminated.*CrashTerminationStatus',
     ):
         monitor.fail_if_crashed()
+
+
+def test_ensure_onlyfans_session_skips_when_unconfigured(monkeypatch, tmp_path):
+    monkeypatch.delenv('ONLYFANS_AUTH_JSON', raising=False)
+
+    with pytest.raises(pytest.skip.Exception, match='No OnlyFans session'):
+        functional_conftest.ensure_onlyfans_session(tmp_path)
+
+
+def test_ensure_onlyfans_session_returns_when_valid(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock, patch
+
+    platform = MagicMock()
+    platform.has_valid_session.return_value = True
+    monkeypatch.delenv('ONLYFANS_AUTH_JSON', raising=False)
+
+    with (
+        patch('src.platforms.onlyfans.OnlyFansPlatform', return_value=platform),
+        patch('src.platforms.base_webview.get_app_data_dir', return_value=tmp_path),
+    ):
+        assert functional_conftest.ensure_onlyfans_session(tmp_path) == 'onlyfans_1'
+
+
+def test_ensure_onlyfans_session_imports_auth_json(monkeypatch, tmp_path):
+    from unittest.mock import MagicMock, patch
+
+    from src.core.webview_session_import import ImportedSession
+
+    auth_path = tmp_path / 'auth.json'
+    auth_path.write_text('{}', encoding='utf-8')
+    session = ImportedSession(
+        user_id='123',
+        user_agent='Mozilla/5.0',
+        x_bc='a' * 40,
+        cookies={'auth_id': '123', 'sess': 'abc'},
+    )
+    platform = MagicMock()
+    platform.has_valid_session.side_effect = [False, False]
+    platform.import_session.return_value = (True, None)
+    platform._get_profile_storage_path.return_value = tmp_path / 'webprofiles' / 'onlyfans_1'
+
+    monkeypatch.setenv('ONLYFANS_AUTH_JSON', str(auth_path))
+
+    with (
+        patch('src.platforms.onlyfans.OnlyFansPlatform', return_value=platform),
+        patch('src.platforms.base_webview.get_app_data_dir', return_value=tmp_path),
+        patch(
+            'src.core.webview_session_import.load_auth_json_file',
+            return_value=session,
+        ),
+        patch('src.core.webview_session_import.session_recently_imported', return_value=True),
+    ):
+        assert functional_conftest.ensure_onlyfans_session(tmp_path) == 'onlyfans_1'
+    platform.import_session.assert_called_once_with(session)
+
+
+def test_create_webview_delegates_to_platform_create_webview(tmp_path):
+    from unittest.mock import MagicMock, patch
+
+    from tests.functional import webview_helpers
+
+    mock_view = MagicMock()
+    mock_page = MagicMock()
+    platform_instance = MagicMock()
+    platform_instance.create_webview.return_value = mock_view
+    platform_instance._page = mock_page
+    platform_cls = MagicMock(return_value=platform_instance)
+
+    with (
+        patch('src.platforms.base_webview.get_app_data_dir', return_value=tmp_path),
+        patch.object(
+            webview_helpers, 'platform_class_for_account', return_value=platform_cls
+        ) as lookup,
+    ):
+        view, page, platform = webview_helpers.create_webview(tmp_path, 'onlyfans_1')
+
+    lookup.assert_called_once_with('onlyfans_1')
+    platform_cls.assert_called_once_with(account_id='onlyfans_1')
+    platform_instance.create_webview.assert_called_once()
+    assert view is mock_view
+    assert page is mock_page
+    assert platform is platform_instance
+
+
+def test_close_webview_evicts_shared_profile(tmp_path):
+    from unittest.mock import MagicMock
+
+    from src.platforms.onlyfans import OnlyFansPlatform
+    from tests.functional import webview_helpers
+
+    OnlyFansPlatform._profile_registry['onlyfans_1'] = MagicMock()
+    platform = MagicMock()
+    platform._account_id = 'onlyfans_1'
+    view = MagicMock()
+
+    webview_helpers.close_webview(view, MagicMock(), platform)
+
+    assert 'onlyfans_1' not in OnlyFansPlatform._profile_registry
+    view.close.assert_called_once()
+
+
+# ── Credential redaction ────────────────────────────────────────────
+
+RedactedCredentials = functional_conftest.RedactedCredentials
+
+
+def test_redacted_credentials_reads_like_a_dict():
+    """Reading a value still works — only displaying the mapping is blocked."""
+    creds = RedactedCredentials({'email': 'a@b.test', 'password': 'hunter2'})
+    assert creds['password'] == 'hunter2'
+    assert creds['email'] == 'a@b.test'
+    assert sorted(creds) == ['email', 'password']
+    assert isinstance(creds, dict)
+
+
+def test_redacted_credentials_never_renders_its_values():
+    """repr, str and f-string interpolation must all show key names only."""
+    creds = RedactedCredentials({'email': 'a@b.test', 'password': 'hunter2'})
+    for rendered in (repr(creds), str(creds), f'{creds}', '{}'.format(creds)):  # noqa: UP032
+        assert 'hunter2' not in rendered
+        assert 'a@b.test' not in rendered
+        assert 'password' in rendered  # the key name is safe, and useful
+
+
+def test_redacted_credentials_survives_pytests_own_repr():
+    """The leak path was pytest's traceback rendering, not a print in a test.
+
+    pytest renders fixture arguments with ``saferepr``; asserting on our own
+    ``__repr__`` alone would not prove that path is closed.
+    """
+    from _pytest._io.saferepr import saferepr
+
+    creds = RedactedCredentials({'password': 'hunter2'})
+    assert 'hunter2' not in saferepr(creds)
+
+
+def test_every_credential_fixture_returns_a_redacted_mapping():
+    """A new credential fixture that forgets to wrap its return is the failure mode.
+
+    Asserted over the module rather than fixture by fixture so this keeps holding as
+    platforms are added.
+    """
+    import inspect
+
+    unwrapped = []
+    for name, obj in vars(functional_conftest).items():
+        if not name.endswith('_credentials'):
+            continue
+        source = inspect.getsource(getattr(obj, '__wrapped__', obj))
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith('return ') and 'RedactedCredentials' not in stripped:
+                unwrapped.append(f'{name}: {stripped}')
+    assert not unwrapped, f'credential fixtures returning unredacted values: {unwrapped}'

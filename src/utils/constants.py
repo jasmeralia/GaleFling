@@ -50,7 +50,15 @@ class PlatformSpecs:
     supports_text: bool = True
     # Whether text is still supported when media is attached.
     supports_text_with_media: bool = True
-    # Max media attachments per post (images; video is always 1)
+    # Max media attachments per post, counting images.
+    #
+    # "Video is always 1" is GaleFling's own rule, not a property of these platforms:
+    # the composer treats a video as a sole attachment and blocks mixing it with images
+    # (src/gui/post_composer.py::_choose_media). Several platforms accept a mixed
+    # image+video carousel — the Instagram and Threads adapters post one today, and
+    # tests/functional cover it by calling post() directly, which is the only way to
+    # reach that path since the GUI will not produce such a selection. Do not read this
+    # cap as evidence that a platform cannot mix media.
     max_media_attachments: int = 1
     # Whether the user can authenticate inside GaleFling's embedded browser.
     # False for platforms whose login form is gated by a bot check that rejects
@@ -194,7 +202,12 @@ FANSLY_SPECS = PlatformSpecs(
     max_image_dimensions=(4096, 4096),
     max_file_size_mb=50.0,
     supported_formats=['JPEG', 'PNG', 'WEBP'],
-    max_text_length=3000,
+    # The composer's textarea declares maxlength=2048, so 2048 is what a user can
+    # actually type — verified against the live composer 2026-08-12. GaleFling injects
+    # programmatically, which bypasses maxlength, so a longer body would land in the
+    # box and be silently over the limit. Fansly's own accept list also includes GIF
+    # and audio, which GaleFling deliberately does not offer.
+    max_text_length=2048,
     platform_color='#0FABE5',
     api_type='webview',
     auth_method='session_cookie',
@@ -212,7 +225,11 @@ FETLIFE_SPECS = PlatformSpecs(
     max_image_dimensions=(4096, 4096),
     max_file_size_mb=20.0,
     supported_formats=['JPEG', 'PNG'],
-    max_text_length=None,
+    # Text posts are statuses, which FetLife caps at 690 characters — the limit it
+    # displays in its own composer.  It sets no `maxlength` on the textarea; the
+    # "Say It!" button simply disables past the cap (verified 2026-08-11: enabled at
+    # 690, disabled at 691).
+    max_text_length=690,
     platform_color='#D4001A',
     api_type='webview',
     auth_method='session_cookie',
@@ -221,7 +238,7 @@ FETLIFE_SPECS = PlatformSpecs(
     supported_video_formats=['MP4'],
     max_video_dimensions=(1920, 1080),
     max_video_file_size_mb=500.0,
-    supports_text_with_media=False,
+    supports_text_with_media=True,
 )
 
 META_THREADS_API_SPECS = PlatformSpecs(

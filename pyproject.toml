@@ -34,6 +34,7 @@ markers = [
     "functional: requires real credentials and network access",
     "non_mutating: functional test that does not change external platform state",
     "mutating: functional test that creates, updates, or deletes external platform state",
+    "disabled_platform: platform disabled in the product; excluded from routine functional runs",
 ]
 filterwarnings = [
     "ignore:Use 'content=<\\.\\.\\.>' to upload raw bytes/text content:DeprecationWarning:httpx._models",

@@ -107,9 +107,9 @@ galefling/
   or verified after the fact.
 - **Windows is the release target** — it is Rin's platform — and is therefore the side more
   likely to drift, since it is not where daily development happens. The control for that is
-  the release process, not extra CI: builds ship as **pre-releases** and are promoted to
-  latest-stable only after explicit Windows verification, now via the `galefling-win11` VM.
-  Do not promote a release to stable without that verification.
+  the release process rather than extra CI: builds ship as **pre-releases**, and promotion
+  to latest-stable follows the operator's own Windows verification, now via the
+  `galefling-win11` VM.
 - **The WSL functional-testing path is effectively dead.** It remains supported and should
   not be removed, but it is unlikely to be exercised — active development happens under
   Kubuntu rather than by booting into Windows. Do not assume WSL-only instructions have

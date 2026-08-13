@@ -477,6 +477,13 @@ first-run flow that ends with her phone paired and the client on her home screen
 one-page setup guide, and a way for Jas to see whether her side is healthy. **Success is
 Rin completing setup unaided, not the existence of instructions.**
 
+"Unaided" is load-bearing: Rin is in Nevada and Jas is in Washington, so there is no
+in-person fallback. Every setup step and every subsequent troubleshoot happens either on
+her own or over a screen share. Anything that would realistically need hands on the
+machine is a design defect, not a support burden. (Both are on Pacific time, so scheduled
+times carry no cross-timezone ambiguity between them — though the UI should still state
+which clock a scheduled time refers to.)
+
 **Total: ~6–9 weeks**, sequential, with Phases 1 and 2 each independently useful — Phase 1
 delivers scheduling on its own, Phase 2 delivers phone posting.
 
@@ -588,6 +595,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 | Date | Change |
 |------|--------|
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + mobile web client. |
+| 2026-08-13 | Noted that Rin (Nevada) and Jas (Washington) are remote from each other, so R5's "unaided" has no in-person fallback and support is screen-share only. Both on Pacific time. |
 | 2026-08-13 | Failure notification settled on SMTP over SES (Jas), delivered through the existing credential-import file as a new `smtp` section so Rin configures nothing. Gmail App Password requirements documented. Mailbox decided: a dedicated Google Workspace account, on the trust-boundary reasoning that a machine someone else uses should not hold personal credentials. Shared with Odoo #427 (exim relay). |
 | 2026-08-13 | Separated two problems that had been conflated (Jas): GaleFling reporting its own posting failures is in scope and best served by email; whether Rin's machine is up is **not** monitored and not Jas's responsibility. Dead-man's switch dropped entirely rather than scoped. Startup reconciliation reframed as queue correctness rather than alerting, with a staleness threshold noted as an open design question. |
 | 2026-08-13 | Rewrote R4/alerting: split app-running from app-not-running failures, promoted startup queue reconciliation to the primary defence, scoped the dead-man's switch to sustained outages only, and removed a stale reference to pushing to paired devices — there is no push channel in the baseline. |

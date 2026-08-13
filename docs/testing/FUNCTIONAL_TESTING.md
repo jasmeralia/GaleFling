@@ -614,6 +614,19 @@ The Bluesky URL-facet test also asserts the link facet reached the published rec
 > This is exactly the silent failure the three-outcome reporting exists to expose: six
 > undeleted posts from a 2026-08-12 run sat on the account for a day because the previous
 > best-effort delete swallowed the error and the run still passed green.
+
+> **Instagram mutating runs can never clean up after themselves.** Unlike Threads, this
+> is not a token problem and there is nothing to re-mint. Deleting IG media requires
+> *Instagram API with Facebook Login* on `graph.facebook.com`; GaleFling uses *Instagram
+> API with Instagram Login* on `graph.instagram.com`, which Meta's IG Media reference
+> supports for reading but not for deleting. Every delete answers
+> `HTTP 400 / code 100 / subcode 33`, whose message names three unrelated causes and
+> distinguishes none of them.
+>
+> **Every mutating Instagram run leaves five posts** — image, PNG, Reel, and two
+> carousels — to be removed by hand in the Instagram app. Each is reported with its tag
+> and permalink and written to the ledger. Plan for that before running the suite
+> casually. See [INSTAGRAM.md](../platforms/INSTAGRAM.md#deleting-media-is-not-possible-on-this-api-setup).
 Facebook Page photo and video tests upload directly and do not require AWS staging.
 
 ### Coverage Gaps (functional suite)
@@ -629,7 +642,8 @@ The tables above show what **is** tested. The gaps below map missing functional 
 | Native WEBP image post | — | — | — | — | — |
 | Post cleanup after mutating test | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Opt-out cleanup + artifact reporting | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Artifact read back off the platform | ✓ | ✓ | — | — | — |
+| Artifact read back off the platform | ✓ | ✓ | ✓ | ✓ | — |
+| Mutating run can self-clean | ✓ | ✓ | **never** | ✓ | ? |
 | Media processing functional tests | partial | partial | partial | — | — |
 | Token refresh / expiry warning path | — | — | — | — | — |
 | Rate-limit headroom check | — | — | — | — | — |

@@ -16,13 +16,17 @@ All media is staged to S3 first so the Graph API can fetch it by public URL.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 import requests
 
 from tests.functional.conftest import mutating_post_text
 from tests.functional.functional_cleanup import (
     ArtifactDeleteFailedError,
+    assert_neutral_live_text,
     finish_mutating_artifact,
+    post_tag,
 )
 
 INSTAGRAM_API_BASE = 'https://graph.instagram.com'
@@ -43,6 +47,77 @@ def _make_auth(creds: dict, aws_creds: dict | None = None):
             return aws_creds
 
     return _Auth()
+
+
+#: Enough to prove the media exists, carries our caption, and published what we sent.
+#: ``media_product_type`` separates a FEED post from a REELS one — the adapter publishes
+#: video as a Reel, so it is worth seeing rather than assuming.
+INSTAGRAM_MEDIA_FIELDS = (
+    'id,media_type,media_product_type,caption,permalink,children{id,media_type}'
+)
+
+
+def _fetch_media(creds: dict, media_id: str) -> tuple[dict | None, list[str]]:
+    """Read a published Instagram media object back, returning it and its media kinds.
+
+    Retried briefly, and deliberately not distinguishing "missing" from "not yet
+    readable": Graph answers both with 400 / code 100, so the only safe reading of a
+    persistent non-200 is that the media is not there.
+    """
+    for attempt in range(5):
+        resp = requests.get(
+            f'{INSTAGRAM_API_BASE}/{media_id}',
+            params={'fields': INSTAGRAM_MEDIA_FIELDS, 'access_token': creds['access_token']},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            payload = resp.json()
+            return payload, _published_media_kinds(payload)
+        if attempt < 4:
+            time.sleep(2)
+    return None, []
+
+
+def _published_media_kinds(media_object: dict) -> list[str]:
+    """Return one entry per published item, in the Instagram Graph API's own vocabulary.
+
+    A carousel reports ``CAROUSEL_ALBUM`` at the top level and carries the real per-item
+    types on its ``children`` edge, so counting attachments means reading the children
+    rather than the parent's own ``media_type``. Instagram has no text-only post, so
+    unlike Threads there is no empty case.
+    """
+    media_type = media_object.get('media_type')
+    if media_type == 'CAROUSEL_ALBUM':
+        children = (media_object.get('children') or {}).get('data') or []
+        return [child.get('media_type') for child in children]
+    return [media_type]
+
+
+def _assert_media_published(creds: dict, media_id: str, caption: str, *, media: list[str]) -> dict:
+    """Prove the media exists on Instagram carrying our tag and content, and return it.
+
+    ``result.success`` and a returned media ID are the adapter reporting on itself; only
+    reading the object back off Graph settles whether anything was published.
+    """
+    tag = post_tag(caption)
+    payload, media_kinds = _fetch_media(creds, media_id)
+
+    assert payload is not None, (
+        f'Instagram returned media id {media_id} but Graph will not serve it back — '
+        f'nothing was published under tag {tag}'
+    )
+    published_caption = payload.get('caption') or ''
+    assert tag in published_caption, (
+        f'Instagram media {media_id} does not carry tag {tag} — this is not the post we '
+        f'just created: {published_caption!r}'
+    )
+    assert_neutral_live_text('Instagram', published_caption)
+
+    assert sorted(media_kinds) == sorted(media), (
+        f'Instagram media {media_id} (tag {tag}) published {sorted(media_kinds)}, '
+        f'expected {sorted(media)}'
+    )
+    return payload
 
 
 def _delete_media(access_token: str, media_id: str) -> None:
@@ -197,6 +272,7 @@ class TestInstagramImagePost:
         if result.post_url:
             assert result.post_url.startswith('https://www.instagram.com/')
 
+        _assert_media_published(instagram_credentials, media_id, caption, media=['IMAGE'])
         _finish_media(instagram_credentials, caption, media_id, result.post_url)
 
     def test_png_image_post(self, instagram_credentials, meta_aws_credentials, sample_png):
@@ -212,6 +288,7 @@ class TestInstagramImagePost:
         media_id = result.raw_response.get('id')
         assert media_id
 
+        _assert_media_published(instagram_credentials, media_id, caption, media=['IMAGE'])
         _finish_media(instagram_credentials, caption, media_id, result.post_url)
 
 
@@ -237,6 +314,7 @@ class TestInstagramVideoPost:
         media_id = result.raw_response.get('id')
         assert media_id
 
+        _assert_media_published(instagram_credentials, media_id, caption, media=['VIDEO'])
         _finish_media(instagram_credentials, caption, media_id, result.post_url)
 
 
@@ -264,6 +342,7 @@ class TestInstagramCarouselPost:
         media_id = result.raw_response.get('id')
         assert media_id
 
+        _assert_media_published(instagram_credentials, media_id, caption, media=['IMAGE', 'IMAGE'])
         _finish_media(instagram_credentials, caption, media_id, result.post_url)
 
     def test_carousel_image_and_video(
@@ -288,4 +367,5 @@ class TestInstagramCarouselPost:
         media_id = result.raw_response.get('id')
         assert media_id
 
+        _assert_media_published(instagram_credentials, media_id, caption, media=['IMAGE', 'VIDEO'])
         _finish_media(instagram_credentials, caption, media_id, result.post_url)

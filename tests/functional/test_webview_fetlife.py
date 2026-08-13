@@ -27,8 +27,6 @@ import pytest
 from src.platforms.fetlife import FetLifePlatform
 from tests.functional.conftest import fail_or_skip, mutating_post_tag, mutating_post_text
 from tests.functional.webview_helpers import (
-    _CONFIRM_DELETE_JS,
-    attempt_delete_current_post,
     call_platform,
     close_webview,
     create_webview,
@@ -138,9 +136,20 @@ function chrome(m) {
         return true;
     }
     if (m.closest('[class*="avatar"], [class*="user-info"], [class*="author"]')) return true;
-    // FetLife's avatars are square thumbnails; uploaded media renders far larger.
     var r = m.getBoundingClientRect();
-    return r.width > 0 && r.width <= 120 && r.height <= 120;
+    // A zero-size element is not rendered, so it is not evidence that media landed.
+    //
+    // This branch previously read `r.width > 0 && r.width <= 120 ...`, which let every
+    // unrendered element through as media. Measured against a real published picture on
+    // 2026-08-12: the post reported four "media" items, three of them 0x0 — one being
+    // the author avatar (`ipp size-14 ...`, Tailwind 56px, measuring 0x0 because it had
+    // not been laid out). It carries a real src and no "avatar" in its class name, so
+    // every other rule here missed it too. Had the upload silently dropped, hasMedia
+    // would still have been true from that avatar alone — the precise false pass this
+    // function exists to prevent.
+    if (r.width <= 0 || r.height <= 0) return true;
+    // FetLife's avatars are square thumbnails; uploaded media renders far larger.
+    return r.width <= 120 && r.height <= 120;
 }
 """
 
@@ -334,11 +343,20 @@ def _composer_elements(page, file_selector: str, submit_label: str) -> dict:
             ).find(function(b) {{
                 return b.textContent.includes({json.dumps(submit_label)});
             }});
+            var attachControl = Array.from(document.querySelectorAll('button')).filter(
+                function(b) {{
+                    return (b.textContent || '').trim() === 'Choose File';
+                }}
+            )[0];
+            var attachRect = attachControl ? attachControl.getBoundingClientRect() : null;
             return {{
                 fileInputFound: !!fileInput,
                 fileInputAccept: fileInput ? fileInput.accept : null,
                 submitFound: !!submitBtn,
-                submitDisabled: submitBtn ? submitBtn.disabled : null
+                submitDisabled: submitBtn ? submitBtn.disabled : null,
+                attachControlVisible: !!(
+                    attachRect && attachRect.width > 0 && attachRect.height > 0
+                )
             }};
         }})();
         """,
@@ -377,9 +395,15 @@ def _upload_form_state(page, composer_path: str) -> dict:
 # deepest node containing the tag finds an element with no controls at all. Scoping to
 # the article is also what stops any other status being deleted.
 def _tagged_article_js(tag: str) -> str:
+    # Scoped to document.body deliberately. FetLife puts the status text in the page
+    # <title> as well, so an unscoped '*' search matches the <title> element first —
+    # measured on the permalink page, where the leaf's ancestor chain came back as
+    # title > head > html and closest('article') was therefore null.
     return f"""
     (function() {{
-        var leaf = Array.from(document.querySelectorAll('*')).filter(function(el) {{
+        var root = document.body;
+        if (!root) return null;
+        var leaf = Array.from(root.querySelectorAll('*')).filter(function(el) {{
             return el.children.length === 0
                 && (el.textContent || '').indexOf({json.dumps(tag)}) !== -1;
         }})[0];
@@ -391,9 +415,13 @@ def _tagged_article_js(tag: str) -> str:
 def _control_in_article_js(tag: str, label: str) -> str:
     """A control inside *tag*'s article whose text is exactly *label*, as a JS expression.
 
-    Exact match, never a substring: FetLife's overflow menu puts "Delete" next to other
-    entries, and a keyword match over a menu of destructive actions is the same hazard
-    as the ``picture[is_avatar]`` checkbox next to the consent one.
+    Exact match, never a substring: FetLife's overflow menu puts "Delete" directly
+    beside Edit, Copy Link and "Who can Comment?", and a keyword match over a menu of
+    destructive actions is the same hazard as the ``picture[is_avatar]`` checkbox next
+    to the consent one.
+
+    Entries are ``<a class="dropdown-menu-entry" href="#0">`` and measure 0x0 until the
+    menu is open, so the visibility test doubles as "the menu actually opened".
     """
     return f"""
     (function() {{
@@ -412,6 +440,69 @@ def _control_in_article_js(tag: str, label: str) -> str:
     """
 
 
+def _titled_control_in_article_js(tag: str, title: str) -> str:
+    """A control inside *tag*'s article whose ``title`` attribute is exactly *title*.
+
+    The overflow control that opens the status menu is **icon-only**: an
+    ``<a href="#0">`` wrapping an ``<svg>``, with empty ``textContent`` and its label
+    carried in ``title="More options"``. Measured live 2026-08-12 — this is why matching
+    on text alone found nothing, and why the status delete silently never started.
+    """
+    return f"""
+    (function() {{
+        var host = {_tagged_article_js(tag)};
+        if (!host) return null;
+        return Array.from(host.querySelectorAll('[title]')).filter(function(c) {{
+            if ((c.getAttribute('title') || '').trim().toLowerCase()
+                    !== {json.dumps(title.lower())}) {{
+                return false;
+            }}
+            var r = c.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
+        }})[0] || null;
+    }})()
+    """
+
+
+# The confirmation dialog's affirmative control, as a JS expression.
+#
+# Scoped to a **visible** modal footer, which is the whole point. The previous shared
+# helper scoped with
+#     document.querySelector('[role="dialog"], ..., .modal, dialog[open], ...')
+# and applied no visibility test, so on FetLife it latched onto the account sidebar —
+# an <aside role="dialog"> that is invisible and sits earlier in document order than
+# the modal. It then searched that empty drawer and reported `scoped: true` with no
+# button found, which read as "the dialog had no delete button" rather than "we were
+# looking in the wrong element entirely". Measured live 2026-08-12.
+#
+# Both controls in the footer are <button type="submit"> — Cancel and "Delete Status
+# Update" — so the type carries no signal and the label is the only discriminator.
+# Cancel is excluded by name as well as by the affirmative prefix, because clicking it
+# would silently abandon cleanup while every later check still passed.
+_CONFIRM_DELETE_CONTROL_JS = """
+(function() {
+    function shown(el) {
+        var r = el.getBoundingClientRect();
+        var s = getComputedStyle(el);
+        return r.width > 0 && r.height > 0
+            && s.display !== 'none' && s.visibility !== 'hidden';
+    }
+    var footer = Array.from(document.querySelectorAll(
+        'footer.qa-modal-footer, [class*="modal-footer"]'
+    )).filter(shown)[0];
+    if (!footer) return null;
+    return Array.from(footer.querySelectorAll('button, [role="button"]')).filter(
+        function(el) {
+            if (!shown(el)) return false;
+            var label = (el.textContent || el.value || '').trim().toLowerCase();
+            if (label === 'cancel') return false;
+            return label.indexOf('delete') === 0;
+        }
+    )[0] || null;
+})()
+"""
+
+
 def _delete_status_by_tag(view, page, tag: str) -> dict:
     """Delete the feed status carrying *tag* via its own dropdown Delete entry.
 
@@ -422,37 +513,29 @@ def _delete_status_by_tag(view, page, tag: str) -> dict:
     synthetic ``.click()`` never reaches it and no confirmation dialog is raised, which
     is why the JS-only version of this helper could never work.
 
-    ``QTest.mouseClick`` at the element's viewport coordinates is trusted, and it is the
-    same mechanism the Fansly media flow needed for its dropdown (proven live
-    2026-08-12). The overflow menu must be opened first: the Delete entry has no
-    coordinates to click until it is on screen.
+    A trusted mouse event at the element's viewport coordinates is what reaches it, the
+    same mechanism the Fansly media flow needed for its dropdown. The overflow menu must
+    be opened first: the Delete entry measures 0x0 until it is on screen.
+
+    **The overflow control is matched by ``title``, not by text.** It is icon-only —
+    ``<a href="#0">`` around an ``<svg>``, empty ``textContent``,
+    ``title="More options"``. An earlier version matched on text and so never found it,
+    then fell back to "the article's last visible button". That fallback was both
+    useless and unsafe: the article contains no ``<button>`` at all (every control is an
+    ``<a>``), and had it matched anything it would have been Bookmark or Share — real
+    side effects on a live account. There is deliberately no fallback now; an unfound
+    control is reported.
 
     ``deleted`` reflects the status actually leaving the feed on a fresh page load —
     never that a control was clicked. Cleanup that silently did nothing must not report
     success, or a stray live post goes unnoticed.
     """
-    menu_js = _control_in_article_js(tag, 'more options')
-    point = element_center_js(page, menu_js)
+    point = element_center_js(page, _titled_control_in_article_js(tag, 'More options'))
     if point is None:
-        # Some layouts label the overflow control by icon alone; fall back to the
-        # article's last button rather than guessing at a selector.
-        point = element_center_js(
-            page,
-            f"""
-            (function() {{
-                var host = {_tagged_article_js(tag)};
-                if (!host) return null;
-                var btns = Array.from(host.querySelectorAll('button, [role="button"]'))
-                    .filter(function(b) {{
-                        var r = b.getBoundingClientRect();
-                        return r.width > 0 && r.height > 0;
-                    }});
-                return btns.length ? btns[btns.length - 1] : null;
-            }})()
-            """,
-        )
-    if point is None:
-        return {'deleted': False, 'reason': 'no overflow control on the status article'}
+        return {
+            'deleted': False,
+            'reason': 'no [title="More options"] control on the status article',
+        }
     trusted_click_at(view, *point)
 
     delete_point = element_center_js(page, _control_in_article_js(tag, 'delete'))
@@ -461,14 +544,17 @@ def _delete_status_by_tag(view, page, tag: str) -> dict:
     trusted_click_at(view, *delete_point)
 
     wait_ms(2000)
-    confirm = run_js(page, _CONFIRM_DELETE_JS)
+    confirm_point = element_center_js(page, _CONFIRM_DELETE_CONTROL_JS)
+    if confirm_point is None:
+        return {'deleted': False, 'reason': 'delete confirmation control not found'}
+    trusted_click_at(view, *confirm_point)
     wait_ms(2500)
 
     # Only the status leaving the feed counts as deleted.
     load_page(page, TEXT_COMPOSER_URL, timeout_ms=20000)
     wait_ms(3000)
     gone = not _status_exists_in_feed(page, tag).get('found')
-    return {'deleted': gone, 'confirm': confirm}
+    return {'deleted': gone}
 
 
 def _own_profile_href(page) -> str | None:
@@ -788,11 +874,12 @@ class TestFetLifeTextPost:
             )
 
             print(f'\n  FetLife status posted (tag {test_text})')
-            post_url = page.url().toString()
-            if POST_URL_PATTERN.search(post_url):
-                delete_outcome = attempt_delete_current_post(page)
-            else:
-                delete_outcome = _delete_status_by_tag(view, page, test_text)
+            # Unconditionally the trusted-click path. This used to branch on the URL
+            # matching a permalink and hand off to a JS-click helper, but that branch
+            # could not have worked: a status posts in place, so the URL stays on the
+            # feed and the branch was never taken — and had it been, FetLife's Delete
+            # binds its handler in JavaScript and ignores a synthetic click anyway.
+            delete_outcome = _delete_status_by_tag(view, page, test_text)
             print(f'  Delete attempt: {delete_outcome}')
             if not delete_outcome.get('deleted'):
                 print(
@@ -805,6 +892,62 @@ class TestFetLifeTextPost:
 @pytest.mark.functional
 class TestFetLifePicturePost:
     """FetLife picture upload via FetLifePlatform._attach_media()."""
+
+    @pytest.mark.non_mutating
+    def test_picture_attach_via_picker(self, galefling_data_dir, fetlife_credentials, sample_jpeg):
+        """The shipped media pre-fill path must leave the picture form ready.
+
+        This complements the retained base64 helper test below. It enters through
+        ``_do_prefill()``, uses the native picker path, and never submits the form.
+        """
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fetlife_credentials)
+            ok, final_url = load_page(page, IMAGE_COMPOSER_URL, timeout_ms=20000)
+            assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
+            wait_ms(2000)
+            caption_text = 'GaleFling non-publishing picker-path check'
+            platform.prepare_post(caption_text, [sample_jpeg])
+            platform.suppress_native_file_dialog = True
+            platform._do_prefill()
+            state = wait_for_attachment(platform)
+            wait_ms(1500)  # let the sequencer fill caption and certify after attachment
+            print(
+                f'\n  FetLife picker probe: picker_invocations={platform.picker_invocations}, '
+                f'attachment={state}',
+                flush=True,
+            )
+            # Exactly one: a second picker would mean the input fallback fired after
+            # the visible control had already opened one, and its empty selection
+            # clears the first attachment.
+            assert platform.picker_invocations == 1, (
+                f'expected one chooseFiles() call, got {platform.picker_invocations}'
+            )
+            assert state.get('attached'), f'Picture form never retained the file: {state}'
+            assert 'picture[attachments][]' in state.get('holders', []), (
+                f'File did not reach the named form field: {state}'
+            )
+            caption = _read_media_caption(page, is_video=False)
+            assert caption.get('caption') == caption_text, f'Caption did not stick: {caption}'
+            consent = run_js(
+                page,
+                """
+                (function() {
+                    var box = document.querySelector(
+                        'input[type="checkbox"][name="picture[is_certified]"]'
+                    );
+                    return {present: !!box, checked: !!(box && box.checked)};
+                })();
+                """,
+            )
+            assert consent.get('checked'), f'Consent was not certified: {consent}'
+            avatar = _avatar_checkbox_state(page)
+            assert avatar.get('present') and not avatar.get('checked'), (
+                f'Avatar replacement must stay off: {avatar}'
+            )
+        finally:
+            close_webview(view, page, platform)
 
     @pytest.mark.non_mutating
     def test_picture_composer_loads(self, galefling_data_dir, fetlife_credentials):
@@ -825,6 +968,9 @@ class TestFetLifePicturePost:
             assert isinstance(result, dict), f'JS returned: {result}'
             assert result.get('fileInputFound'), 'File input not found'
             assert result.get('submitFound'), 'Upload button not found'
+            assert result.get('attachControlVisible'), (
+                f'Visible Choose File control not found: {result}'
+            )
             assert 'image' in (result.get('fileInputAccept') or ''), (
                 'File input does not accept images'
             )
@@ -1013,6 +1159,50 @@ class TestFetLifeVideoPost:
     """FetLife video upload via FetLifePlatform._attach_media()."""
 
     @pytest.mark.non_mutating
+    def test_video_attach_via_picker(self, galefling_data_dir, fetlife_credentials, sample_video):
+        """The shipped picker path must leave the video form ready without submitting."""
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fetlife_credentials)
+            ok, final_url = load_page(page, VIDEO_COMPOSER_URL, timeout_ms=20000)
+            assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
+            wait_ms(2000)
+            caption_text = 'GaleFling non-publishing video picker-path check'
+            platform.prepare_post(caption_text, [sample_video])
+            platform.suppress_native_file_dialog = True
+            platform._do_prefill()
+            state = wait_for_attachment(platform)
+            wait_ms(1500)
+
+            assert platform.picker_invocations == 1, (
+                f'expected one chooseFiles() call, got {platform.picker_invocations}'
+            )
+            assert state.get('attached'), f'Video form never retained the file: {state}'
+            assert 'video_video' in state.get('holders', []), (
+                f'Video did not reach the named form field: {state}'
+            )
+            caption = _read_media_caption(page, is_video=True)
+            assert caption.get('caption') == caption_text, f'Description did not stick: {caption}'
+            assert caption.get('title') == caption_text, f'Video title did not stick: {caption}'
+            consent = run_js(
+                page,
+                """
+                (function() {
+                    var box = document.querySelector(
+                        'input[type="checkbox"][name="video[is_certified]"]'
+                    );
+                    return {present: !!box, checked: !!(box && box.checked)};
+                })();
+                """,
+            )
+            assert consent.get('checked'), f'Consent was not certified: {consent}'
+            form = _upload_form_state(page, 'videos/new')
+            assert form.get('stillOnComposer'), 'Must not navigate away without user submit'
+        finally:
+            close_webview(view, page, platform)
+
+    @pytest.mark.non_mutating
     def test_video_composer_loads(self, galefling_data_dir, fetlife_credentials):
         """Verify the video composer loads with file input, submit button, and consent."""
         get_or_create_app()
@@ -1031,6 +1221,9 @@ class TestFetLifeVideoPost:
             assert isinstance(result, dict), f'JS returned: {result}'
             assert result.get('fileInputFound'), 'File input not found'
             assert result.get('submitFound'), 'Upload button not found'
+            assert result.get('attachControlVisible'), (
+                f'Visible Choose File control not found: {result}'
+            )
             assert 'video' in (result.get('fileInputAccept') or ''), (
                 'File input does not accept video'
             )

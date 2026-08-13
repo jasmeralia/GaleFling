@@ -65,9 +65,10 @@ FetLife sessions expire periodically (especially without "remember me"). When yo
 |---|---|
 | Max length | Unlimited |
 | Text-only posts | Supported |
-| Text with media | **Not supported** — FetLife uses separate composers for text, image, and video posts. When media is attached, text is ignored. |
+| Text with media | Supported — GaleFling fills `picture[caption]` or `video[description]` on the media composer. |
 
-> GaleFling shows a warning in the composer when Fetslife is selected with both media and text, since the platform does not support captions on media posts.
+GaleFling still applies its single 690-character FetLife text limit to captions because
+the status composer is the binding constraint; per-composer limits are not yet modeled.
 
 ## Platform Behavior
 
@@ -89,15 +90,24 @@ FetLife sessions expire periodically (especially without "remember me"). When yo
   `accept` list (`#picture_attachments`) and the real `picture[attachments][]` field. FetLife
   moves the file between them asynchronously and clears the picker, so an attach cannot be
   verified by re-reading the input it was written to. `videos/new` has a single input
-  (`#video_video`) and keeps the file.
+  (`#video_video`) and keeps the file. GaleFling stages the local path, uses a trusted click
+  on the visible **Choose File** control, and polls the form until it retains the file.
+  The `/pictures/new` and `/videos/new` picker paths were verified live through the
+  shipped `_do_prefill()` entry point on 2026-08-12. Each produced one `chooseFiles()`
+  call and retained the file in the correct form field without submitting.
 - **Upload consent**: both upload forms require `picture[is_certified]` / `video[is_certified]`
   before they will submit. `FetLifePlatform._certify_upload_consent()` matches these by exact
   name — the picture form also carries `picture[is_avatar]`, which replaces the account avatar,
   so keyword matching over checkbox labels must never be used here.
 - **Success detection**: FetLife permalinks are **username-scoped**: `fetlife.com/<username>/s/<id>` for a status, `/<username>/pictures/<id>` and `/<username>/videos/<id>` for media. The `users/<id>/...` form this originally expected does not occur in practice, so URL capture never matched any post until fixed. All forms are covered by `SUCCESS_URL_PATTERN`.
-- **Media captions**: both media composers accept text — `picture[caption]` and `video[description]` — and the video form additionally requires a `video[title]`. `FETLIFE_SPECS.supports_text_with_media` is `False`, and **that is currently correct about GaleFling even though it understates FetLife.** FetLife itself has a caption field on both composers, and `_inject_media_caption()` fills them — but nothing in the post flow calls it. `_do_prefill()` calls `_inject_text()`, whose `TEXT_SELECTOR` (`textarea[name="body"]`) is the *status* composer's textarea and does not exist on `/pictures/new` or `/videos/new`, so the injection silently finds nothing. A media post therefore really does drop the user's text, and the composer's "text will not be included" warning is telling the truth.
-
-  Do not flip the flag on its own: that removes a warning that is currently accurate and leaves the caption just as empty. The order is to wire `_inject_media_caption()` into the media path first (task #417 Level B), then flip it. Until then the functional tests call `_inject_media_caption()` directly, which means they cover a method no shipped path reaches — worth knowing when reading them as evidence that media captions work.
+- **Media captions**: both media composers accept text — `picture[caption]` and
+  `video[description]` — and the video form additionally requires a `video[title]`.
+  `FETLIFE_SPECS.supports_text_with_media` is `True`. The media pre-fill sequence calls
+  `_inject_media_caption()` after the picker selection is retained; `_inject_text()`
+  remains explicitly status-only and is not used on `/pictures/new` or `/videos/new`.
+- **User confirmation**: the sequence certifies the exact `picture[is_certified]` or
+  `video[is_certified]` field, rechecks that `picture[is_avatar]` is off, and stops. It
+  never clicks **Upload Your Picture** or **Upload Your Video**.
 
 - **Caption length is *not* the 690-character status limit.** The 690 figure is the status composer's, which FetLife displays and enforces by disabling "Say It!". The media composers show no counter and enforce nothing visible. Measured 2026-08-12 by uploading a real picture with a **2536-character** caption: accepted, no truncation. So captions hold at least 3.7× the status cap.
 
@@ -133,10 +143,42 @@ Automated status deletion needs **real mouse events**, not a scripted `.click()`
 Delete entry is an `<a href="#0">` whose only payload is a `data` attribute that
 stringifies to `[object Object]` — no `data-method`, no `data-turbo-confirm`, no delete
 endpoint. Its handler is bound in JavaScript, so a synthetic click never reaches it and
-no confirmation is raised. The tests open the status's overflow menu and click Delete
-with `QTest.mouseClick` at the measured coordinates, then confirm deletion by reloading
-the feed and checking the status is gone — a clicked control is never treated as a
-successful deletion. If the run prints a tag as still pending, check your feed.
+no confirmation is raised. The status test *attempts* to open the overflow menu and
+click Delete with a trusted mouse event at the measured coordinates, then confirm by
+reloading the feed — a clicked control is never treated as a successful deletion.
+
+**Verified working end to end against a live status, 2026-08-12** — deletion confirmed
+by the status leaving the feed *and* by its permalink no longer resolving. Getting there
+took two fixes, both worth knowing because they are the shape of trap this page keeps
+producing:
+
+- **The overflow control is icon-only.** It is `<a href="#0" title="More options">`
+  wrapping an `<svg>`, with **empty `textContent`** — the label lives in the `title`
+  attribute. Matching on text found nothing, so the delete never started. The article
+  also contains **no `<button>` at all**; every control is an `<a>`, which is why a
+  "last visible button" fallback found nothing either. That fallback was removed rather
+  than repaired: had it matched, the article's other controls are Bookmark and Share.
+- **The confirmation dialog was being looked for in the wrong element.** The old shared
+  snippet scoped with `[role="dialog"], .modal, dialog[open], …` and applied no
+  visibility test, so it selected the account sidebar — an invisible
+  `<aside role="dialog">` earlier in document order — and reported
+  `{confirmed: false, scoped: true}`. That reads as "the dialog had no confirm button"
+  rather than "we searched the wrong element". Scope to a **visible** modal footer.
+
+The real dialog is `footer.qa-modal-footer` containing `Cancel` and
+`Delete Status Update`, **both `<button type="submit">`** — the type carries no signal,
+so the label is the only discriminator, and Cancel is excluded by name as well as by
+requiring the affirmative prefix.
+
+**Cleanup is still mostly manual, so check your accounts after a mutating run.** Only
+the FetLife status test deletes. The FetLife picture and video tests and all three
+Fansly tests delete nothing and print `CLEANUP PENDING` with the tag. Whether Fansly's
+delete control can be automated is entirely unexplored.
+
+Generalising this — an opt-in cleanup pass, plus printing the artifact URL alongside the
+tag — is Odoo task 420. It is deliberately opt-in rather than automatic: rule 9 in
+`AGENTS.md` requires a live artifact to outlive inspection, and a test that deletes on
+success destroys the evidence needed to confirm a rewritten assertion.
 
 ## Troubleshooting
 

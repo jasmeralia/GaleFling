@@ -169,26 +169,21 @@ def wait_for_attachment(platform: BaseWebViewPlatform, timeout_ms: int = 15000) 
     return state
 
 
-# Confirmation controls only, scoped to the dialog/form that the delete action
-# opened.  An unscoped ``button[type="submit"]`` lookup would match the first submit
-# button anywhere on the page — on FetLife that is the site search form.
-_CONFIRM_DELETE_JS = """
-(function() {
-    var scope = document.querySelector(
-        '[role="dialog"], [role="alertdialog"], .modal, dialog[open], form[data-turbo-confirm]'
-    ) || document;
-    var btn = Array.from(scope.querySelectorAll(
-        'button[type="submit"], input[type="submit"], .confirm-delete, [data-confirm], button'
-    )).find(function(el) {
-        var label = (el.textContent || el.value || '').trim().toLowerCase();
-        return label.includes('delete') || label.includes('confirm')
-            || label === 'yes' || label === 'ok';
-    });
-    if (!btn) return {confirmed: false, scoped: scope !== document};
-    btn.click();
-    return {confirmed: true, label: (btn.textContent || btn.value || '').trim()};
-})();
-"""
+# Deliberately no shared delete-confirmation snippet either.
+#
+# One existed and was removed 2026-08-12, alongside the JS-click delete helper above.
+# It scoped with `document.querySelector('[role="dialog"], ..., .modal, dialog[open],
+# ...')` and applied **no visibility test**, so on FetLife it selected the account
+# sidebar — an invisible `<aside role="dialog">` earlier in document order than the
+# real modal. It then searched that empty drawer and returned
+# `{confirmed: false, scoped: true}`, which reads as "the dialog had no confirm button"
+# rather than "we were scoped to the wrong element". Measured against a live status.
+#
+# The replacement lives with its platform: `_CONFIRM_DELETE_CONTROL_JS` in
+# test_webview_fetlife.py scopes to a *visible* modal footer and is clicked with a
+# trusted mouse event. Any future platform needs its own, verified the same way —
+# a shared "find something that says delete" snippet is how the wrong element gets
+# clicked on a page full of destructive controls.
 
 
 def element_center_js(page: QWebEnginePage, js_expr: str) -> tuple[int, int] | None:
@@ -310,78 +305,19 @@ def attach_via_file_picker(
     return {'attached': True, 'activated': True, 'elapsed_ms': elapsed}
 
 
-def _confirmed(result) -> bool:
-    """Whether a confirmation click actually landed (not merely attempted)."""
-    return bool(isinstance(result, dict) and result.get('confirmed'))
-
-
-def attempt_delete_current_post(page: QWebEnginePage) -> dict:
-    """Best-effort deletion of the post currently shown in the WebView.
-
-    ``deleted`` reflects whether a confirmation control was actually clicked, not
-    merely that a delete link was found — cleanup that silently did nothing must not
-    report success, or stray live posts go unnoticed.
-    """
-    wait_ms(2000)
-    delete_result = run_js(
-        page,
-        """
-        (function() {
-            var links = Array.from(document.querySelectorAll('a, button'));
-            var deleteLink = links.find(function(el) {
-                var text = el.textContent.trim().toLowerCase();
-                return text === 'delete' || text === 'remove'
-                    || text.includes('delete this');
-            });
-            if (deleteLink) {
-                deleteLink.click();
-                return {found: true, text: deleteLink.textContent.trim()};
-            }
-            var menuBtn = links.find(function(el) {
-                var label = (el.getAttribute('aria-label') || '').toLowerCase();
-                return label.includes('more') || label.includes('option')
-                    || label.includes('menu');
-            });
-            if (menuBtn) {
-                menuBtn.click();
-                return {found: false, menu_opened: true};
-            }
-            return {found: false, menu_opened: false};
-        })();
-        """,
-    )
-    if (
-        isinstance(delete_result, dict)
-        and delete_result.get('menu_opened')
-        and not delete_result.get('found')
-    ):
-        wait_ms(1000)
-        delete_result2 = run_js(
-            page,
-            """
-            (function() {
-                var items = Array.from(document.querySelectorAll(
-                    'a, button, [role="menuitem"]'
-                ));
-                var del_item = items.find(function(el) {
-                    return el.textContent.trim().toLowerCase().includes('delete');
-                });
-                if (del_item) { del_item.click(); return {clicked: true}; }
-                return {clicked: false};
-            })();
-            """,
-        )
-        if isinstance(delete_result2, dict) and delete_result2.get('clicked'):
-            wait_ms(2000)
-            confirm = run_js(page, _CONFIRM_DELETE_JS)
-            wait_ms(2000)
-            return {'deleted': _confirmed(confirm), 'via': 'menu', 'confirm': confirm}
-    if isinstance(delete_result, dict) and delete_result.get('found'):
-        wait_ms(2000)
-        confirm = run_js(page, _CONFIRM_DELETE_JS)
-        wait_ms(2000)
-        return {'deleted': _confirmed(confirm), 'via': 'direct', 'confirm': confirm}
-    return {'deleted': False, 'detail': delete_result}
+# Deliberately no shared "delete the current post" helper.
+#
+# One existed and was removed 2026-08-12: it drove deletion with JavaScript clicks,
+# which cannot work on the only platform whose delete control has been investigated.
+# FetLife's Delete is an <a href="#0"> whose handler is bound in JavaScript, so a
+# synthetic .click() never reaches it and no confirmation is raised. It also matched
+# destructive controls by substring ("delete this", aria-label "more"), and it
+# reported success from a confirmation *click* without ever verifying the artifact
+# was gone. Nothing called it.
+#
+# Deletion needs trusted_click() plus a reload-and-confirm-absent check; see
+# _delete_status_by_tag() in test_webview_fetlife.py for the shape, and Odoo task 420
+# for the opt-in cleanup pass that will generalise it.
 
 
 def create_webview(

@@ -21,7 +21,6 @@ import requests
 
 from tests.functional.conftest import mutating_post_text
 from tests.functional.functional_cleanup import (
-    ArtifactAlreadyGoneError,
     ArtifactDeleteFailedError,
     finish_mutating_artifact,
 )
@@ -51,14 +50,19 @@ def _delete_media(access_token: str, media_id: str) -> None:
 
     Reports the HTTP status only.  The request URL carries ``access_token`` in its query
     string, so neither the URL nor the response body may reach the log (rule 8).
+
+    There is deliberately no "already gone" mapping. Graph answers a missing object with
+    **400 / code 100**, not 404, and its own message for that code is "does not exist,
+    cannot be loaded due to missing permissions, or does not support this operation" —
+    one status covering three very different causes. Reporting that as "already gone"
+    would disguise a delete broken by a missing scope as a benign outcome, which is the
+    exact failure this reporting exists to surface.
     """
     resp = requests.delete(
         f'{INSTAGRAM_API_BASE}/{media_id}',
         params={'access_token': access_token},
         timeout=15,
     )
-    if resp.status_code == 404:
-        raise ArtifactAlreadyGoneError
     if resp.status_code != 200:
         raise ArtifactDeleteFailedError(f'HTTP {resp.status_code}')
 

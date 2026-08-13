@@ -907,7 +907,10 @@ class TestFetLifePicturePost:
             ok, final_url = load_page(page, IMAGE_COMPOSER_URL, timeout_ms=20000)
             assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
             wait_ms(2000)
-            caption_text = 'GaleFling non-publishing picker-path check'
+            # Neutral even though this probe never submits: the text still reaches a live
+            # composer field on a real account, and a draft that autosaves or a future
+            # change that does submit would publish whatever is here.
+            caption_text = mutating_post_tag()
             platform.prepare_post(caption_text, [sample_jpeg])
             platform.suppress_native_file_dialog = True
             platform._do_prefill()
@@ -1168,7 +1171,8 @@ class TestFetLifeVideoPost:
             ok, final_url = load_page(page, VIDEO_COMPOSER_URL, timeout_ms=20000)
             assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
             wait_ms(2000)
-            caption_text = 'GaleFling non-publishing video picker-path check'
+            # Neutral for the same reason as the picture probe above.
+            caption_text = mutating_post_tag()
             platform.prepare_post(caption_text, [sample_video])
             platform.suppress_native_file_dialog = True
             platform._do_prefill()

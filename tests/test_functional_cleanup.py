@@ -46,6 +46,44 @@ def test_post_tag_tolerates_empty_text():
     assert functional_cleanup.post_tag('   ') == ''
 
 
+# ── Neutral live content (AGENTS.md rule 14) ────────────
+
+
+def test_neutral_text_accepts_a_bare_tag():
+    functional_cleanup.assert_neutral_live_text('Twitter', 'abc12345')
+    functional_cleanup.assert_neutral_live_text('Bluesky', 'abc12345 https://example.com')
+
+
+@pytest.mark.parametrize(
+    'published',
+    [
+        'GaleFling PNG test 705f1a28 — safe to delete',
+        'GaleFling functional test 789b2a6d — safe to delete',
+        'abc12345 — safe to ignore',
+        'galefling abc12345',  # lowercase must not slip through
+    ],
+)
+def test_neutral_text_rejects_product_name_and_reader_instructions(published):
+    """These are the exact shapes that reached live accounts before commit 45c56ca."""
+    with pytest.raises(AssertionError, match='non-neutral content'):
+        functional_cleanup.assert_neutral_live_text('Threads', published)
+
+
+def test_neutral_text_catches_what_a_substring_tag_match_would_miss():
+    """The read-backs assert ``tag in text``, which old-style captions satisfy.
+
+    This is the whole reason the check reads published text rather than trusting the
+    test's own input: a regression reintroducing the caption would pass every other
+    assertion in the suite.
+    """
+    tag = '705f1a28'
+    published = f'GaleFling PNG test {tag} — safe to delete'
+    assert tag in published  # the existing assertion is happy
+
+    with pytest.raises(AssertionError):
+        functional_cleanup.assert_neutral_live_text('Threads', published)
+
+
 # ── Flag resolution ─────────────────────────────────────────────────
 
 

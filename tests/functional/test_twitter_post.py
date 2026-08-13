@@ -10,6 +10,7 @@ import tweepy
 from tests.functional.conftest import mutating_post_text
 from tests.functional.functional_cleanup import (
     ArtifactAlreadyGoneError,
+    assert_neutral_live_text,
     finish_mutating_artifact,
     post_tag,
 )
@@ -94,6 +95,8 @@ def _assert_tweet_published(
         f'Tweet {tweet_id} does not carry tag {tag} — this is not the post we just '
         f'created: {tweet.text!r}'
     )
+
+    assert_neutral_live_text('Twitter', tweet.text)
 
     expected = sorted(media or [])
     assert sorted(media_types) == expected, (

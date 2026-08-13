@@ -73,6 +73,35 @@ def leave_artifacts_enabled() -> bool:
     return bool(_CONFIG.getoption(LEAVE_ARTIFACTS_OPTION, default=False))
 
 
+#: Substrings that must never appear in content published to a live account.  Lowercase;
+#: matching is case-insensitive.  See `AGENTS.md` rule 14.
+BANNED_LIVE_CONTENT_TOKENS = (
+    'galefling',
+    'safe to delete',
+    'safe to ignore',
+    'functional test',
+)
+
+
+def assert_neutral_live_text(platform: str, published_text: str) -> None:
+    """Fail if text the platform is actually serving names the product or addresses a reader.
+
+    Checked against what came back off the network, not against what the test meant to
+    send. A source grep only proves the tree is clean right now, and the read-back
+    assertions match the tag as a *substring* — so old-style text like
+    ``GaleFling PNG test <tag> — safe to delete`` satisfies every other assertion in the
+    suite while publishing the product name to a live adult-platform account. Six such
+    posts sat on the Threads account for a day before anyone noticed them.
+    """
+    lowered = published_text.lower()
+    found = [token for token in BANNED_LIVE_CONTENT_TOKENS if token in lowered]
+    assert not found, (
+        f'{platform} is serving non-neutral content: {found} appears in the published '
+        f'text {published_text!r}. Live post content must carry the opaque tag and '
+        f'nothing else (AGENTS.md rule 14).'
+    )
+
+
 def post_tag(post_text: str) -> str:
     """Return the cleanup tag embedded in text built by ``conftest.mutating_post_text()``.
 

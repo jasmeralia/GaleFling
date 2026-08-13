@@ -258,6 +258,13 @@ class MetaThreadsPlatform(BasePlatform):
 
     def _post_text(self, text: str) -> PostResult:
         container_id = self._create_container(media_type='TEXT', text=text)
+        # A text container is not publishable the instant it is created, despite carrying
+        # no media to fetch or transcode.  Publishing too early fails with code 24 /
+        # "The requested resource does not exist", which reads like a bad container ID
+        # rather than a timing problem.  Observed live: IN_PROGRESS on the first poll,
+        # FINISHED ~3s later.  Every other post path already waits; this one did not, so
+        # text posts failed intermittently depending on how fast the container settled.
+        self._wait_for_container(container_id)
         post_id = self._publish_container(container_id)
         post_url = self._get_permalink(post_id)
         get_logger().info(f'Threads text post success: {post_url or post_id}')

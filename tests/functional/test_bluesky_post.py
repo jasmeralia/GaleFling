@@ -8,7 +8,11 @@ import pytest
 from atproto import Client as BskyClient
 
 from tests.functional.conftest import mutating_post_text
-from tests.functional.functional_cleanup import finish_mutating_artifact, post_tag
+from tests.functional.functional_cleanup import (
+    assert_neutral_live_text,
+    finish_mutating_artifact,
+    post_tag,
+)
 
 BSKY_SERVICE = 'https://bsky.social'
 
@@ -99,6 +103,8 @@ def _assert_post_published(
         f'Post {uri} does not carry tag {tag} — this is not the post we just created: '
         f'{post_view.record.text!r}'
     )
+
+    assert_neutral_live_text('Bluesky', post_view.record.text)
 
     expected = sorted(media or [])
     assert sorted(media_kinds) == expected, (

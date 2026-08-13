@@ -585,8 +585,35 @@ Two things to know before adding that check to another platform:
   asynchronously, so a cold read can miss a post that genuinely exists — both platforms'
   helpers retry for ~8s before failing.
 
+- **The three Meta platforms — Graph answers a missing object with HTTP 400 / code 100,
+  not 404.** Any "already gone" detection keyed on 404 is dead code. The delete helpers
+  deliberately have no "already gone" mapping at all, because code 100's own message is
+  "does not exist, cannot be loaded due to missing permissions, or does not support this
+  operation" — one status covering three very different causes, and treating it as benign
+  would hide a delete broken by a missing scope. A Threads carousel also reports
+  `CAROUSEL_ALBUM` at the top level with the real per-item types on its `children` edge,
+  so attachments must be counted from the children.
+
 The Bluesky URL-facet test also asserts the link facet reached the published record.
 `detect_urls()` building a facet locally was never evidence that Bluesky stored one.
+
+> **Threads mutating runs cannot clean up after themselves.** The configured token lacks
+> the `threads_delete` scope, which GaleFling does not request because the app never
+> deletes a post. Every Threads delete therefore answers `HTTP 500 / code 10 —
+> "Application does not have permission for this action"`, and the run reports
+> `artifact delete FAILED` and writes a ledger record. **Every mutating Threads run
+> leaves six posts on the account that have to be removed by hand** until a wider token
+> is in place.
+>
+> Mint one with `.venv/bin/python tools/oauth/meta_threads_remint.py` (see
+> [THREADS.md](../platforms/THREADS.md#required-permissions)). Enabling the scope in the
+> App Dashboard is not enough by itself — a token carries the scopes it was granted at
+> authorization time, so an already-issued token keeps being refused. Long-lived tokens
+> expire after 60 days, so this recurs.
+>
+> This is exactly the silent failure the three-outcome reporting exists to expose: six
+> undeleted posts from a 2026-08-12 run sat on the account for a day because the previous
+> best-effort delete swallowed the error and the run still passed green.
 Facebook Page photo and video tests upload directly and do not require AWS staging.
 
 ### Coverage Gaps (functional suite)

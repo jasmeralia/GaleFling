@@ -20,6 +20,9 @@
 
 14. **Platform names, credits, and trademark disclaimers must stay accurate.** Use canonical platform-name casing everywhere humans read the name (GUI strings, logs, user-facing errors, tests, comments, and docs): Fansly, OnlyFans, FetLife, Bluesky, Snapchat, Instagram, Threads, and Twitter (never "X"). Do not rename filenames, identifiers, account IDs, platform keys, URLs, selectors, or env var names. `PlatformSpecs.platform_name` is a display value and must use canonical casing. Keep the **Help > About** dependency list aligned with significant `requirements.txt` entries (sorted alphabetically, case-insensitive, with links to official project sites). Keep AI-tooling credits current. Maintain the trademark disclaimer in both `README.md` and the About dialog.
 
+15. **Content sent to a live platform must be neutral — never name the product or address a reader.** Anything a functional test types into a real composer or publishes to a real account is public content on Morgan's own accounts. It must carry nothing but the run's opaque tag: no product name, no "test", no "safe to delete" or similar instruction to whoever sees it. Build post text with `mutating_post_text()` / `mutating_post_tag()` in `tests/functional/conftest.py`, never an ad-hoc f-string. This applies to non-publishing probes too — text entered into a live composer can be autosaved as a draft, and a test that does not submit today may submit after a later change. Captions like `f'GaleFling PNG test {tag} — safe to delete'` shipped to live accounts before commit `45c56ca` neutralised them, and six such posts were still discoverable on the Threads account afterwards. The tag alone is enough to find an artifact for cleanup; everything beyond it is disclosure with no benefit, and on an adult platform that disclosure is a real cost.
+
+
 Trigger phrase: **"follow the release checklist"**
 - When the user says this, execute every step in the Release Checklist below.
 

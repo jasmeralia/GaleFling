@@ -19,9 +19,12 @@ together with the second, the correct response is a **topology change, not a rew
 
 | Component | Runs on | Status |
 |-----------|---------|--------|
-| **GaleFling desktop** — the whole app: composer, posting, media pipeline, scheduler, **and the HTTP server that serves mobile clients** | Windows or Linux, always-on (Rin: Win11, 24×7) | Existing app + scheduler + embedded server |
-| **PWA client** | iPhone, Android tablet, any browser — served *by the desktop app itself* | New |
-| **Relay** *(optional)* | TrueNAS Docker behind nginx proxy manager | New, small — needed only for off-LAN access |
+| **GaleFling desktop** — the whole app: composer, posting, media pipeline, scheduler, **and the HTTPS server that serves mobile clients** | Windows or Linux, always-on (Rin: Win11, 24×7) | Existing app + scheduler + embedded server |
+| **PWA client** | iPhone, Android tablet, any browser — served *by the desktop app itself, directly over the LAN* | New |
+
+**There is no relay, no VPN, and no hosted component.** Rin's desktop is on the router by
+ethernet and her phone by wifi; they talk to each other directly. Off-LAN access is
+explicitly out of scope — see [Out of scope](#out-of-scope).
 
 The decisive constraint is that **scheduled posting cannot run on a phone**. Android's
 WorkManager schedules into maintenance windows, not at times; iOS `BGTaskScheduler` is
@@ -80,6 +83,8 @@ Derived:
    the desktop app is the composer, the poster, the scheduler, *and* the server the phone
    talks to. A mobile client is always a view onto some desktop instance, never a
    standalone posting agent.
+7. **R7** — Phone and desktop connect **directly over the LAN**. No relay, no VPN, no
+   hosted component, no third party in the path.
 
 ---
 
@@ -98,26 +103,17 @@ Derived:
 ## Architecture
 
 ```
-  [phone / tablet, same LAN]          [phone, away from home]
-             |                                   |
-             |  direct HTTP over LAN             |  via relay
-             |                                   v
-             |            +--------------------------------------------+
-             |            |  Relay (optional; TrueNAS Docker, NPM+TLS)  |
-             |            |  - draft + media queue, in transit only     |
-             |            |  - status / heartbeat fan-out               |
-             |            |  - NO credentials, NO platform sessions     |
-             |            +--------------------------------------------+
-             |                                   ^
-             |                                   | outbound long-poll / WebSocket
-             |                                   | (desktop dials out; nothing opened
-             |                                   |  on the home network)
-             v                                   |
+        [ phone / tablet ]                    [ home router ]
+                |                                    |
+                +------ wifi ------------------------+
+                                                     |
+                         direct HTTPS over the LAN   |  ethernet
+                                                     |
     +----------------------------------------------------------+
     |  GaleFling desktop  —  Windows or Linux, always-on        |
     |                                                            |
     |  full GUI: composer, setup wizard, settings, WebView tabs  |
-    |  embedded HTTP server: serves the PWA + its API            |
+    |  embedded HTTPS server: serves the PWA + its API           |
     |  schedule queue (SQLite)                                   |
     |  API tier: Twitter, Bluesky, Meta                          |
     |  WebView tier: OnlyFans, Fansly, FetLife (Qt WebEngine)    |
@@ -126,23 +122,52 @@ Derived:
     +----------------------------------------------------------+
 ```
 
-The desktop app is a peer, not a headless daemon: everything it can do from its own GUI
-it can also do on behalf of a mobile client, and the mobile client is served by the same
-process. On the home LAN the phone talks to it directly and no hosted component exists at
-all. The relay is purely a rendezvous for reaching that same server from outside the LAN,
-and it is separable — see [Why a relay rather than Tailscale](#why-a-relay-rather-than-tailscale).
+The desktop app is a peer, not a headless daemon: everything it can do from its own GUI it
+can also do on behalf of a mobile client, and the mobile client is served by the same
+process. Nothing leaves the house, and there is no third party in the path.
 
-### Linux parity (R6)
+### The one constraint LAN-direct imposes: TLS is mandatory
 
-Linux is already a real build and test target — `make build-linux`, AppImage
-(`build/linux/appimage/`), nfpm deb/rpm (`build/linux/nfpm.yaml`), snap
-(`build/linux/snap/`), and `make test-functional-linux` / `test-functional-xvfb`. Qt
-WebEngine supports Linux, and the `sys.platform` gates in `src/` are confined to theme,
-Windows shell integration, app-data paths, and log collection — none of them touch the
-posting tiers. R6 is therefore mostly a **verification and CI obligation** rather than new
-implementation: the embedded server and scheduler must be written without Windows-only
-assumptions, and Linux must stay exercised rather than merely buildable. Jas's Kubuntu
-26.04 side of the dual boot is the natural development host for the server and PWA work.
+A PWA needs a **secure context**. Service workers, push notifications, and home-screen
+installability all require HTTPS, and the only non-HTTPS exception is `localhost` —
+**there is no exemption for private IP addresses**. `http://192.168.1.x:8443` gets
+"Page is not served from a secure origin" and no service worker, on both iOS and Android.
+
+So the embedded server must serve real TLS. Options, best first:
+
+1. **A real certificate for a hostname that resolves to the LAN IP.** Jas already owns
+   domains and runs DNS; a DNS-01 ACME challenge issues a publicly-trusted cert without
+   any inbound exposure, and renewal needs outbound internet only. The phone trusts it with
+   no prompts and Rin does nothing. **Recommended.**
+2. Self-signed cert plus manual trust on each device — works, but it is an iOS
+   trust-profile dance per device, which fails R5.
+3. Plain HTTP — viable only if the client is downgraded to a plain web page: no
+   installability, no push, no offline. Loses the "add to home screen" experience.
+
+This is a genuine design item for Phase 2 and the main thing that makes LAN-direct less
+trivial than it first appears. It is **not** an argument for a relay: option 1 needs no
+inbound connectivity and no hosted service.
+
+### Linux and Windows parity (R6)
+
+Linux is not a secondary target — **it is where development happens.** Since Jas moved
+from WSL to Kubuntu, Linux is the first-pass platform: features are built and exercised
+natively via `make run`, and functional tests are usually written and run under Linux
+before anything else. Build coverage is already complete (`make build-linux`, AppImage,
+nfpm deb/rpm, snap), Qt WebEngine supports Linux, and the `sys.platform` gates in `src/`
+touch only theme, Windows shell integration, app-data paths, and log collection — never
+the posting tiers.
+
+**Windows is the side more likely to drift**, precisely because it is not the daily
+development platform. That is already handled by existing practice rather than by anything
+this plan needs to invent: releases ship as **pre-releases**, and a build is promoted to
+latest-stable only after explicit Windows verification, now via the `galefling-win11` VM.
+Since Windows is Rin's platform, that promotion gate is the control that matters, and the
+embedded server and scheduler must clear it like everything else.
+
+The WSL functional-testing path is effectively dead — booting typhoon into Windows is not
+a development activity anymore. It stays supported but should not be assumed exercised,
+and it is not a validation route for this work.
 
 ### Why the poster stays on her machine
 
@@ -164,27 +189,24 @@ Secondary reasons, in descending order of weight:
   works. Server-side means headless detection, Xvfb, and remote challenge-solving.
 - The desktop already has a working ffmpeg and media pipeline.
 
-`rin-city.com` is excluded from the posting path for the same IP-identity reason. It
-remains a fine host for the **relay**, which never contacts a platform, if exposing
-TrueNAS is undesirable.
+`rin-city.com` is excluded for the same IP-identity reason. Under this plan no server-side
+hosting is involved at all, so the question is moot unless off-LAN access is ever brought
+into scope.
 
-### Off-LAN transport: relay vs. Tailscale
+## Out of scope
 
-Neither is needed while the phone is on the same network as the desktop, which is the
-common case and the whole of Phase 2. Both are answers to the narrower question of
-reaching that same server from elsewhere.
+**Using the app from the phone while away from home.** Rin posts, or schedules for later,
+while she is at home; the phone and the desktop are on the same router. Nothing in R1 or
+R2 requires reaching the desktop from outside the LAN.
 
-Tailscale is technically cleaner: put Rin's desktop, her iPhone, and Jas's devices on one
-tailnet and there is no hosted component at all.
+This is a defensible feature to add later — the client speaks HTTPS to the same API
+regardless of how the packets arrive, so a relay or Tailscale could be introduced without
+touching the client — but it is a separate feature with its own hosting, exposure, and
+onboarding costs, and shipping any mobile support at all comes first. Treat a request for
+it as new scope, not as something this plan half-delivers.
 
-It loses on **R5**. Tailscale adds an app install and an account login to Rin's side of
-setup. A relay makes her side "install GaleFling, it dials out" and her phone side "open a
-URL and add it to the home screen." Given that the existing single-app setup has not been
-completed in months, minimizing her step count outranks architectural tidiness.
-
-The client speaks plain HTTP to the same API either way, so this is a deployment choice
-rather than a design one, and Phase 3 can be decided — or skipped — on evidence from
-Phase 2.
+Also out of scope: native mobile clients (see [Appendix A](#appendix-a--mobile-native-port-analysis-deferred)),
+and any posting path that does not originate from the user's own machine.
 
 ---
 
@@ -237,10 +259,14 @@ late" status rather than silently dropped or silently skipped.
 
 ### Not failing silently (R4)
 
-The poster sends a heartbeat to the relay. The relay alerts Jas when a desktop misses its
-heartbeat window, and separately when a scheduled item passes its due time without
-reaching a terminal state. Delegated posts are reconciled on the next session by checking
-whether the platform actually published.
+With no server-side component, alerting has to originate from the desktop itself: a
+scheduled item that passes its due time without reaching a terminal state raises a visible
+failure in the GUI, a push to any paired device, and an entry in the existing log-upload
+path. Delegated posts are reconciled on the next session by checking whether the platform
+actually published. Whether Jas gets an out-of-band notification when Rin's instance stops
+running at all is an open question — that is the one thing a hosted heartbeat would have
+provided for free, and the alternative is an outbound-only ping to something Jas already
+operates.
 
 ---
 
@@ -273,7 +299,7 @@ Measured against the current tree (~17,043 LOC in `src/`):
 | `src/utils/` — constants, helpers | 537 | Reused as-is |
 | `src/gui/` + `theme.py` + `main.py` | 7,857 | Reused; gains a headless/tray mode |
 
-New code: schedule queue, relay client, local HTTP API, relay service, PWA client.
+New code: schedule queue, embedded HTTPS server and its API, device pairing/auth, PWA client.
 
 For contrast, the superseded plan's Option B was 3–5 months and reimplemented the
 1,813-line WebView base against a second engine; Option C discarded `src/` and `tests/`
@@ -303,37 +329,27 @@ delegated-vs-local routing per platform. Deliverable: **a post scheduled from th
 desktop GUI fires correctly with the app minimized**, on both Windows and Linux. No phone
 involved yet. This alone satisfies R2.
 
-### Phase 2 — Embedded server + PWA (~3–4 weeks)
+### Phase 2 — Embedded HTTPS server + PWA (~3–4 weeks)
 
-The desktop app gains an HTTP server that serves the PWA and its API: draft submission,
-media upload, platform selection, schedule picker, status. Touch-first client, home-screen
-installable, Declarative Web Push for post results, Persistent Storage API to protect the
-auth token from eviction, chunked/resumable upload for video.
+The desktop app gains a TLS-terminating HTTP server that serves the PWA and its API: draft
+submission, media upload, platform selection, schedule picker, status. Touch-first client,
+home-screen installable, Declarative Web Push for post results, Persistent Storage API to
+protect the auth token from eviction, chunked/resumable upload for video.
 
-Reachable over the LAN only at this stage — which already satisfies **R1 whenever Rin is
-at home**, with no hosted component in existence yet. Bind, auth, and pairing must work
-identically on Windows and Linux (R6).
+Includes the certificate story from
+[TLS is mandatory](#the-one-constraint-lan-direct-imposes-tls-is-mandatory) and device
+pairing/auth. Bind, TLS, auth, and pairing must work identically on Windows and Linux
+(R6). Completing this phase satisfies **R1** outright.
 
-### Phase 3 — Off-LAN access (~1–2 weeks)
-
-Only now does a hosted piece appear, and only to reach the Phase 2 server from outside the
-LAN: a relay as a Docker Compose app on TrueNAS behind nginx proxy manager with TLS,
-outbound-dialed from the desktop, draft/media queue with a retention policy, heartbeat and
-alerting. Per the TrueNAS conventions in the global agent instructions: no `env_file` —
-bind-mount a `.env` or use explicit `environment:` entries — and set `PYTHONUNBUFFERED=1`.
-
-Deferrable if LAN-only proves sufficient in practice; Tailscale remains the alternative.
-
-### Phase 4 — Onboarding (R5) (~1 week)
+### Phase 3 — Onboarding (R5) (~1 week)
 
 Treated as engineering, not documentation: installer defaults that enable autostart, a
-first-run flow that ends in a working relay pairing, a printable/one-page setup guide for
-Rin, and a remote way for Jas to see whether her side is healthy. **Success is Rin
-completing setup unaided, not the existence of instructions.**
+first-run flow that ends with her phone paired and the PWA on her home screen, a
+one-page setup guide, and a way for Jas to see whether her side is healthy. **Success is
+Rin completing setup unaided, not the existence of instructions.**
 
-**Total: ~7–11 weeks**, sequential, with Phases 1 and 2 each independently useful — Phase 1
-delivers scheduling on its own, Phase 2 delivers phone posting at home without any hosted
-infrastructure.
+**Total: ~6–9 weeks**, sequential, with Phases 1 and 2 each independently useful — Phase 1
+delivers scheduling on its own, Phase 2 delivers phone posting.
 
 ---
 
@@ -341,13 +357,13 @@ infrastructure.
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| Rin does not complete setup (historical precedent) | **High** | High | Phase 5 as a real phase; minimize her step count; relay over Tailscale |
+| Rin does not complete setup (historical precedent) | **High** | High | Phase 3 as a real phase; minimize her step count; no VPN or account signup on her side |
 | Windows Update reboot strands the poster at the lock screen | Medium | High | Autologon + session restore; heartbeat alerting |
 | Desktop sleeps despite being powered | Medium | High | Confirm in 0.1; disable sleep; wake timers |
 | Delegated scheduling breaks when a composer changes | Medium | Medium | Same fragility as posting today; reconcile after the fact |
-| Linux drifts out of parity because Windows is where testing happens | **High** | Medium | R6 is a CI obligation: keep `test-functional-linux`/`xvfb` green; develop the server and PWA on Kubuntu |
-| Embedded server is listening on Rin's LAN | Medium | Medium | Auth required from the first commit, not added later; bind explicitly, never `0.0.0.0` by default |
-| Relay is internet-exposed (Phase 3 only) | Medium | Medium | TLS, real auth, short media retention, no credentials ever stored |
+| **Windows** drifts out of parity — development and first-pass testing happen on Kubuntu | Medium | High | Existing practice already covers this: releases ship as pre-releases and are promoted to stable only after explicit Windows verification, now via the `galefling-win11` VM. Windows is Rin's platform, so the promotion gate is the control that matters. |
+| Certificate expiry silently breaks the phone client | Medium | Medium | Automated renewal; surface cert validity in the desktop GUI rather than only in logs |
+| Embedded server listening on the LAN | Medium | Medium | TLS plus device auth from the first commit, not retrofitted; explicit bind address, never `0.0.0.0` by default |
 | Large video upload from Safari over cellular stalls | Medium | Medium | Chunked/resumable upload; no background upload on iOS |
 | iOS evicts PWA storage, losing the auth token | Low | Low | Persistent Storage API; re-pair flow |
 | No Web Share Target on iOS | Certain | **Accepted** | Rin opens the app and picks media — confirmed acceptable |
@@ -361,10 +377,12 @@ once the architecture stops fighting the platforms.
 ## Open questions
 
 1. Rin's sleep settings and autologon state — Jas to confirm; expected to already be correct.
-2. Relay host, if Phase 3 happens at all: TrueNAS or `rin-city.com`? Either works, since the
-   relay never contacts a platform; TrueNAS assumed.
-3. Does the embedded server run on a fixed port with mDNS/`.local` discovery, or does
-   pairing hand the client an address? Affects R5 more than anything technical.
+2. Which domain issues the LAN certificate, and does DNS-01 renewal fit existing tooling?
+3. How does the phone find the desktop — fixed hostname resolving to a DHCP reservation,
+   or mDNS/`.local` discovery? Affects R5 more than anything technical.
+4. Should Rin's instance ping something Jas operates so a total outage is noticed
+   out-of-band? Outbound-only, no inbound exposure — but it is the one hosted-adjacent
+   piece worth reconsidering.
 
 ---
 
@@ -442,5 +460,6 @@ sustained rental and is the only option that supports an interactive debug loop.
 | Date | Change |
 |------|--------|
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + relay + PWA. |
+| 2026-08-13 | Relay/Tailscale dropped entirely (Jas): phone and desktop are on the same router, so they connect directly. Off-LAN access moved to explicit non-goals. Added R7 and the TLS/secure-context constraint that LAN-direct imposes. Corrected the parity risk — Linux is the primary development platform since the move to Kubuntu; Windows is the side that drifts, controlled by the existing pre-release-then-promote gate. Noted the WSL functional path as effectively dead. |
 | 2026-08-13 | Facebook Page scheduling reframed as delegable indirectly, by letting a scheduled Instagram post crosspost to the linked Page (Jas). Added as Phase 0.3. |
 | 2026-08-13 | Native-scheduling table confirmed by Jas (Threads and Instagram yes; Facebook and FetLife no). Added R6 — full functionality on both Windows and Linux, with the desktop app itself serving mobile clients. Relay demoted to optional off-LAN transport; phases reordered so LAN-only phone posting lands before any hosted component. |

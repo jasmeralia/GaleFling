@@ -312,14 +312,44 @@ late" status rather than silently dropped or silently skipped.
 
 ### Not failing silently (R4)
 
-With no server-side component, alerting has to originate from the desktop itself: a
-scheduled item that passes its due time without reaching a terminal state raises a visible
-failure in the GUI, a push to any paired device, and an entry in the existing log-upload
-path. Delegated posts are reconciled on the next session by checking whether the platform
-actually published. Whether Jas gets an out-of-band notification when Rin's instance stops
-running at all is an open question — that is the one thing a hosted heartbeat would have
-provided for free, and the alternative is an outbound-only ping to something Jas already
-operates.
+R4 is about **scheduled** posts specifically. Interactive posting fails loudly — Rin is
+present and sees the error. Scheduling is the only thing that fails silently by nature,
+because nobody is watching at post time.
+
+Two failure classes, not symmetric:
+
+| Failure | Who can notice |
+|---------|----------------|
+| App running; a post fails or passes its due time | The app itself |
+| **App not running at all** — crashed, machine off, update reboot left it at the lock screen | **Nobody** |
+
+The second is the "who watches the watchman" problem: a system cannot report its own total
+failure. The relay, being an always-up separate component, would have noticed a desktop
+that stopped checking in. Without it there is no second system left to notice, and this is
+the one capability its removal actually costs.
+
+**Covered locally:**
+
+- A post that fails while the app is running raises a visible failure state in the GUI and
+  an entry in the existing log-upload path. There is no push channel — GaleFling has no
+  notification model, and the HTTP baseline has no service worker.
+- **Startup reconciliation is the main defence.** On launch the app re-examines its queue:
+  anything whose due time passed while it was down is posted late and flagged "posted N
+  minutes late", rather than silently skipped. That converts any outage that *ends* from
+  lost posts into late posts plus a visible notice, which satisfies R4 on its own. Paired
+  with autologon and session-restore-after-update, the window is small.
+- Delegated posts are reconciled on the next session by checking whether the platform
+  actually published — and those fire regardless of whether the desktop was up.
+
+**Not covered:** an outage that does not end. If the machine stays down, nobody learns
+anything until someone notices posts stopped.
+
+Closing that needs a **dead-man's switch**: the desktop pings something Jas already
+operates every few minutes, and Jas is alerted when the pings stop. Outbound-only, no
+inbound exposure, no new hosted service, and it carries no content — only "alive at
+timestamp". The alerting path already exists via `git-activity-monitor`'s Discord
+notifications. The only real cost is that it slightly dents "nothing leaves the house",
+which is why it is [an open question](#open-questions) rather than assumed.
 
 ---
 
@@ -331,8 +361,10 @@ must run as a startup item inside Rin's logged-in session. Consequences:
 
 - A Windows Update reboot leaves the machine at the lock screen with the poster dead
   until someone logs in. Mitigation: enable *"Use my sign-in info to automatically finish
-  setting up after an update"* so Windows restores her session, plus heartbeat alerting so
-  a failure to come back is noticed within minutes rather than at the next missed post.
+  setting up after an update"* so Windows restores her session, so a reboot self-heals
+  rather than waiting on someone noticing. Anything whose due time passed during the
+  reboot is caught by startup reconciliation — see
+  [Not failing silently](#not-failing-silently-r4).
 - **Powered 24×7 is not the same as awake 24×7.** Sleep and Modern Standby settings must
   be confirmed, not assumed.
 - The existing GUI keeps working as-is; service mode is a second entry point into the same
@@ -412,7 +444,7 @@ delivers scheduling on its own, Phase 2 delivers phone posting.
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | Rin does not complete setup (historical precedent) | **High** | High | Phase 3 as a real phase; minimize her step count; no VPN or account signup on her side |
-| Windows Update reboot strands the poster at the lock screen | Medium | High | Autologon + session restore; heartbeat alerting |
+| Windows Update reboot strands the poster at the lock screen | Medium | High | Autologon + session restore; startup reconciliation posts anything missed during the outage, late and flagged |
 | Desktop sleeps despite being powered | Medium | High | Confirm in 0.1; disable sleep; wake timers |
 | Delegated scheduling breaks when a composer changes | Medium | Medium | Same fragility as posting today; reconcile after the fact |
 | **Windows** drifts out of parity — development and first-pass testing happen on Kubuntu | Medium | High | Existing practice already covers this: releases ship as pre-releases and are promoted to stable only after explicit Windows verification, now via the `galefling-win11` VM. Windows is Rin's platform, so the promotion gate is the control that matters. |
@@ -434,9 +466,10 @@ once the architecture stops fighting the platforms.
 1. Rin's sleep settings and autologon state — Jas to confirm; expected to already be correct.
 2. Does mDNS resolve end-to-end on Rin's actual network — her iPhone to her desktop
    through the Dream Machine? Everything about discovery rests on this. (Phase 0.4)
-3. Should Rin's instance ping something Jas operates so a total outage is noticed
-   out-of-band? Outbound-only, no inbound exposure — but it is the one hosted-adjacent
-   piece worth reconsidering.
+3. Dead-man's switch: should Rin's instance ping something Jas operates so that a
+   *sustained* outage is noticed? Startup reconciliation already covers outages that end,
+   so this is only about the machine staying down. Outbound-only and content-free, but it
+   is the one piece that reaches outside the house.
 
 ---
 
@@ -514,6 +547,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 | Date | Change |
 |------|--------|
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + mobile web client. |
+| 2026-08-13 | Rewrote R4/alerting: split app-running from app-not-running failures, promoted startup queue reconciliation to the primary defence, scoped the dead-man's switch to sustained outages only, and removed a stale reference to pushing to paired devices — there is no push channel in the baseline. |
 | 2026-08-13 | Clarified what plain HTTP actually costs (Jas): push is moot since GaleFling has no notification model, and "offline" means the app will not open at all while off-LAN, i.e. no compose-while-away. Both sit behind the same secure-context gate, so the TLS upgrade is one decision rather than two. |
 | 2026-08-13 | Discovery reworked (Jas): Rin's desktop has no static IP or DHCP reservation and configuring one is not something to ask of her, so any address-based scheme fails R5. Baseline is now mDNS (`galefling.local`) over plain HTTP. Corrected an error in the previous revision — plain HTTP does **not** prevent Add to Home Screen on iOS, nor `<input type=file>`; only service workers, push, and offline are lost. TLS via dynamic public DNS pointing at the private IP is retained as a deliberate later upgrade. |
 | 2026-08-13 | Relay/Tailscale dropped entirely (Jas): phone and desktop are on the same router, so they connect directly. Off-LAN access moved to explicit non-goals. Added R7 and the TLS/secure-context constraint that LAN-direct imposes. Corrected the parity risk — Linux is the primary development platform since the move to Kubuntu; Windows is the side that drifts, controlled by the existing pre-release-then-promote gate. Noted the WSL functional path as effectively dead. |

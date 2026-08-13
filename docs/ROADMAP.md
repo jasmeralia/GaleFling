@@ -6,7 +6,7 @@
 - Core UX: platform selection, preview, error handling, logs, updates
 
 ## Phase 1 (Current)
-- Additional platforms (Instagram, Fetlife, OnlyFans,  Fansly, etc.)
+- Additional platforms (Instagram, FetLife, OnlyFans, Fansly, etc.)
 - Multiple images per post
 - Platform-specific text (per-platform captions)
 - Hashtag management

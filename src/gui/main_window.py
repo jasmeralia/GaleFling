@@ -333,6 +333,58 @@ class _ConnectionTestProgressDialog(QDialog):
         event.accept()
 
 
+_ABOUT_DEPENDENCIES = (
+    ('atproto', 'https://github.com/MarshalX/atproto', 'Bluesky AT Protocol SDK'),
+    ('boto3', 'https://aws.amazon.com/sdk-for-python/', 'AWS SDK (S3 media staging)'),
+    ('ffmpeg', 'https://ffmpeg.org/', 'Video processing'),
+    ('keyring', 'https://github.com/jaraco/keyring', 'Credential storage'),
+    ('Packaging', 'https://packaging.pypa.io/', 'Version parsing'),
+    ('Pillow', 'https://python-pillow.org/', 'Image processing'),
+    ('PyQt6', 'https://www.riverbankcomputing.com/software/pyqt/', 'GUI framework'),
+    (
+        'PyQt6-WebEngine',
+        'https://www.riverbankcomputing.com/software/pyqtwebengine/',
+        'Embedded browser',
+    ),
+    ('Requests', 'https://requests.readthedocs.io/', 'HTTP client'),
+    ('Tweepy', 'https://www.tweepy.org/', 'Twitter API client'),
+)
+
+
+def _format_about_dependencies(ffmpeg_version: str) -> str:
+    lines = []
+    for name, url, description in _ABOUT_DEPENDENCIES:
+        display_name = f'ffmpeg ({ffmpeg_version})' if name == 'ffmpeg' else name
+        safe_name = html.escape(display_name)
+        safe_url = html.escape(url, quote=True)
+        safe_description = html.escape(description)
+        lines.append(f'<a href="{safe_url}">{safe_name}</a> \u2013 {safe_description}')
+    return '<br>'.join(lines)
+
+
+def _format_about_body(ffmpeg_version: str) -> str:
+    dependencies = _format_about_dependencies(ffmpeg_version)
+    return (
+        'Post to Twitter, Bluesky, Instagram, and more simultaneously.<br><br>'
+        'Copyright \u00a9 2026 '
+        '<a href="https://x.com/jasmeralia">Morgan Blackthorne</a>, '
+        '<a href="https://discord.gg/Seyngsh5MF">Winds of Storm</a><br>'
+        'Licensed under the MIT License<br><br>'
+        'GaleFling is not sponsored by, endorsed by, or affiliated with any of the '
+        'platforms it posts to. All trademarks are the property of their respective '
+        'owners.<br><br>'
+        '<b>Built with:</b><br>'
+        f'{dependencies}<br><br>'
+        'Written exclusively with agentic contributions leveraged via '
+        '<a href="https://kanna.sh">Kanna</a> from '
+        '<a href="https://claude.ai">Claude</a>, '
+        '<a href="https://openai.com/codex">Codex</a>, and '
+        '<a href="https://cursor.com">Cursor</a>, and with project tracking from '
+        '<a href="https://www.odoo.com">Odoo</a>.<br><br>'
+        'Built with care for creators.'
+    )
+
+
 class MainWindow(QMainWindow):
     """Main application window with composer, platform selection, and posting."""
 
@@ -1482,24 +1534,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(icon_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         ffmpeg_version = html.escape(get_ffmpeg_version())
-        body = QLabel(
-            'Post to Twitter, Bluesky, Instagram, and more simultaneously.<br><br>'
-            'Copyright \u00a9 2026 '
-            '<a href="https://x.com/jasmeralia">Morgan Blackthorne</a>, '
-            '<a href="https://discord.gg/Seyngsh5MF">Winds of Storm</a><br>'
-            'Licensed under the MIT License<br><br>'
-            '<b>Built with:</b><br>'
-            'PyQt6 \u2013 GUI framework<br>'
-            'Tweepy \u2013 Twitter API client<br>'
-            'atproto \u2013 Bluesky AT Protocol SDK<br>'
-            'Pillow \u2013 Image processing<br>'
-            f'ffmpeg ({ffmpeg_version}) \u2013 Video processing<br>'
-            'keyring \u2013 Credential storage<br>'
-            'Requests \u2013 HTTP client<br>'
-            'Packaging \u2013 Version parsing<br><br>'
-            'With engineering contributions from Claude and Codex.<br><br>'
-            'Built with care for creators.'
-        )
+        body = QLabel(_format_about_body(ffmpeg_version))
         body.setOpenExternalLinks(True)
         body.setWordWrap(True)
         layout.addWidget(body)

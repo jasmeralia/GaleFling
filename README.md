@@ -79,6 +79,10 @@ You can also quickly open the local logs folder via **Help → Open Log Director
 
 Coming soon.
 
+## Trademark Notice
+
+GaleFling is not sponsored by, endorsed by, or affiliated with any of the platforms it posts to. All trademarks are the property of their respective owners.
+
 ## For Developers
 
 Development docs are in `docs/CONTRIBUTING.md`.

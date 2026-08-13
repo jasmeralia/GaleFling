@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -219,10 +220,24 @@ def test_about_dialog_displays_ffmpeg_version(qtbot, monkeypatch):
     qtbot.addWidget(window)
     window._show_about()
 
-    assert any('ffmpeg (7.1.1-custom)' in text for text in captured['texts'])
-    assert any(
-        'engineering contributions from Claude and Codex' in text for text in captured['texts']
-    )
+    body_text = next(text for text in captured['texts'] if 'Built with:' in text)
+    assert 'ffmpeg (7.1.1-custom)' in body_text
+    assert 'not sponsored by, endorsed by, or affiliated' in body_text
+    assert 'agentic contributions leveraged via' in body_text and 'Kanna' in body_text
+    assert 'href="https://www.tweepy.org/"' in body_text
+    assert 'href="https://aws.amazon.com/sdk-for-python/"' in body_text
+    built_with_index = body_text.index('Built with:')
+    dependency_lines = [
+        line.strip()
+        for line in body_text[built_with_index:].split('<br>')
+        if line.strip().startswith('<a href=') and ' \u2013 ' in line
+    ]
+
+    def _dependency_sort_key(line: str) -> str:
+        match = re.search(r'>([^<]+)</a>', line)
+        return match.group(1).casefold() if match else line.casefold()
+
+    assert dependency_lines == sorted(dependency_lines, key=_dependency_sort_key)
 
 
 def test_manual_update_check_no_updates_applies_theme(qtbot, monkeypatch):

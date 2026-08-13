@@ -69,7 +69,7 @@ From Rin:
 1. **R1** — Compose and post from her phone (iPhone).
 2. **R2** — Schedule a post for a future time, and **manage what is queued**: hold several
    pending posts at once, see them, and edit or cancel any of them before it fires.
-   Carried over from Odoo #392, folded into #426 as a duplicate.
+   Carried over from Odoo #392, whose research fed into this plan.
 
 Derived:
 
@@ -612,7 +612,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 | Date | Change |
 |------|--------|
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + mobile web client. |
-| 2026-08-13 | Folded in Odoo #392 ("Look into scheduling support"), closed as a duplicate. Added queue management to R2 — multiple pending posts, editable and cancellable — which the plan had not stated. Flagged a direct contradiction on Facebook: #392 recorded `scheduled_publish_time` as working, the 2026-08-13 review did not; resolving it is now Phase 0.3, and the Instagram-crosspost workaround demoted to a fallback. |
+| 2026-08-13 | Carried forward the findings of Odoo #392 ("Look into scheduling support"), a research task now completed. Added queue management to R2 — multiple pending posts, editable and cancellable — which the plan had not stated. Flagged a direct contradiction on Facebook: #392 recorded `scheduled_publish_time` as working, the 2026-08-13 review did not; resolving it is now Phase 0.3, and the Instagram-crosspost workaround demoted to a fallback. |
 | 2026-08-13 | Noted that Rin (Nevada) and Jas (Washington) are remote from each other, so R5's "unaided" has no in-person fallback and support is screen-share only. Both on Pacific time. |
 | 2026-08-13 | Failure notification settled on SMTP over SES (Jas), delivered through the existing credential-import file as a new `smtp` section so Rin configures nothing. Gmail App Password requirements documented. Mailbox decided: a dedicated Google Workspace account, on the trust-boundary reasoning that a machine someone else uses should not hold personal credentials. Shared with Odoo #427 (exim relay). |
 | 2026-08-13 | Separated two problems that had been conflated (Jas): GaleFling reporting its own posting failures is in scope and best served by email; whether Rin's machine is up is **not** monitored and not Jas's responsibility. Dead-man's switch dropped entirely rather than scoped. Startup reconciliation reframed as queue correctness rather than alerting, with a staleness threshold noted as an open design question. |

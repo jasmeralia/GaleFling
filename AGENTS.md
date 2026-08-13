@@ -110,6 +110,11 @@ galefling/
   the release process rather than extra CI: builds ship as **pre-releases**, and promotion
   to latest-stable follows the operator's own Windows verification, now via the
   `galefling-win11` VM.
+- **Agents never promote releases.** Do not mark a release as latest, flip a pre-release to
+  stable, or otherwise change release visibility — no `gh release edit --latest`, no
+  equivalent API call. That decision rests on Windows verification the operator performs
+  and is theirs alone, in the same way that CI creates version tags and agents do not push
+  them by hand.
 - **The WSL functional-testing path is effectively dead.** It remains supported and should
   not be removed, but it is unlikely to be exercised — active development happens under
   Kubuntu rather than by booting into Windows. Do not assume WSL-only instructions have

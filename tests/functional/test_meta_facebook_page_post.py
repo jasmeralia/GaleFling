@@ -7,13 +7,17 @@ Credentials are read from tests/functional/.env:
 
 from __future__ import annotations
 
+import time
+
 import pytest
 import requests
 
 from tests.functional.conftest import mutating_post_text
 from tests.functional.functional_cleanup import (
     ArtifactDeleteFailedError,
+    assert_neutral_live_text,
     finish_mutating_artifact,
+    post_tag,
 )
 
 FB_GRAPH_BASE = 'https://graph.facebook.com/v25.0'
@@ -36,6 +40,92 @@ def _make_auth(creds: dict):
 def _facebook_post_id(raw_response: dict) -> str:
     """Return the feed post ID when present, else the object ID."""
     return raw_response.get('post_id') or raw_response.get('id', '')
+
+
+#: A feed post and an uploaded video are different node types with different fields, and
+#: Graph rejects a union of the two — asking a page post for ``description`` fails with
+#: "(#12) deprecate_post_aggregated_fields_for_attachement is deprecated". So the field
+#: set is chosen per node type, using the same distinction ``_facebook_post_id()`` already
+#: encodes: a feed post is ``{page_id}_{post_id}``, a video upload is a bare object ID.
+PAGE_POST_FIELDS = 'id,message,permalink_url,attachments{media_type,subattachments{media_type}}'
+VIDEO_FIELDS = 'id,description,title,permalink_url'
+
+
+def _is_page_post(artifact_id: str) -> bool:
+    """Return whether the ID names a feed post rather than an uploaded video object."""
+    return '_' in artifact_id
+
+
+def _attachment_kinds(payload: dict) -> list[str]:
+    """Return one entry per published attachment, in Graph's own vocabulary.
+
+    A multi-photo post reports a single ``album`` attachment carrying the real per-item
+    types on its ``subattachments`` edge, so attachments are counted from the children
+    when present — the same shape Threads and Instagram use for carousels.
+    """
+    kinds: list[str] = []
+    for attachment in (payload.get('attachments') or {}).get('data', []):
+        subs = (attachment.get('subattachments') or {}).get('data', [])
+        if subs:
+            kinds.extend(sub.get('media_type') for sub in subs)
+        else:
+            kinds.append(attachment.get('media_type'))
+    return kinds
+
+
+def _fetch_artifact(creds: dict, artifact_id: str) -> tuple[dict | None, str, list[str]]:
+    """Read a published artifact back, returning it, its text, and its media kinds.
+
+    Retried briefly, and deliberately not distinguishing "missing" from "not yet
+    readable": Graph answers both with 400 / code 100, so the only safe reading of a
+    persistent non-200 is that the artifact is not there.
+    """
+    is_post = _is_page_post(artifact_id)
+    fields = PAGE_POST_FIELDS if is_post else VIDEO_FIELDS
+    for attempt in range(5):
+        resp = requests.get(
+            f'{FB_GRAPH_BASE}/{artifact_id}',
+            params={'fields': fields, 'access_token': creds['page_access_token']},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            payload = resp.json()
+            if is_post:
+                return payload, payload.get('message') or '', _attachment_kinds(payload)
+            # A video upload *is* the artifact; it has no attachments edge of its own.
+            return payload, payload.get('description') or '', ['video']
+        if attempt < 4:
+            time.sleep(2)
+    return None, '', []
+
+
+def _assert_post_published(
+    creds: dict, artifact_id: str, text: str, *, media: list[str] | None = None
+) -> dict:
+    """Prove the artifact exists on the Page carrying our tag and media, and return it.
+
+    ``result.success`` and a returned ID are the adapter reporting on itself; only reading
+    the object back off Graph settles whether anything was published.
+    """
+    tag = post_tag(text)
+    payload, published_text, media_kinds = _fetch_artifact(creds, artifact_id)
+
+    assert payload is not None, (
+        f'Facebook returned id {artifact_id} but Graph will not serve it back — '
+        f'nothing was published under tag {tag}'
+    )
+    assert tag in published_text, (
+        f'Facebook artifact {artifact_id} does not carry tag {tag} — this is not the post '
+        f'we just created: {published_text!r}'
+    )
+    assert_neutral_live_text('Facebook Page', published_text)
+
+    expected = sorted(media or [])
+    assert sorted(media_kinds) == expected, (
+        f'Facebook artifact {artifact_id} (tag {tag}) published media '
+        f'{sorted(media_kinds)}, expected {expected}'
+    )
+    return payload
 
 
 def _delete_post(page_access_token: str, post_id: str) -> None:
@@ -159,6 +249,7 @@ class TestMetaFacebookPageTextPost:
         post_id = _facebook_post_id(result.raw_response)
         assert post_id
 
+        _assert_post_published(meta_facebook_credentials, post_id, text)
         _finish_post(meta_facebook_credentials, text, post_id, result.post_url)
 
 
@@ -179,6 +270,7 @@ class TestMetaFacebookPagePhotoPost:
         post_id = _facebook_post_id(result.raw_response)
         assert post_id
 
+        _assert_post_published(meta_facebook_credentials, post_id, caption, media=['photo'])
         _finish_post(meta_facebook_credentials, caption, post_id, result.post_url)
 
     def test_multi_photo_post(self, meta_facebook_credentials, sample_jpeg, sample_png):
@@ -197,6 +289,9 @@ class TestMetaFacebookPagePhotoPost:
         post_id = _facebook_post_id(result.raw_response)
         assert post_id
 
+        _assert_post_published(
+            meta_facebook_credentials, post_id, caption, media=['photo', 'photo']
+        )
         _finish_post(meta_facebook_credentials, caption, post_id, result.post_url)
 
 
@@ -218,4 +313,5 @@ class TestMetaFacebookPageVideoPost:
         assert post_id
 
         # Video uploads return a video object ID; Graph DELETE removes it.
+        _assert_post_published(meta_facebook_credentials, post_id, description, media=['video'])
         _finish_post(meta_facebook_credentials, description, post_id, result.post_url)

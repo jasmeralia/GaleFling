@@ -585,6 +585,15 @@ Two things to know before adding that check to another platform:
   asynchronously, so a cold read can miss a post that genuinely exists — both platforms'
   helpers retry for ~8s before failing.
 
+- **Facebook Page — a feed post and a video upload are different node types.** A photo or
+  text post returns `{page_id}_{post_id}`; a video upload returns a bare object ID, which
+  is exactly what `_facebook_post_id()`'s `post_id or id` fallback already encodes. They
+  need different field sets and Graph rejects a union of the two: asking a page post for
+  `description` fails with `(#12) deprecate_post_aggregated_fields_for_attachement is
+  deprecated`. A multi-photo post reports one `album` attachment with the real per-item
+  types on its `subattachments` edge. Note that `GET /{page_id}/feed` is refused for this
+  token even though `pages_read_engagement` is granted, while reading a specific post by
+  ID works — so read the artifact directly rather than listing the feed.
 - **The three Meta platforms — Graph answers a missing object with HTTP 400 / code 100,
   not 404.** Any "already gone" detection keyed on 404 is dead code. The delete helpers
   deliberately have no "already gone" mapping at all, because code 100's own message is
@@ -642,8 +651,8 @@ The tables above show what **is** tested. The gaps below map missing functional 
 | Native WEBP image post | — | — | — | — | — |
 | Post cleanup after mutating test | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Opt-out cleanup + artifact reporting | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Artifact read back off the platform | ✓ | ✓ | ✓ | ✓ | — |
-| Mutating run can self-clean | ✓ | ✓ | **never** | ✓ | ? |
+| Artifact read back off the platform | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Mutating run can self-clean | ✓ | ✓ | **never** | ✓ | ✓ |
 | Media processing functional tests | partial | partial | partial | — | — |
 | Token refresh / expiry warning path | — | — | — | — | — |
 | Rate-limit headroom check | — | — | — | — | — |

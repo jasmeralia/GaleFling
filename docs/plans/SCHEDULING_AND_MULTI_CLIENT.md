@@ -2,7 +2,7 @@
 
 ## Status
 
-**Draft — Phase 0 not started.** Supersedes `docs/plans/ANDROID_PORT.md`, which framed
+**Draft — Phase 0 not started.** Supersedes `docs/plans/old/ANDROID_PORT.md`, which framed
 this work as an Android/iOS port of the desktop app. That framing was wrong; see
 [Why this is not a port](#why-this-is-not-a-port). The mobile-port feasibility analysis
 is preserved in [Appendix A](#appendix-a--mobile-native-port-analysis-deferred).
@@ -540,7 +540,8 @@ once the architecture stops fighting the platforms.
 
 ## Appendix A — Mobile-native port analysis (deferred)
 
-Retained from the superseded `ANDROID_PORT.md` and the follow-on stack analysis. Relevant
+Retained from the superseded `docs/plans/old/ANDROID_PORT.md` and the follow-on stack
+analysis. Relevant
 only if the web client proves insufficient. Because the client is thin, a native client at that
 point would be a small app, not a port of GaleFling.
 
@@ -611,7 +612,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 
 | Date | Change |
 |------|--------|
-| 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + mobile web client. |
+| 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md` (since moved to `docs/plans/old/`); re-framed from mobile port to desktop-resident scheduler + mobile web client. |
 | 2026-08-13 | Carried forward the findings of Odoo #392 ("Look into scheduling support"), a research task now completed. Added queue management to R2 — multiple pending posts, editable and cancellable — which the plan had not stated. Flagged a direct contradiction on Facebook: #392 recorded `scheduled_publish_time` as working, the 2026-08-13 review did not; resolving it is now Phase 0.3, and the Instagram-crosspost workaround demoted to a fallback. |
 | 2026-08-13 | Noted that Rin (Nevada) and Jas (Washington) are remote from each other, so R5's "unaided" has no in-person fallback and support is screen-share only. Both on Pacific time. |
 | 2026-08-13 | Failure notification settled on SMTP over SES (Jas), delivered through the existing credential-import file as a new `smtp` section so Rin configures nothing. Gmail App Password requirements documented. Mailbox decided: a dedicated Google Workspace account, on the trust-boundary reasoning that a machine someone else uses should not hold personal credentials. Shared with Odoo #427 (exim relay). |

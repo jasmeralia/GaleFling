@@ -8,7 +8,8 @@
 > posting work to that desktop and making the phone a thin client removes every blocker
 > catalogued below, with no rewrite of `src/`.
 >
-> Retained for reference only. The still-useful feasibility analysis — Qt WebEngine and
+> Moved to `docs/plans/old/` to keep superseded plans out of the active planning
+> directory. Retained for reference only. The still-useful feasibility analysis — Qt WebEngine and
 > `QtWebView` limits, PySide6-on-iOS constraints, mobile ffmpeg, native stack ranking,
 > and iOS distribution — is carried forward in Appendix A of the superseding document.
 > **Do not plan against this file.**

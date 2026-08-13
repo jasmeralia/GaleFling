@@ -13,6 +13,10 @@ picker actually receiving the staged path.
 The negative case is the point. Without a prior gesture the JS still runs to completion
 and Chromium swallows the refused click silently, so "the call returned" is not evidence
 of anything. Both directions are asserted here for that reason.
+
+Verified on both hosts 2026-08-12: Linux (xcb under Xvfb) and the Windows 11 VM, the
+latter GPU-less. Needing no credentials is what makes running it on Windows cheap, and
+Windows is where it actually has to hold.
 """
 
 from __future__ import annotations

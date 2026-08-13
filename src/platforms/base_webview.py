@@ -1082,6 +1082,13 @@ class BaseWebViewPlatform(BasePlatform):
         has no business in shipped code. The event must go to the view's **focusProxy**
         (the render widget), not the view itself.
 
+        **Confirmed on the target platform.** The table above was measured on Linux
+        (xcb under Xvfb); ``test_webview_user_activation.py`` was then re-run in the
+        Windows 11 VM and passes there too, on a GPU-less guest. Qt-level event
+        synthesis into Chromium therefore does not depend on the platform plugin or on
+        hardware acceleration — which matters, because every media upload is built on
+        it and Windows is the shipping target.
+
         *selector* may be a tuple; the first match with real dimensions wins. The element
         must be genuinely visible: composers hide their file inputs, so a hidden input has
         no coordinates to click and this reports failure rather than clicking at (0, 0).

@@ -533,6 +533,37 @@ media tests should be re-pointed at whatever the real entry point becomes, rathe
 calling `_attach_media()` and friends directly. Until then, treat every green media test
 as a statement about the platform, not about the product.
 
+#### The blocker to closing it is gone (2026-08-12)
+
+Wiring media in needs a *trusted* gesture: Chromium refuses a file picker without user
+activation, and JavaScript cannot grant it. The functional tests got one from
+`QTest.mouseClick`, which is a test-harness module and cannot be used in `src/` — so it
+was unclear whether shipped code could drive any of this at all.
+
+Measured against a local page, no site and no credentials:
+
+| Mechanism | `userActivation` | `chooseFiles()` |
+|---|---|---|
+| JS `.click()` alone | False | not called |
+| `QApplication.sendEvent` | True | called |
+| `QApplication.postEvent` | True | called |
+| `QTest.mouseClick` (control) | True | called |
+
+A plain synthesised `QMouseEvent` is sufficient. `BaseWebViewPlatform.trusted_click()`
+now provides it, and `tests/functional/test_webview_user_activation.py` guards the whole
+chain — gesture, activation, picker receiving the staged path — **on Linux and in the
+Windows 11 VM**, the latter GPU-less. Because it drives a local `setHtml` page it needs
+no credentials, so it runs on every functional pass rather than only when some platform
+session happens to be valid, and re-running it on Windows costs nothing.
+
+That verification also caught a false success in shipped code: `open_media_picker()`
+returned `opened: true` with no activation, because the JS completes and Chromium drops
+the click silently while `picker_invocations` never moves. It refuses now.
+
+So the remaining work for #417 Level B is orchestration only — the plumbing
+(`chooseFiles()` override, staging, trusted click, picker) is complete and verified on
+the shipping platform.
+
 FetLife's status deletion also moved from "documented as impossible" to implemented:
 its `<a href="#0">` Delete control binds its handler in JS and ignores a synthetic
 click, which is exactly the trusted-click case Phase 6 prescribes. The shared

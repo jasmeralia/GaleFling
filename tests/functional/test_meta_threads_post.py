@@ -13,12 +13,15 @@ Media posts (image, video, carousel) additionally require AWS staging credential
 
 from __future__ import annotations
 
-import contextlib
-
 import pytest
 import requests
 
 from tests.functional.conftest import mutating_post_text
+from tests.functional.functional_cleanup import (
+    ArtifactAlreadyGoneError,
+    ArtifactDeleteFailedError,
+    finish_mutating_artifact,
+)
 
 THREADS_API_BASE = 'https://graph.threads.net/v1.0'
 
@@ -41,13 +44,30 @@ def _make_auth(creds: dict, aws_creds: dict | None = None):
 
 
 def _delete_post(access_token: str, post_id: str) -> None:
-    """Best-effort deletion of a published Threads post."""
-    with contextlib.suppress(Exception):
-        requests.delete(
-            f'{THREADS_API_BASE}/{post_id}',
-            params={'access_token': access_token},
-            timeout=15,
-        )
+    """Delete a published Threads post.
+
+    Reports the HTTP status only.  The request URL carries ``access_token`` in its query
+    string, so neither the URL nor the response body may reach the log (rule 8).
+    """
+    resp = requests.delete(
+        f'{THREADS_API_BASE}/{post_id}',
+        params={'access_token': access_token},
+        timeout=15,
+    )
+    if resp.status_code == 404:
+        raise ArtifactAlreadyGoneError
+    if resp.status_code != 200:
+        raise ArtifactDeleteFailedError(f'HTTP {resp.status_code}')
+
+
+def _finish_post(creds: dict, text: str, post_id: str, url: str | None = None) -> None:
+    """Delete the post, or leave it up and report it, per the run's cleanup policy."""
+    finish_mutating_artifact(
+        'Threads',
+        text,
+        url=url,
+        delete=lambda: _delete_post(creds['access_token'], post_id),
+    )
 
 
 # ── Connection tests ──────────────────────────────────────────────────────────
@@ -151,8 +171,7 @@ class TestMetaThreadsTextPost:
         post_id = result.raw_response.get('id')
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _finish_post(meta_threads_credentials, text, post_id, result.post_url)
 
 
 # ── Image post tests ──────────────────────────────────────────────────────────
@@ -180,8 +199,7 @@ class TestMetaThreadsImagePost:
         if result.post_url:
             assert 'threads.' in result.post_url and '/post/' in result.post_url
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _finish_post(meta_threads_credentials, caption, post_id, result.post_url)
 
     def test_png_image_post(self, meta_threads_credentials, meta_aws_credentials, sample_png):
         """PNG images must also be accepted by the Threads API."""
@@ -196,8 +214,7 @@ class TestMetaThreadsImagePost:
         post_id = result.raw_response.get('id')
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _finish_post(meta_threads_credentials, caption, post_id, result.post_url)
 
 
 # ── Video post tests ──────────────────────────────────────────────────────────
@@ -222,8 +239,7 @@ class TestMetaThreadsVideoPost:
         post_id = result.raw_response.get('id')
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _finish_post(meta_threads_credentials, caption, post_id, result.post_url)
 
 
 # ── Carousel post tests ───────────────────────────────────────────────────────
@@ -250,8 +266,7 @@ class TestMetaThreadsCarouselPost:
         post_id = result.raw_response.get('id')
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _finish_post(meta_threads_credentials, caption, post_id, result.post_url)
 
     def test_carousel_image_and_video(
         self,
@@ -275,5 +290,4 @@ class TestMetaThreadsCarouselPost:
         post_id = result.raw_response.get('id')
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _finish_post(meta_threads_credentials, caption, post_id, result.post_url)

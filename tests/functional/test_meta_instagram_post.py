@@ -16,12 +16,15 @@ All media is staged to S3 first so the Graph API can fetch it by public URL.
 
 from __future__ import annotations
 
-import contextlib
-
 import pytest
 import requests
 
 from tests.functional.conftest import mutating_post_text
+from tests.functional.functional_cleanup import (
+    ArtifactAlreadyGoneError,
+    ArtifactDeleteFailedError,
+    finish_mutating_artifact,
+)
 
 INSTAGRAM_API_BASE = 'https://graph.instagram.com'
 
@@ -44,13 +47,30 @@ def _make_auth(creds: dict, aws_creds: dict | None = None):
 
 
 def _delete_media(access_token: str, media_id: str) -> None:
-    """Best-effort deletion of a published Instagram media object."""
-    with contextlib.suppress(Exception):
-        requests.delete(
-            f'{INSTAGRAM_API_BASE}/{media_id}',
-            params={'access_token': access_token},
-            timeout=15,
-        )
+    """Delete a published Instagram media object.
+
+    Reports the HTTP status only.  The request URL carries ``access_token`` in its query
+    string, so neither the URL nor the response body may reach the log (rule 8).
+    """
+    resp = requests.delete(
+        f'{INSTAGRAM_API_BASE}/{media_id}',
+        params={'access_token': access_token},
+        timeout=15,
+    )
+    if resp.status_code == 404:
+        raise ArtifactAlreadyGoneError
+    if resp.status_code != 200:
+        raise ArtifactDeleteFailedError(f'HTTP {resp.status_code}')
+
+
+def _finish_media(creds: dict, caption: str, media_id: str, url: str | None = None) -> None:
+    """Delete the media, or leave it up and report it, per the run's cleanup policy."""
+    finish_mutating_artifact(
+        'Instagram',
+        caption,
+        url=url,
+        delete=lambda: _delete_media(creds['access_token'], media_id),
+    )
 
 
 # ── Connection tests ──────────────────────────────────────────────────────────
@@ -173,8 +193,7 @@ class TestInstagramImagePost:
         if result.post_url:
             assert result.post_url.startswith('https://www.instagram.com/')
 
-        # Cleanup
-        _delete_media(instagram_credentials['access_token'], media_id)
+        _finish_media(instagram_credentials, caption, media_id, result.post_url)
 
     def test_png_image_post(self, instagram_credentials, meta_aws_credentials, sample_png):
         """PNG images must also be accepted by the API."""
@@ -189,8 +208,7 @@ class TestInstagramImagePost:
         media_id = result.raw_response.get('id')
         assert media_id
 
-        # Cleanup
-        _delete_media(instagram_credentials['access_token'], media_id)
+        _finish_media(instagram_credentials, caption, media_id, result.post_url)
 
 
 # ── Video post tests ──────────────────────────────────────────────────────────
@@ -215,8 +233,7 @@ class TestInstagramVideoPost:
         media_id = result.raw_response.get('id')
         assert media_id
 
-        # Cleanup
-        _delete_media(instagram_credentials['access_token'], media_id)
+        _finish_media(instagram_credentials, caption, media_id, result.post_url)
 
 
 # ── Carousel post tests ───────────────────────────────────────────────────────
@@ -243,8 +260,7 @@ class TestInstagramCarouselPost:
         media_id = result.raw_response.get('id')
         assert media_id
 
-        # Cleanup
-        _delete_media(instagram_credentials['access_token'], media_id)
+        _finish_media(instagram_credentials, caption, media_id, result.post_url)
 
     def test_carousel_image_and_video(
         self,
@@ -268,5 +284,4 @@ class TestInstagramCarouselPost:
         media_id = result.raw_response.get('id')
         assert media_id
 
-        # Cleanup
-        _delete_media(instagram_credentials['access_token'], media_id)
+        _finish_media(instagram_credentials, caption, media_id, result.post_url)

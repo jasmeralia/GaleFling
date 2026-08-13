@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import contextlib
-
 import pytest
 from atproto import Client as BskyClient
 
 from tests.functional.conftest import mutating_post_text
+from tests.functional.functional_cleanup import finish_mutating_artifact
 
 BSKY_SERVICE = 'https://bsky.social'
 
@@ -30,13 +29,24 @@ def _make_auth(creds: dict):
 
 
 def _delete_post(creds: dict, uri: str) -> None:
-    """Best-effort deletion of a Bluesky post by AT URI."""
-    if not uri:
-        return
-    with contextlib.suppress(Exception):
-        client = BskyClient(base_url=BSKY_SERVICE)
-        client.login(creds['identifier'], creds['app_password'])
-        client.delete_post(uri)
+    """Delete a Bluesky post by AT URI.
+
+    ``com.atproto.repo.deleteRecord`` is idempotent, so there is no "already gone"
+    outcome to translate — a repeat delete succeeds rather than reporting absence.
+    """
+    client = BskyClient(base_url=BSKY_SERVICE)
+    client.login(creds['identifier'], creds['app_password'])
+    client.delete_post(uri)
+
+
+def _finish_post(creds: dict, text: str, uri: str, url: str | None = None) -> None:
+    """Delete the post, or leave it up and report it, per the run's cleanup policy."""
+    finish_mutating_artifact(
+        'Bluesky',
+        text,
+        url=url,
+        delete=lambda: _delete_post(creds, uri),
+    )
 
 
 @pytest.mark.functional
@@ -112,9 +122,9 @@ class TestBlueskyValidation:
 @pytest.mark.functional
 @pytest.mark.mutating
 class TestBlueskyTextPost:
-    """Text-only posting and deletion via BlueskyPlatform."""
+    """Text-only posting via BlueskyPlatform."""
 
-    def test_text_post_and_delete(self, bluesky_credentials):
+    def test_text_post(self, bluesky_credentials):
         from src.platforms.bluesky import BlueskyPlatform
 
         text = mutating_post_text()
@@ -128,7 +138,7 @@ class TestBlueskyTextPost:
         assert uri
         assert result.post_url.startswith('https://bsky.app/profile/')
 
-        _delete_post(bluesky_credentials, uri)
+        _finish_post(bluesky_credentials, text, uri, result.post_url)
 
     def test_post_with_url_facets(self, bluesky_credentials):
         """URL facets must be detected and published end-to-end."""
@@ -143,7 +153,7 @@ class TestBlueskyTextPost:
         uri = result.raw_response.get('uri')
         assert uri
 
-        _delete_post(bluesky_credentials, uri)
+        _finish_post(bluesky_credentials, text, uri, result.post_url)
 
 
 @pytest.mark.functional
@@ -163,7 +173,7 @@ class TestBlueskyImagePost:
         uri = result.raw_response.get('uri')
         assert uri
 
-        _delete_post(bluesky_credentials, uri)
+        _finish_post(bluesky_credentials, caption, uri, result.post_url)
 
     def test_png_image_post(self, bluesky_credentials, sample_png):
         from src.platforms.bluesky import BlueskyPlatform
@@ -177,7 +187,7 @@ class TestBlueskyImagePost:
         uri = result.raw_response.get('uri')
         assert uri
 
-        _delete_post(bluesky_credentials, uri)
+        _finish_post(bluesky_credentials, caption, uri, result.post_url)
 
     def test_multiple_images_post(self, bluesky_credentials, sample_jpeg, sample_png):
         from src.platforms.bluesky import BlueskyPlatform
@@ -193,7 +203,7 @@ class TestBlueskyImagePost:
         uri = result.raw_response.get('uri')
         assert uri
 
-        _delete_post(bluesky_credentials, uri)
+        _finish_post(bluesky_credentials, caption, uri, result.post_url)
 
 
 @pytest.mark.functional
@@ -213,4 +223,4 @@ class TestBlueskyVideoPost:
         uri = result.raw_response.get('uri')
         assert uri
 
-        _delete_post(bluesky_credentials, uri)
+        _finish_post(bluesky_credentials, caption, uri, result.post_url)

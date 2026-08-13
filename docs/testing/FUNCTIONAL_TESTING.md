@@ -19,6 +19,9 @@ make test-functional-linux
 # 5. Run mutating tests only (explicitly creates or changes real posts)
 make test-functional-mutating
 
+# 5b. As above, but leave the API posts up so they can be inspected before deletion
+make test-functional-mutating-leave-up
+
 # 6. Or use the legacy lenient mode with a virtual display
 make test-functional-xvfb PYTHON=.venv/bin/python
 
@@ -29,7 +32,8 @@ make venv-win
 make test-functional-cmd
 ```
 
-`test-functional-non-mutating`, `test-functional-mutating`, and
+`test-functional-non-mutating`, `test-functional-mutating`,
+`test-functional-mutating-leave-up`, and
 `test-functional-linux` borrow the active KDE session's display environment from `plasmashell`,
 `kwin_wayland`, or `startplasma-wayland`. This supplies the live `DISPLAY`,
 `WAYLAND_DISPLAY`, `XAUTHORITY`, `XDG_RUNTIME_DIR`, and D-Bus session values when
@@ -41,6 +45,11 @@ session belongs to a different user.
 > and may require manual deletion. `make test-functional-non-mutating` selects
 > composer discovery and unsent input checks, but never selects a test that calls
 > a real post-creation endpoint.
+>
+> `make test-functional-mutating-leave-up` deliberately skips the API deletes so the
+> posts survive for inspection — see
+> [Leaving mutating artifacts up for inspection](#leaving-mutating-artifacts-up-for-inspection).
+> Everything it creates has to be deleted by hand afterwards.
 
 > **WSL tip:** `make test-functional-cmd` invokes `cmd.exe` directly so pytest runs as a native Windows process with full GPU and display — same results as running on Windows natively. It uses a separate `.venv-win` directory because a WSL-created venv only has `bin/python`, not `Scripts/python.exe`. Run `make venv-win` once to create it. It uses the Windows Python Launcher (`py.exe`) by default, which ships with official Python installs and is more reliable than `python.exe` (which may redirect to the Microsoft Store). Override with `WIN_PYTHON` if needed, e.g. `make venv-win WIN_PYTHON="py -3.12"`.
 
@@ -169,6 +178,95 @@ Collection fails if a functional test has neither marker or both markers. Run
 change platform state require an explicit `make test-functional-mutating` or
 all-functional invocation.
 
+## Leaving mutating artifacts up for inspection
+
+The five API platforms — Twitter, Bluesky, Instagram, Threads, Facebook Page — delete
+the post they create as soon as their assertions pass. That keeps the account clean, but
+it also destroys the only evidence that the post existed. A green run is a weak signal on
+its own: adapter return values, "we got an ID back", and UI movement have all reported
+success while the platform received nothing, or received something other than what the
+assertions checked. When an assertion needs to be re-read or rewritten, the artifact is
+the only thing that can settle it — and a probe against an already-deleted post answers
+"not found", which is indistinguishable from a real measurement failure.
+
+To keep the posts:
+
+```bash
+make test-functional-mutating-leave-up
+
+# or, running pytest directly
+.venv/bin/python -m pytest tests/functional/ -m "functional and mutating" \
+  -v --leave-mutating-artifacts
+
+# or via the environment, for runners that pass env more easily than argv
+GALEFLING_LEAVE_MUTATING_ARTIFACTS=1 make test-functional-mutating
+```
+
+**The default is unchanged.** Without the flag, mutating runs still delete what they
+create, so an unattended run does not litter the account.
+
+### What gets reported
+
+Each finished artifact prints its outcome as **two separate lines** — the tag first, then
+the permalink. The tag line is emitted before anything URL-related is touched, so a
+platform that reports no permalink cannot suppress it; the tag is the only fallback for
+finding the post by hand.
+
+```
+  Twitter artifact left up (tag a1b2c3d4) — --leave-mutating-artifacts is set; delete it manually once inspection is finished
+  Twitter artifact URL: https://x.com/example/status/1234567890
+```
+
+These lines survive pytest's output capture even when the test **passes**, which is
+exactly when they are needed — no `-s` required. Avoid `-s` here: the `mutating` marker
+also selects WebView tests, whose Chromium logging would bury the report.
+
+With deletion enabled, the outcome is reported in three distinct forms rather than
+silently swallowed, so a delete that quietly stopped working is visible in scrollback:
+
+| Line | Meaning |
+|---|---|
+| `artifact deleted (tag …)` | The platform accepted the delete. |
+| `artifact already gone (tag …)` | The platform reports it is not there. Safe; not a failure. |
+| `artifact delete FAILED (tag …)` | **The post is still live.** Delete it by hand. |
+
+A failed delete also prints the URL and is written to the ledger, because it leaves an
+artifact behind just as surely as the opt-out flag does.
+
+### The cleanup ledger
+
+Every artifact left live — by the flag or by a failed delete — is appended to
+`tests/functional/.artifacts.jsonl`, so a later cleanup pass does not have to re-derive
+state from scrollback. The file is gitignored: it names real posts on real accounts.
+
+```json
+{"platform": "Twitter", "account_id": null, "tag": "a1b2c3d4", "url": "https://x.com/…", "test": "tests/functional/test_twitter_post.py::TestTwitterTextPost::test_text_post", "created_at": "2026-08-13T18:04:11.902+00:00"}
+```
+
+`url` is written as `null` rather than omitted when no permalink was available. The
+record shape is fixed by task #420 so the API and WebView sides can share one cleanup
+consumer instead of growing two formats. **No credential values are written** — not to
+the ledger, not to the printed lines. A failed delete is reported by HTTP status or by
+exception class name, never by exception message, because a `requests` or `tweepy` error
+renders the request URL and for the Graph platforms that URL carries `access_token` in
+its query string.
+
+### Relationship to WebView `CLEANUP PENDING`
+
+The two are not the same mechanism and the difference matters:
+
+| | API platforms | WebView platforms |
+|---|---|---|
+| Default | **Deletes** the post | **Leaves** the post up |
+| Opt-out / opt-in | `--leave-mutating-artifacts` suppresses the delete | No switch; deletion pass is task #420 |
+| Line printed | `artifact left up` / `deleted` / `already gone` / `delete FAILED` | `CLEANUP PENDING` |
+
+A `CLEANUP PENDING` line fires unconditionally the moment a WebView artifact is created.
+It is a statement that something exists, **not** a request to delete it — see `AGENTS.md`
+rule 9. The same applies to the `artifact left up` line: report it so the operator knows
+the post is there, leave it up while any question about it is still open, and ask for
+deletion separately once every assertion has been verified.
+
 ## Display Modes and Platform Capabilities
 
 WebView tests behave differently depending on the display environment:
@@ -205,8 +303,9 @@ GaleFling profile, because those tests cannot start without that external
 configuration. When it is unset the platform default is used instead of skipping.
 
 `make test-functional`, `make test-functional-non-mutating`,
-`make test-functional-mutating`, and `make test-functional-linux` enable strict
-mode. The three Linux desktop targets borrow the complete live graphical-session
+`make test-functional-mutating`, `make test-functional-mutating-leave-up`, and
+`make test-functional-linux` enable strict
+mode. The four Linux desktop targets borrow the complete live graphical-session
 environment so QtWebEngine can use the desktop's hardware GPU. The compatibility
 targets `test-functional-xvfb` and `test-functional-cmd` keep their previous
 lenient behavior; set
@@ -397,7 +496,7 @@ GALEFLING_STRICT_FUNCTIONAL=1 scripts/run-with-desktop-session.sh \
   .venv/bin/python -m pytest tests/functional/test_webview_fansly.py -v
 ```
 
-Every mutating post embeds an 8-character hex UUID tag in the caption/text (via `mutating_post_text()` / `mutating_post_tag()` in `conftest.py`). Search the account for that tag if cleanup fails — pytest output includes the tag when a test prints it.
+Every mutating post embeds an 8-character hex UUID tag in the caption/text (via `mutating_post_text()` / `mutating_post_tag()` in `conftest.py`). Search the account for that tag if cleanup fails. API tests print the tag on every outcome and record still-live artifacts to a ledger — see [Leaving mutating artifacts up for inspection](#leaving-mutating-artifacts-up-for-inspection).
 
 ### Session-or-Login Flow
 
@@ -464,6 +563,16 @@ Tests use UUID tags in post text to avoid duplicate-post rejections and to make 
 Bluesky and Twitter mutating tests route through `BlueskyPlatform` / `TwitterPlatform`
 (the same adapters the app uses). Instagram and Threads media tests skip when Meta AWS
 staging credentials are absent.
+
+Twitter mutating tests additionally read the tweet back off the platform and assert it
+carries the tag and the expected media, rather than trusting the adapter's own
+`result.success` and returned ID. When adding that check to another platform, note the
+trap it walked into: **tweepy's read methods default to `user_auth=False`**, which
+authenticates with an OAuth 2.0 app-only bearer token. GaleFling's Twitter client is
+built from OAuth 1.0a credentials and has no bearer token, so the default returns a 401
+that is easily misread as "this endpoint is not available on your access tier". Pass
+`user_auth=True` explicitly. Write methods (`create_tweet`, `delete_tweet`) already
+default to `True`, which is why posting works while a naive read does not.
 Facebook Page photo and video tests upload directly and do not require AWS staging.
 
 ### Coverage Gaps (functional suite)
@@ -478,6 +587,8 @@ The tables above show what **is** tested. The gaps below map missing functional 
 | GIF / animated image post | — | — | — | — | — |
 | Native WEBP image post | — | — | — | — | — |
 | Post cleanup after mutating test | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Opt-out cleanup + artifact reporting | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Artifact read back off the platform | — | ✓ | — | — | — |
 | Media processing functional tests | partial | partial | partial | — | — |
 | Token refresh / expiry warning path | — | — | — | — | — |
 | Rate-limit headroom check | — | — | — | — | — |
@@ -568,6 +679,8 @@ Functional tests are **excluded from CI** via the `functional` pytest marker:
 - `make test-functional` is the strict dedicated target for local runs
 - `make test-functional-non-mutating` selects every side-effect-free functional test
 - `make test-functional-mutating` explicitly selects tests that can change platform state
+- `make test-functional-mutating-leave-up` does the same but leaves the API posts on the
+  account for inspection instead of deleting them
 
 ## Troubleshooting
 

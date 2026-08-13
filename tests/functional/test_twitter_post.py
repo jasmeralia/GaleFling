@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-import contextlib
+import time
 
 import pytest
 import tweepy
 
 from tests.functional.conftest import mutating_post_text
+from tests.functional.functional_cleanup import (
+    ArtifactAlreadyGoneError,
+    finish_mutating_artifact,
+    post_tag,
+)
 
 
 def _make_auth(creds: dict):
@@ -40,12 +45,78 @@ def _make_client(creds: dict) -> tweepy.Client:
     )
 
 
+def _fetch_tweet(creds: dict, tweet_id: str) -> tuple[object | None, list[str]]:
+    """Read a published tweet back from Twitter, returning it and its media types.
+
+    ``user_auth=True`` is mandatory and is the entire point of this helper. tweepy's read
+    methods default to ``user_auth=False``, which authenticates with an OAuth 2.0 app-only
+    bearer token; this client is built from OAuth 1.0a credentials and carries no bearer
+    token, so the default produces a 401 that looks exactly like "tweet lookup is not
+    available on your access tier". The write methods (``create_tweet``, ``delete_tweet``)
+    default to ``user_auth=True``, which is why posting works while a naive read does not.
+
+    Retried briefly: the tweet is live the moment ``create_tweet`` returns, but a live
+    network test that flakes on a single cold read is worse than one that waits 8s.
+    """
+    client = _make_client(creds)
+    for attempt in range(5):
+        resp = client.get_tweets(
+            [tweet_id],
+            tweet_fields=['text'],
+            expansions=['attachments.media_keys'],
+            media_fields=['type'],
+            user_auth=True,
+        )
+        if resp.data:
+            return resp.data[0], [m.type for m in (resp.includes or {}).get('media', [])]
+        if attempt < 4:
+            time.sleep(2)
+    return None, []
+
+
+def _assert_tweet_published(
+    creds: dict, tweet_id: str, text: str, *, media: list[str] | None = None
+) -> None:
+    """Prove the tweet exists on Twitter carrying our tag and media.
+
+    A returned ID and ``result.success`` are not evidence that anything was published —
+    they are the adapter reporting on itself. Only reading the artifact back off the
+    platform settles it.
+    """
+    tag = post_tag(text)
+    tweet, media_types = _fetch_tweet(creds, tweet_id)
+
+    assert tweet is not None, (
+        f'Twitter returned tweet id {tweet_id} but will not serve it back — '
+        f'nothing was published under tag {tag}'
+    )
+    assert tag in tweet.text, (
+        f'Tweet {tweet_id} does not carry tag {tag} — this is not the post we just '
+        f'created: {tweet.text!r}'
+    )
+
+    expected = sorted(media or [])
+    assert sorted(media_types) == expected, (
+        f'Tweet {tweet_id} (tag {tag}) published media {sorted(media_types)}, expected {expected}'
+    )
+
+
 def _delete_tweet(creds: dict, tweet_id: str) -> None:
-    """Best-effort deletion of a tweet by ID."""
-    if not tweet_id:
-        return
-    with contextlib.suppress(Exception):
+    """Delete a tweet by ID, in the outcome vocabulary the shared reporter expects."""
+    try:
         _make_client(creds).delete_tweet(tweet_id)
+    except tweepy.NotFound as exc:
+        raise ArtifactAlreadyGoneError from exc
+
+
+def _finish_tweet(creds: dict, text: str, tweet_id: str, url: str | None = None) -> None:
+    """Delete the tweet, or leave it up and report it, per the run's cleanup policy."""
+    finish_mutating_artifact(
+        'Twitter',
+        text,
+        url=url,
+        delete=lambda: _delete_tweet(creds, tweet_id),
+    )
 
 
 @pytest.mark.functional
@@ -130,9 +201,9 @@ class TestTwitterValidation:
 @pytest.mark.functional
 @pytest.mark.mutating
 class TestTwitterTextPost:
-    """Text-only posting and deletion via TwitterPlatform."""
+    """Text-only posting via TwitterPlatform."""
 
-    def test_text_post_and_delete(self, twitter_credentials):
+    def test_text_post(self, twitter_credentials):
         from src.platforms.twitter import TwitterPlatform
 
         text = mutating_post_text()
@@ -147,7 +218,8 @@ class TestTwitterTextPost:
         if result.post_url:
             assert 'twitter.com/' in result.post_url or 'x.com/' in result.post_url
 
-        _delete_tweet(twitter_credentials, tweet_id)
+        _assert_tweet_published(twitter_credentials, tweet_id, text)
+        _finish_tweet(twitter_credentials, text, tweet_id, result.post_url)
 
 
 @pytest.mark.functional
@@ -167,7 +239,8 @@ class TestTwitterImagePost:
         tweet_id = result.raw_response.get('id')
         assert tweet_id
 
-        _delete_tweet(twitter_credentials, tweet_id)
+        _assert_tweet_published(twitter_credentials, tweet_id, caption, media=['photo'])
+        _finish_tweet(twitter_credentials, caption, tweet_id, result.post_url)
 
     def test_png_image_post(self, twitter_credentials, sample_png):
         from src.platforms.twitter import TwitterPlatform
@@ -181,7 +254,8 @@ class TestTwitterImagePost:
         tweet_id = result.raw_response.get('id')
         assert tweet_id
 
-        _delete_tweet(twitter_credentials, tweet_id)
+        _assert_tweet_published(twitter_credentials, tweet_id, caption, media=['photo'])
+        _finish_tweet(twitter_credentials, caption, tweet_id, result.post_url)
 
     def test_multiple_images_post(self, twitter_credentials, sample_jpeg, sample_png):
         from src.platforms.twitter import TwitterPlatform
@@ -197,7 +271,8 @@ class TestTwitterImagePost:
         tweet_id = result.raw_response.get('id')
         assert tweet_id
 
-        _delete_tweet(twitter_credentials, tweet_id)
+        _assert_tweet_published(twitter_credentials, tweet_id, caption, media=['photo', 'photo'])
+        _finish_tweet(twitter_credentials, caption, tweet_id, result.post_url)
 
 
 @pytest.mark.functional
@@ -217,4 +292,5 @@ class TestTwitterVideoPost:
         tweet_id = result.raw_response.get('id')
         assert tweet_id
 
-        _delete_tweet(twitter_credentials, tweet_id)
+        _assert_tweet_published(twitter_credentials, tweet_id, caption, media=['video'])
+        _finish_tweet(twitter_credentials, caption, tweet_id, result.post_url)

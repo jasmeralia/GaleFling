@@ -7,12 +7,15 @@ Credentials are read from tests/functional/.env:
 
 from __future__ import annotations
 
-import contextlib
-
 import pytest
 import requests
 
 from tests.functional.conftest import mutating_post_text
+from tests.functional.functional_cleanup import (
+    ArtifactAlreadyGoneError,
+    ArtifactDeleteFailedError,
+    finish_mutating_artifact,
+)
 
 FB_GRAPH_BASE = 'https://graph.facebook.com/v25.0'
 
@@ -37,15 +40,30 @@ def _facebook_post_id(raw_response: dict) -> str:
 
 
 def _delete_post(page_access_token: str, post_id: str) -> None:
-    """Best-effort deletion of a Facebook Page post or uploaded object."""
-    if not post_id:
-        return
-    with contextlib.suppress(Exception):
-        requests.delete(
-            f'{FB_GRAPH_BASE}/{post_id}',
-            params={'access_token': page_access_token},
-            timeout=15,
-        )
+    """Delete a Facebook Page post or uploaded object.
+
+    Reports the HTTP status only.  The request URL carries ``access_token`` in its query
+    string, so neither the URL nor the response body may reach the log (rule 8).
+    """
+    resp = requests.delete(
+        f'{FB_GRAPH_BASE}/{post_id}',
+        params={'access_token': page_access_token},
+        timeout=15,
+    )
+    if resp.status_code == 404:
+        raise ArtifactAlreadyGoneError
+    if resp.status_code != 200:
+        raise ArtifactDeleteFailedError(f'HTTP {resp.status_code}')
+
+
+def _finish_post(creds: dict, text: str, post_id: str, url: str | None = None) -> None:
+    """Delete the post, or leave it up and report it, per the run's cleanup policy."""
+    finish_mutating_artifact(
+        'Facebook Page',
+        text,
+        url=url,
+        delete=lambda: _delete_post(creds['page_access_token'], post_id),
+    )
 
 
 @pytest.mark.functional
@@ -137,8 +155,7 @@ class TestMetaFacebookPageTextPost:
         post_id = _facebook_post_id(result.raw_response)
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_facebook_credentials['page_access_token'], post_id)
+        _finish_post(meta_facebook_credentials, text, post_id, result.post_url)
 
 
 @pytest.mark.functional
@@ -158,8 +175,7 @@ class TestMetaFacebookPagePhotoPost:
         post_id = _facebook_post_id(result.raw_response)
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_facebook_credentials['page_access_token'], post_id)
+        _finish_post(meta_facebook_credentials, caption, post_id, result.post_url)
 
     def test_multi_photo_post(self, meta_facebook_credentials, sample_jpeg, sample_png):
         """Upload two photos as a multi-photo feed post and verify success."""
@@ -177,8 +193,7 @@ class TestMetaFacebookPagePhotoPost:
         post_id = _facebook_post_id(result.raw_response)
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_facebook_credentials['page_access_token'], post_id)
+        _finish_post(meta_facebook_credentials, caption, post_id, result.post_url)
 
 
 @pytest.mark.functional
@@ -198,5 +213,5 @@ class TestMetaFacebookPageVideoPost:
         post_id = _facebook_post_id(result.raw_response)
         assert post_id
 
-        # Cleanup — video uploads return a video object ID; Graph DELETE removes it.
-        _delete_post(meta_facebook_credentials['page_access_token'], post_id)
+        # Video uploads return a video object ID; Graph DELETE removes it.
+        _finish_post(meta_facebook_credentials, description, post_id, result.post_url)

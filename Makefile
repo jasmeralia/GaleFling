@@ -20,6 +20,7 @@ PYTEST_ARGS   ?=
 
 .PHONY: help venv deps version-file lint lintfix format test test-ci test-cov \
         test-functional test-functional-non-mutating test-functional-mutating \
+        test-functional-mutating-leave-up \
         test-functional-linux test-functional-xvfb test-functional-cmd \
         test-functional-win-vm test-functional-win-vm-clean \
         venv-win build-wsl build-linux installer-wsl run clean
@@ -81,6 +82,11 @@ test-functional-non-mutating: ## [Linux] Run strict tests that do not change pla
 test-functional-mutating: ## [Linux] Run strict tests that create or change real posts
 	GALEFLING_STRICT_FUNCTIONAL=1 $(DESKTOP_SESSION_RUNNER) \
 		$(PY) -m pytest tests/functional/ -m "functional and mutating and not disabled_platform" -v --no-header
+
+test-functional-mutating-leave-up: ## [Linux] As above, but leave API posts on the live account for inspection
+	GALEFLING_STRICT_FUNCTIONAL=1 $(DESKTOP_SESSION_RUNNER) \
+		$(PY) -m pytest tests/functional/ -m "functional and mutating and not disabled_platform" \
+		-v --no-header --leave-mutating-artifacts
 
 test-functional-linux: ## [Linux] Run all strict functional tests on the live desktop
 	GALEFLING_STRICT_FUNCTIONAL=1 $(DESKTOP_SESSION_RUNNER) \

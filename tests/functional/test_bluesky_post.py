@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from atproto import Client as BskyClient
 
 from tests.functional.conftest import mutating_post_text
-from tests.functional.functional_cleanup import finish_mutating_artifact
+from tests.functional.functional_cleanup import finish_mutating_artifact, post_tag
 
 BSKY_SERVICE = 'https://bsky.social'
 
@@ -26,6 +28,83 @@ def _make_auth(creds: dict):
             return None
 
     return _Auth()
+
+
+def _fetch_post(creds: dict, uri: str) -> tuple[object | None, list[str]]:
+    """Read a published post back from Bluesky, returning its view and its media kinds.
+
+    Uses ``app.bsky.feed.getPosts``, which returns the *hydrated* view — the record plus
+    the resolved embed — rather than ``getRecord``, so media can be asserted from what the
+    network actually serves instead of from what we asked it to store.
+
+    Retried briefly: the write is committed when ``send_post`` returns, but the AppView
+    that serves ``getPosts`` indexes asynchronously, so a cold read can legitimately miss
+    a post that exists.
+    """
+    client = BskyClient(base_url=BSKY_SERVICE)
+    client.login(creds['identifier'], creds['app_password'])
+    for attempt in range(5):
+        posts = client.get_posts([uri]).posts
+        if posts:
+            return posts[0], _embed_media_kinds(posts[0].embed)
+        if attempt < 4:
+            time.sleep(2)
+    return None, []
+
+
+def _embed_media_kinds(embed) -> list[str]:
+    """Return one entry per published media item, in Bluesky's own vocabulary.
+
+    Matched on the embed view's ``py_type`` discriminator rather than by duck-typing
+    attributes, so an unrecognised embed reports as unknown instead of silently counting
+    as no media at all.
+    """
+    if embed is None:
+        return []
+    py_type = getattr(embed, 'py_type', None)
+    if py_type == 'app.bsky.embed.images#view':
+        return ['image'] * len(embed.images)
+    if py_type == 'app.bsky.embed.video#view':
+        return ['video']
+    return [f'unexpected:{py_type}']
+
+
+def _published_link_facets(post_view) -> list[str]:
+    """Return the URIs of every link facet on the published record."""
+    facets = getattr(post_view.record, 'facets', None) or []
+    return [
+        feature.uri
+        for facet in facets
+        for feature in (getattr(facet, 'features', None) or [])
+        if getattr(feature, 'uri', None)
+    ]
+
+
+def _assert_post_published(
+    creds: dict, uri: str, text: str, *, media: list[str] | None = None
+) -> object:
+    """Prove the post exists on Bluesky carrying our tag and media, and return its view.
+
+    ``result.success`` and a returned AT URI are the adapter reporting on itself; only
+    reading the record back off the network settles whether anything was published. The
+    view is returned so a caller can assert on record detail without a second fetch.
+    """
+    tag = post_tag(text)
+    post_view, media_kinds = _fetch_post(creds, uri)
+
+    assert post_view is not None, (
+        f'Bluesky returned {uri} but will not serve it back — nothing was published under tag {tag}'
+    )
+    assert tag in post_view.record.text, (
+        f'Post {uri} does not carry tag {tag} — this is not the post we just created: '
+        f'{post_view.record.text!r}'
+    )
+
+    expected = sorted(media or [])
+    assert sorted(media_kinds) == expected, (
+        f'Post {uri} (tag {tag}) published media {sorted(media_kinds)}, expected {expected}'
+    )
+    return post_view
 
 
 def _delete_post(creds: dict, uri: str) -> None:
@@ -138,6 +217,7 @@ class TestBlueskyTextPost:
         assert uri
         assert result.post_url.startswith('https://bsky.app/profile/')
 
+        _assert_post_published(bluesky_credentials, uri, text)
         _finish_post(bluesky_credentials, text, uri, result.post_url)
 
     def test_post_with_url_facets(self, bluesky_credentials):
@@ -152,6 +232,15 @@ class TestBlueskyTextPost:
         assert result.success, f'Facet post failed: {result.error_code} — {result.error_message}'
         uri = result.raw_response.get('uri')
         assert uri
+
+        # The point of this test: the facet has to survive to the published record, not
+        # merely be built locally by detect_urls().
+        post = _assert_post_published(bluesky_credentials, uri, text)
+        published_links = _published_link_facets(post)
+        assert published_links == ['https://example.com'], (
+            f'Post {uri} published link facets {published_links}, expected the URL in the '
+            f'text — detect_urls() output did not reach the record'
+        )
 
         _finish_post(bluesky_credentials, text, uri, result.post_url)
 
@@ -173,6 +262,7 @@ class TestBlueskyImagePost:
         uri = result.raw_response.get('uri')
         assert uri
 
+        _assert_post_published(bluesky_credentials, uri, caption, media=['image'])
         _finish_post(bluesky_credentials, caption, uri, result.post_url)
 
     def test_png_image_post(self, bluesky_credentials, sample_png):
@@ -187,6 +277,7 @@ class TestBlueskyImagePost:
         uri = result.raw_response.get('uri')
         assert uri
 
+        _assert_post_published(bluesky_credentials, uri, caption, media=['image'])
         _finish_post(bluesky_credentials, caption, uri, result.post_url)
 
     def test_multiple_images_post(self, bluesky_credentials, sample_jpeg, sample_png):
@@ -203,6 +294,7 @@ class TestBlueskyImagePost:
         uri = result.raw_response.get('uri')
         assert uri
 
+        _assert_post_published(bluesky_credentials, uri, caption, media=['image', 'image'])
         _finish_post(bluesky_credentials, caption, uri, result.post_url)
 
 
@@ -223,4 +315,5 @@ class TestBlueskyVideoPost:
         uri = result.raw_response.get('uri')
         assert uri
 
+        _assert_post_published(bluesky_credentials, uri, caption, media=['video'])
         _finish_post(bluesky_credentials, caption, uri, result.post_url)

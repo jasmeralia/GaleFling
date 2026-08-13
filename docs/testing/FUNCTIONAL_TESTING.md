@@ -564,15 +564,29 @@ Bluesky and Twitter mutating tests route through `BlueskyPlatform` / `TwitterPla
 (the same adapters the app uses). Instagram and Threads media tests skip when Meta AWS
 staging credentials are absent.
 
-Twitter mutating tests additionally read the tweet back off the platform and assert it
-carries the tag and the expected media, rather than trusting the adapter's own
-`result.success` and returned ID. When adding that check to another platform, note the
-trap it walked into: **tweepy's read methods default to `user_auth=False`**, which
-authenticates with an OAuth 2.0 app-only bearer token. GaleFling's Twitter client is
-built from OAuth 1.0a credentials and has no bearer token, so the default returns a 401
-that is easily misread as "this endpoint is not available on your access tier". Pass
-`user_auth=True` explicitly. Write methods (`create_tweet`, `delete_tweet`) already
-default to `True`, which is why posting works while a naive read does not.
+Twitter and Bluesky mutating tests additionally read the artifact back off the platform
+and assert it carries the tag and the expected media, rather than trusting the adapter's
+own `result.success` and returned ID. Instagram, Threads and Facebook Page do not yet.
+
+Two things to know before adding that check to another platform:
+
+- **Twitter — tweepy's read methods default to `user_auth=False`**, which authenticates
+  with an OAuth 2.0 app-only bearer token. GaleFling's Twitter client is built from
+  OAuth 1.0a credentials and has no bearer token, so the default returns a 401 that is
+  easily misread as "this endpoint is not available on your access tier". Pass
+  `user_auth=True` explicitly. Write methods (`create_tweet`, `delete_tweet`) already
+  default to `True`, which is why posting works while a naive read does not.
+- **Bluesky — read via `get_posts()` (the hydrated `app.bsky.feed.getPosts` view), not
+  `get_post()`/`getRecord`.** Only the hydrated view resolves the embed, so media can be
+  asserted from what the network serves rather than from what we asked it to store. Media
+  kind is matched on the embed view's `py_type` discriminator
+  (`app.bsky.embed.images#view`, `app.bsky.embed.video#view`) so an unrecognised embed
+  reports as unexpected instead of silently counting as no media. The AppView indexes
+  asynchronously, so a cold read can miss a post that genuinely exists — both platforms'
+  helpers retry for ~8s before failing.
+
+The Bluesky URL-facet test also asserts the link facet reached the published record.
+`detect_urls()` building a facet locally was never evidence that Bluesky stored one.
 Facebook Page photo and video tests upload directly and do not require AWS staging.
 
 ### Coverage Gaps (functional suite)
@@ -588,7 +602,7 @@ The tables above show what **is** tested. The gaps below map missing functional 
 | Native WEBP image post | — | — | — | — | — |
 | Post cleanup after mutating test | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Opt-out cleanup + artifact reporting | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Artifact read back off the platform | — | ✓ | — | — | — |
+| Artifact read back off the platform | ✓ | ✓ | — | — | — |
 | Media processing functional tests | partial | partial | partial | — | — |
 | Token refresh / expiry warning path | — | — | — | — | — |
 | Rate-limit headroom check | — | — | — | — | — |

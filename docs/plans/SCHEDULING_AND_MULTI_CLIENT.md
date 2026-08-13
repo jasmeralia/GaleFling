@@ -168,19 +168,30 @@ What plain HTTP does **not** cost, contrary to an earlier draft of this document
   secure-context-gated API, unlike `getUserMedia`.
 
 So over plain HTTP Rin can add the app to her home screen, open it standalone, compose,
-attach media from her library, choose platforms and a time, and watch status. What is lost
-is **push notifications and offline drafting** — and given that she is at home and beside
-the desktop, which shows post results in its own GUI, push is a convenience rather than a
-requirement. R4 is satisfied by the desktop GUI and Jas's alerting regardless.
+attach media from her library, choose platforms and a time, and watch status.
+
+Exactly two things are lost, and neither is currently worth paying for:
+
+- **Push notifications** — moot. GaleFling has no notification model at all today; post
+  results are shown in the results dialog. There is nothing to push. R4 is satisfied by
+  the desktop GUI and by Jas's alerting.
+- **Offline capability** — narrower than it sounds. Without a service worker the page
+  loads only while the desktop is reachable, so tapping the home-screen icon while away
+  from home produces a browser error rather than opening the app, and there is no
+  compose-while-away-then-sync-on-return. That is a weaker relative of the off-LAN access
+  already ruled [out of scope](#out-of-scope) — compose-now-send-later rather than posting
+  remotely — and it has a zero-cost workaround in drafting elsewhere and pasting in. Rin
+  has not asked for it.
 
 #### Recommendation
 
 **Baseline for Phase 2: HTTP over mDNS.** Zero configuration for Rin, immune to DHCP
 changes, no certificates, no secrets on her machine, and it delivers R1 in full.
 
-**Upgrade path, only if push turns out to matter:** a publicly-trusted certificate for a
-real hostname whose **public** DNS A record points at her private IP — legal in DNS, and
-the model Plex uses. The app knows its own address and updates the record itself, so there
+**Upgrade path, if compose-while-away is ever wanted:** both losses sit behind the same
+gate — secure context — so there is no partial upgrade to reason about, and one piece of
+work buys both. That work is a publicly-trusted certificate for a real hostname whose
+**public** DNS A record points at her private IP — legal in DNS, and the model Plex uses. The app knows its own address and updates the record itself, so there
 is still no static IP and nothing for Rin to configure; the certificate comes from a
 DNS-01 challenge needing no inbound connectivity. Costs: a scoped DNS API credential
 living on her machine, propagation lag when the address changes, and exposure to DNS
@@ -406,7 +417,7 @@ delivers scheduling on its own, Phase 2 delivers phone posting.
 | Delegated scheduling breaks when a composer changes | Medium | Medium | Same fragility as posting today; reconcile after the fact |
 | **Windows** drifts out of parity — development and first-pass testing happen on Kubuntu | Medium | High | Existing practice already covers this: releases ship as pre-releases and are promoted to stable only after explicit Windows verification, now via the `galefling-win11` VM. Windows is Rin's platform, so the promotion gate is the control that matters. |
 | mDNS fails — VLAN segregation, or a client that will not resolve `.local` | Low | Medium | Verify in Phase 0.4 on Rin's actual network; fall back to a discovery step in the desktop GUI that displays the current address |
-| Push notifications later judged necessary, forcing the TLS upgrade path | Medium | Low | Deliberate later work; the client and API are unchanged by it |
+| Compose-while-away later wanted, forcing the TLS upgrade path | Low | Low | Deliberate later work; the client and API are unchanged by it |
 | Embedded server listening on the LAN | Medium | Medium | TLS plus device auth from the first commit, not retrofitted; explicit bind address, never `0.0.0.0` by default |
 | Large video upload from Safari over cellular stalls | Medium | Medium | Chunked/resumable upload; no background upload on iOS |
 | iOS clears the auth token from local storage | Medium | Low | Keep re-pairing cheap — a QR code or short code from the desktop GUI, not a credential re-entry |
@@ -503,6 +514,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 | Date | Change |
 |------|--------|
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + mobile web client. |
+| 2026-08-13 | Clarified what plain HTTP actually costs (Jas): push is moot since GaleFling has no notification model, and "offline" means the app will not open at all while off-LAN, i.e. no compose-while-away. Both sit behind the same secure-context gate, so the TLS upgrade is one decision rather than two. |
 | 2026-08-13 | Discovery reworked (Jas): Rin's desktop has no static IP or DHCP reservation and configuring one is not something to ask of her, so any address-based scheme fails R5. Baseline is now mDNS (`galefling.local`) over plain HTTP. Corrected an error in the previous revision — plain HTTP does **not** prevent Add to Home Screen on iOS, nor `<input type=file>`; only service workers, push, and offline are lost. TLS via dynamic public DNS pointing at the private IP is retained as a deliberate later upgrade. |
 | 2026-08-13 | Relay/Tailscale dropped entirely (Jas): phone and desktop are on the same router, so they connect directly. Off-LAN access moved to explicit non-goals. Added R7 and the TLS/secure-context constraint that LAN-direct imposes. Corrected the parity risk — Linux is the primary development platform since the move to Kubuntu; Windows is the side that drifts, controlled by the existing pre-release-then-promote gate. Noted the WSL functional path as effectively dead. |
 | 2026-08-13 | Facebook Page scheduling reframed as delegable indirectly, by letting a scheduled Instagram post crosspost to the linked Page (Jas). Added as Phase 0.3. |

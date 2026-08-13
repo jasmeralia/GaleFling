@@ -73,7 +73,9 @@ Derived:
 
 3. **R3** — Posting must continue to originate from her own machine and network
    (see [IP identity](#why-the-poster-stays-on-her-machine)).
-4. **R4** — A missed scheduled post must not fail silently.
+4. **R4** — When GaleFling attempts a scheduled post and it fails, that failure must be
+   reported, not swallowed. Scope is GaleFling reporting its own failures; the health of
+   the machine it runs on is [explicitly out of scope](#explicitly-not-in-scope-monitoring-rins-machine).
 5. **R5** — Rin must be able to complete setup herself. She was sent setup instructions
    for the current desktop app months ago and has not gotten through them; onboarding
    friction is the empirically binding constraint on this project, not implementation
@@ -259,7 +261,8 @@ onboarding costs, and shipping any mobile support at all comes first. Treat a re
 it as new scope, not as something this plan half-delivers.
 
 Also out of scope: native mobile clients (see [Appendix A](#appendix-a--mobile-native-port-analysis-deferred)),
-and any posting path that does not originate from the user's own machine.
+any posting path that does not originate from the user's own machine, and
+[monitoring whether Rin's machine is up](#explicitly-not-in-scope-monitoring-rins-machine).
 
 ---
 
@@ -312,44 +315,43 @@ late" status rather than silently dropped or silently skipped.
 
 ### Not failing silently (R4)
 
-R4 is about **scheduled** posts specifically. Interactive posting fails loudly — Rin is
-present and sees the error. Scheduling is the only thing that fails silently by nature,
-because nobody is watching at post time.
+R4 covers exactly one thing: **GaleFling tried to post something and it did not work.**
+Interactive posting already fails loudly, since Rin is present and sees the error.
+Scheduled posting is the case that can fail unobserved, because nobody is watching at post
+time.
 
-Two failure classes, not symmetric:
+Three channels, none of which need a service worker or a notification model:
 
-| Failure | Who can notice |
-|---------|----------------|
-| App running; a post fails or passes its due time | The app itself |
-| **App not running at all** — crashed, machine off, update reboot left it at the lock screen | **Nobody** |
+- **Email.** The natural channel for something that happens while nobody is looking, and
+  it reaches Rin and Jas on any device without the phone client being open. `boto3` is
+  already a dependency and the AWS credential/config pattern already exists for S3 media
+  staging, so SES is a small addition; plain SMTP is equally viable.
+- **Visible failure state in the desktop GUI**, alongside the existing results dialog.
+- **The existing log-upload path**, for diagnosis after the fact.
 
-The second is the "who watches the watchman" problem: a system cannot report its own total
-failure. The relay, being an always-up separate component, would have noticed a desktop
-that stopped checking in. Without it there is no second system left to notice, and this is
-the one capability its removal actually costs.
+**Startup reconciliation** covers the adjacent correctness problem — not losing work when
+the app restarts. On launch the queue is re-examined and anything whose due time passed
+while the app was down is resolved rather than silently skipped. Open design question:
+whether to post it late, or past some staleness threshold to mark it missed and notify
+instead. A caption tied to a specific time or event is worse posted three days late than
+not posted at all, so the threshold should probably be short and configurable.
 
-**Covered locally:**
+Delegated posts (OnlyFans, Fansly, Instagram, Threads) sidestep this entirely — the
+platform fires them whether or not the desktop was up — and are reconciled on the next
+session by checking whether the platform actually published.
 
-- A post that fails while the app is running raises a visible failure state in the GUI and
-  an entry in the existing log-upload path. There is no push channel — GaleFling has no
-  notification model, and the HTTP baseline has no service worker.
-- **Startup reconciliation is the main defence.** On launch the app re-examines its queue:
-  anything whose due time passed while it was down is posted late and flagged "posted N
-  minutes late", rather than silently skipped. That converts any outage that *ends* from
-  lost posts into late posts plus a visible notice, which satisfies R4 on its own. Paired
-  with autologon and session-restore-after-update, the window is small.
-- Delegated posts are reconciled on the next session by checking whether the platform
-  actually published — and those fire regardless of whether the desktop was up.
+#### Explicitly not in scope: monitoring Rin's machine
 
-**Not covered:** an outage that does not end. If the machine stays down, nobody learns
-anything until someone notices posts stopped.
+Whether her desktop is powered on, and whether GaleFling is running on it, is **not
+monitored and not alerted on**. That is her machine; if it is down for a week she either
+knows or is not home, and proactively watching it is not Jas's responsibility. This is a
+different problem from R4, which is about GaleFling reporting *its own* failures while it
+is running.
 
-Closing that needs a **dead-man's switch**: the desktop pings something Jas already
-operates every few minutes, and Jas is alerted when the pings stop. Outbound-only, no
-inbound exposure, no new hosted service, and it carries no content — only "alive at
-timestamp". The alerting path already exists via `git-activity-monitor`'s Discord
-notifications. The only real cost is that it slightly dents "nothing leaves the house",
-which is why it is [an open question](#open-questions) rather than assumed.
+An earlier revision of this document treated the two as one and proposed a dead-man's
+switch — an outbound heartbeat to something Jas operates, alerting when it stopped. That
+is dropped. It solved a problem nobody has, and it was the only remaining piece that
+reached outside the house.
 
 ---
 
@@ -466,10 +468,9 @@ once the architecture stops fighting the platforms.
 1. Rin's sleep settings and autologon state — Jas to confirm; expected to already be correct.
 2. Does mDNS resolve end-to-end on Rin's actual network — her iPhone to her desktop
    through the Dream Machine? Everything about discovery rests on this. (Phase 0.4)
-3. Dead-man's switch: should Rin's instance ping something Jas operates so that a
-   *sustained* outage is noticed? Startup reconciliation already covers outages that end,
-   so this is only about the machine staying down. Outbound-only and content-free, but it
-   is the one piece that reaches outside the house.
+3. Failure-email transport: SES, reusing the existing AWS credential pattern, or plain
+   SMTP? And what staleness threshold should startup reconciliation use before it marks a
+   due post missed rather than posting it late?
 
 ---
 
@@ -547,6 +548,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 | Date | Change |
 |------|--------|
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + mobile web client. |
+| 2026-08-13 | Separated two problems that had been conflated (Jas): GaleFling reporting its own posting failures is in scope and best served by email; whether Rin's machine is up is **not** monitored and not Jas's responsibility. Dead-man's switch dropped entirely rather than scoped. Startup reconciliation reframed as queue correctness rather than alerting, with a staleness threshold noted as an open design question. |
 | 2026-08-13 | Rewrote R4/alerting: split app-running from app-not-running failures, promoted startup queue reconciliation to the primary defence, scoped the dead-man's switch to sustained outages only, and removed a stale reference to pushing to paired devices — there is no push channel in the baseline. |
 | 2026-08-13 | Clarified what plain HTTP actually costs (Jas): push is moot since GaleFling has no notification model, and "offline" means the app will not open at all while off-LAN, i.e. no compose-while-away. Both sit behind the same secure-context gate, so the TLS upgrade is one decision rather than two. |
 | 2026-08-13 | Discovery reworked (Jas): Rin's desktop has no static IP or DHCP reservation and configuring one is not something to ask of her, so any address-based scheme fails R5. Baseline is now mDNS (`galefling.local`) over plain HTTP. Corrected an error in the previous revision — plain HTTP does **not** prevent Add to Home Screen on iOS, nor `<input type=file>`; only service workers, push, and offline are lost. TLS via dynamic public DNS pointing at the private IP is retained as a deliberate later upgrade. |

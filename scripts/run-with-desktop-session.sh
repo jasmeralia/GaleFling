@@ -42,5 +42,13 @@ export XDG_RUNTIME_DIR="$xdg_runtime_dir_val"
 [[ -n "$dbus_session_bus_address_val" ]] && \
     export DBUS_SESSION_BUS_ADDRESS="$dbus_session_bus_address_val"
 
+# MangoHud is a Vulkan/OpenGL overlay that injects into every accelerated process the
+# session starts, including QtWebEngine's GPU process. It writes [MANGOHUD] lines to
+# stderr, which land in the middle of pytest output, and it hooks the same graphics
+# path the WebView renders through. Neither is wanted for a test run, so opt out for
+# the child process only — the live session keeps its own setting.
+export MANGOHUD=0
+export DISABLE_MANGOHUD=1
+
 echo "run-with-desktop-session: using graphical session from pid $session_pid."
 exec "$@"

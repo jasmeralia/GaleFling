@@ -222,6 +222,27 @@ All credentials are read from `tests/functional/.env` (gitignored). Copy the tem
 cp tests/functional/.env.example tests/functional/.env
 ```
 
+#### Credential fixtures redact themselves
+
+Every `*_credentials` fixture returns a `RedactedCredentials` mapping (defined in
+`tests/functional/conftest.py`) rather than a plain `dict`. Subscripting works as
+normal — `creds['password']` still returns the password — but the mapping renders as
+`<RedactedCredentials: email, password>` instead of its values.
+
+This exists because **pytest prints every fixture argument in a failing test's
+traceback header**, using each value's `repr`. A credential fixture returning a plain
+dict therefore prints the live password on any failure, with nothing in the test doing
+the printing, and invisibly until something fails. That is how a Fansly password
+reached a session transcript and had to be rotated.
+
+Redacting at the value rather than the command line means it holds under `--tb=long`,
+`--showlocals`, and an f-string in an assertion message. **A new credential fixture
+must wrap its return value the same way** — `test_every_credential_fixture_returns_a_redacted_mapping`
+in `tests/test_functional_outcomes.py` fails if one forgets.
+
+Reading a credential into a string is still your responsibility: nothing stops
+`f'{creds["password"]}'`, and the rule against printing `.env` values is unchanged.
+
 ### Required Variables per Platform
 
 #### Bluesky (easiest — start here)
@@ -376,7 +397,7 @@ GALEFLING_STRICT_FUNCTIONAL=1 scripts/run-with-desktop-session.sh \
   .venv/bin/python -m pytest tests/functional/test_webview_fansly.py -v
 ```
 
-Every mutating post embeds a UUID tag in the caption/text (`GaleFling functional test <tag> — safe to delete`). Search the account for `GaleFling` to find leftovers if cleanup fails.
+Every mutating post embeds an 8-character hex UUID tag in the caption/text (via `mutating_post_text()` / `mutating_post_tag()` in `conftest.py`). Search the account for that tag if cleanup fails — pytest output includes the tag when a test prints it.
 
 ### Session-or-Login Flow
 
@@ -414,6 +435,7 @@ Tests that create a post attempt to delete it in the same test. Cleanup is **bes
 | Threads | Yes | Graph API delete (text, image, video, carousel) |
 | Facebook Page | Yes | Graph API delete (text, photo, multi-photo, video) |
 | FetLife (text) | Best-effort | UI delete when post URL is captured; feed redirect needs manual cleanup |
+| FetLife (picture/video) | **Manual** | Upload is exercised for real; FetLife's delete control resists automation, so the run prints the tag and you delete it |
 
 Tests use UUID tags in post text to avoid duplicate-post rejections and to make manual cleanup easy.
 
@@ -465,8 +487,9 @@ The tables above show what **is** tested. The gaps below map missing functional 
 | Gap | OnlyFans | Fansly | FetLife |
 |-----|----------|--------|---------|
 | Mutating post submit + delete | — | — | text only |
-| Media / image upload post | — | — | composer DOM only |
-| Video upload post | — | — | composer DOM only |
+| Media / image upload post | — | blocked (see below) | **covered** (mutating) |
+| Video upload post | — | blocked (see below) | **covered** (mutating) |
+| Media upload wired into post flow | — | — | — (task #417 Level B) |
 | Paid / schedule / tier UI flows | — | — | — |
 | Media processing functional tests | unit only | unit only | — |
 
@@ -481,8 +504,8 @@ excluded from routine runs (`disabled_platform`). Image→video pipeline tests i
 
 **Priority gaps to close next** (tracked in Odoo task #166):
 
-1. **OnlyFans + Fansly mutating smoke tests** — submit a tagged post and delete, mirroring FetLife.
-2. **FetLife picture/video mutating tests** — currently stop at composer element discovery.
+1. **OnlyFans mutating smoke test** — submit a tagged post and verify it exists, mirroring FetLife and Fansly. (Fansly done.)
+2. **FetLife media upload in the post flow** — `_attach_media()`, `_certify_upload_consent()` and `_inject_media_caption()` exist and are covered by mutating tests, but nothing calls them outside tests; wiring them into `_do_prefill()` is task #417 Level B.
 3. **Media processing** — add resize/validation cases for Threads, Facebook Page, OnlyFans, and Fansly specs.
 4. **Second-account slots** — no functional test exercises `twitter_2`, `bluesky_alt`, `meta_instagram_2`, or `meta_threads_2`.
 
@@ -500,10 +523,16 @@ Snapchat session tests exist but are `disabled_platform` (excluded from routine 
 
 | Test case                    | FetLife | Fansly | OnlyFans |
 |------------------------------|---------|--------|----------|
+| Session / connection         | x       | x      | -        |
 | Composer page loads          | x       | x      | x        |
+| Composer elements present    | x       | x      | -        |
 | Composer click expansion     | -       | -      | x        |
-| Text injection               | x       | x      | x        |
-| Text post submit             | x       | -      | -        |
+| Text injection (platform)    | x       | x      | x        |
+| Text post creates a post     | x       | x      | -        |
+| Picture upload (real post)   | x       | -      | -        |
+| Video upload (real post)     | x       | -      | -        |
+| Picture attach via platform (no submit) | x | -  | -        |
+| Video attach via platform (no submit)   | x | -  | -        |
 | Picture composer elements    | x       | -      | -        |
 | Video composer elements      | x       | -      | -        |
 
@@ -557,8 +586,95 @@ Check that the credentials in `.env` are correct. If the account is locked or re
 ### OnlyFans composer tests skip with "No OnlyFans session" or "login form present"
 OnlyFans cannot be logged in automatically during tests. Export `auth.json` from a normal browser, import it in GaleFling Settings, or set `ONLYFANS_AUTH_JSON` in `.env`. See [OnlyFans Session Import](../platforms/ONLYFANS_SESSION_IMPORT.md).
 
+### A WebView test failure wedges every test after it
+Fixed — but the failure mode is worth knowing. `BaseWebViewPlatform._evict_profile()` only drops the registry key; it does not destroy the `QWebEngineProfile` or release Chromium's lock on `webprofiles/<account_id>/`. When a test *fails*, pytest keeps the assertion traceback alive, and with it the test frame's `view` / `page` / `platform` locals — so unless teardown clears every reference itself, the profile survives, the next `create_webview()` builds a second profile on the same storage path, and every page load after that returns an empty URL while the process wedges at exit.
+
+`close_webview()` therefore clears `platform._profile` (not just `_view` / `_page`), pumps deferred deletes before evicting, and runs a `gc.collect()` pass. Functional tests also carry a hard `pytest-timeout` ceiling (`FUNCTIONAL_TEST_TIMEOUT_S`, thread method) so a wedged profile fails one test with stack dumps instead of stalling the run — a Chromium deadlock sits in C++ and never returns to Python, so nothing else can interrupt it.
+
+### Attaching media: use the file picker, not a synthetic DataTransfer
+`_attach_media()` writes a synthetic `DataTransfer` onto the file input. That works on FetLife's composers and **does not work on Fansly at all** — its Angular uploader ignores the synthetic selection outright (verified 2026-08-12: the input clears and the composer subtree is byte-identical twelve seconds later).
+
+The mechanism that does work everywhere is Chromium's own file picker, via `chooseFiles()`:
+
+1. `platform.stage_media_for_picker(path)` queues the file.
+2. A **trusted** click grants user activation — Chromium refuses to open a picker without it, and JavaScript cannot grant it. Tests use a real `QTest` mouse event; shipped code uses `BaseWebViewPlatform.trusted_click()` and a synthesised `QMouseEvent` without importing `QtTest`.
+3. `platform.open_media_picker()` issues a JS `input.click()`, which Chromium now allows.
+4. `_LoggingWebEnginePage.chooseFiles()` returns the staged path, and the page receives a genuine `change` event with a real `File`.
+
+`attach_via_file_picker()` wraps steps 1–4, and the mechanism itself is verified at the Qt level: `chooseFiles()` fires and Chromium accepts the returned path as a real selection.
+
+**Clicking Fansly's bare input is still not enough.** Chromium hands over a genuine
+selection, but the composer ignores it because Fansly's uploader is not in the call
+stack. The working route drives Fansly's own image dropdown and exact **Upload New**
+leaf, lets that control open the picker, applies the no-paywall modal policy, and clicks
+the modal's enabled **Upload** control. Success is scoped to
+`media-upload-container`, then the flow waits separately for Post to enable.
+
+> **A cautionary note on measuring this.** An earlier version of these tests "proved" the Fansly attach worked by counting elements matching `[class*="preview"]`. That count is dominated by the surrounding feed — it sits at ~81 with nothing attached and drifts by a couple as the feed updates. The same trap applies to `media-loading` (46 at baseline) and to a parent-walk scope from the composer textarea, which escapes into the feed after ~6 levels. Scope to `media-upload-container` and compare against a pristine-composer baseline before believing any counter.
+
+Two constraints learned the hard way:
+- **The activation target must be visible.** FetLife's `picture[caption]` textarea has zero size until a file is attached, so clicking it grants nothing. `trusted_click()` accepts a tuple of candidate selectors and skips any that are not rendered.
+- **Tests must set `suppress_native_file_dialog`.** Without a staged file the override falls through to Qt's real dialog, which is correct for the app but blocks a headless run forever. `attach_via_file_picker()` sets it.
+
+Fansly's uploader consumes the file into Angular state and leaves `input.files` empty, so success is measured by a preview element appearing, not by counting files on the input.
+
+#### Direct helper tests remain on the base64 path
+The established FetLife helper tests still call `_attach_media()` deliberately. The
+shipped `_do_prefill()` route does not: it uses the picker, removing the base64 size
+ceiling for FetLife's 500 MB videos. A separate non-mutating FetLife picture test enters
+through `_do_prefill()` and verifies the picker, caption, consent, and avatar guard.
+`FanslyPlatform` still inherits `_attach_media()`, but **it does not work on Fansly**.
+Verified 2026-08-12 against the live composer: assigning a synthetic `DataTransfer` and
+dispatching `input`/`change` clears the file input and changes nothing else — twelve
+seconds later the composer subtree is byte-identical (no preview element, no
+`app-media`, textarea still `ng-pristine ng-invalid`). Fansly's Angular uploader
+requires its own trusted UI path.
+
+Task #417 Level B now uses the `QWebEnginePage.chooseFiles()` approach in production:
+for FetLife it removes the size ceiling; for Fansly it is part of the only verified UI
+route. Existing low-level tests remain useful characterization coverage and are not a
+substitute for the `_do_prefill()` entry-point test.
+
+### FetLife statuses are not auto-deleted — every mutating run leaves one
+`test_text_post_submit_and_delete` posts a real status and **cannot currently remove it**. It reports this rather than claiming success: the run prints `MANUAL CLEANUP NEEDED` with the tag. Delete it from your feed after a mutating run.
+
+Why it cannot: FetLife's Delete control is an `<a href="#0">` whose payload is a `data` attribute stringifying to `[object Object]` — no `data-method`, no `data-turbo-confirm`, no delete endpoint, and the status permalink page offers the same control rather than a form. The handler is bound in JavaScript, so a synthetic `.click()` never reaches it. Automating it requires a trusted `QTest.mouseClick` (Phase 6's pattern), opening the "More options" dropdown first.
+
 ### FetLife post not auto-deleted
-FetLife redirects to `/posts` after submission instead of the individual post page. Check your FetLife feed for posts containing "GaleFling functional test" and delete them manually.
+FetLife redirects to `/posts` after text submission instead of the individual post page. When a permalink is captured, the test attempts UI delete; otherwise search your feed for the UUID tag from the test output.
+
+### FetLife picture/video uploads — real, and cleaned up by hand
+Mutating upload tests exist again and create **real** pictures and videos. They were once removed because an earlier helper blindly checked every checkbox on the upload form — including **set as avatar** — and submitted real uploads while debugging.
+
+The guard against a repeat is structural, not procedural: `_certify_upload_consent()` matches the certification field by exact name and cannot reach `picture[is_avatar]`, and `test_picture_upload_creates_a_post` asserts that box is unchecked **immediately before clicking Upload**, refusing to submit otherwise.
+
+Current coverage:
+- **Non-mutating:** composer loads, file input present, `_attach_media()` loads the file into the form, `_certify_upload_consent()` ticks the certification box — never clicks Upload
+- **Mutating:** text status, picture upload, video upload — each proves the post exists before passing
+
+Every mutating media run leaves a real post; the run prints `MANUAL CLEANUP NEEDED` with the tag. Delete them from your gallery afterwards.
+
+#### Verifying a media upload: what actually signals success
+Neither upload announces itself by navigation in the way you would expect, and getting this wrong produces a test that passes while nothing was created:
+
+| | How success is detected |
+|---|---|
+| Picture | Redirects to the permalink `/<username>/pictures/<id>`; the caption tag is on the page |
+| Video | **Stays on `/videos/new`.** The transfer and transcode happen in place, so the URL never changes — the only honest check is polling `/<username>/videos` for the tag |
+
+`_certify_upload_consent()` matches `picture[is_certified]` / `video[is_certified]` by **exact field name**. It cannot touch `picture[is_avatar]`, and `test_picture_attach_via_platform` asserts that box stays unchecked. Do not reintroduce keyword or substring matching over checkbox labels.
+
+Manual cleanup after a mutating run: delete the tagged picture and video from your gallery. If an old run ever set an avatar, restore it in FetLife profile settings.
+
+Wiring media upload into the actual post flow is task #417 Level B. That should override `QWebEnginePage.chooseFiles()` rather than extend the current base64/`DataTransfer` attach, which inlines the whole file into a script and so only suits test-sized media.
+
+### FetLife picture composer has two file inputs
+`pictures/new` renders a hidden picker carrying the `accept` list (`#picture_attachments`) **and** the real `picture[attachments][]` field, which has no `accept`. A comma-list `querySelector` returns the picker (first in document order), and FetLife moves the file to the named field and clears the picker **asynchronously**.
+
+Consequences for any test or platform code touching this form:
+- Select the picker by `accept`, not by name — `FetLifePlatform.IMAGE_FILE_SELECTOR`.
+- Never verify an attach by re-reading the input you wrote to; it reports zero files on success. Poll `FetLifePlatform._media_attachment_state()`, which totals files across every file input.
+- `videos/new` has a single input (`#video_video`) and keeps the file, so it does not show this behaviour. Code that works there can still be wrong for pictures.
 
 ### OnlyFans composer not found
 The test attempts to click the compose area to expand the editor. If it still can't find the composer, the SPA may need full browser rendering. Run on Windows for the best chance of success.

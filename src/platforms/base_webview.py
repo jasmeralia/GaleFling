@@ -3,12 +3,15 @@
 # WebEngine process flags must be set before importing Qt WebEngine modules.
 # ruff: noqa: E402
 
+import base64
 import contextlib
 import json
 import logging
+import mimetypes
 import re
 import sqlite3
 import time
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 from src.core.webview_environment import (
@@ -21,12 +24,14 @@ from src.core.webview_session_import import (
     save_session_metadata,
     session_recently_imported,
 )
+from src.utils.constants import VIDEO_EXTENSIONS
 
 # Platform classes are also imported directly by tests and support tooling that
 # bypass the application entry point. Keep the process-wide policy consistent.
 disable_conditional_passkey_ui()
 
-from PyQt6.QtCore import QDateTime, QEventLoop, QTimer, QUrl
+from PyQt6.QtCore import QDateTime, QEvent, QEventLoop, QPointF, Qt, QTimer, QUrl
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtNetwork import QNetworkCookie
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile, QWebEngineScript
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -90,6 +95,25 @@ class BaseWebViewPlatform(BasePlatform):
     # indicates an expired session (e.g. an inline login form).  Subclasses
     # that cannot rely on a URL redirect to signal session expiry should set
     # this list.  The check runs as a JS querySelector after loadFinished.
+    # Composer file-input selector for platforms with a single multi-accept input.
+    # Platforms with one composer per media type override get_media_file_selector().
+    MEDIA_FILE_SELECTOR: str = ''
+    # Shipped media pre-fill is opt-in. WebView platforms that implement a complete,
+    # verified picker sequence set this and override _prefill_media(). Platforms that
+    # do not opt in retain the existing text-only pre-fill behaviour.
+    MEDIA_PREFILL_ENABLED: bool = False
+    MEDIA_STEP_POLL_INTERVAL_MS: int = 500
+    MEDIA_STEP_CALLBACK_TIMEOUT_MS: int = 130000
+    # Selector for a modal backdrop that covers the composer and swallows the first
+    # click on the page.  Set it to have dismiss_blocking_overlay() clear it after
+    # load; leave it empty and no overlay handling runs.
+    BLOCKING_OVERLAY_SELECTOR: str = ''
+    # Exact labels of the dialog's decline control, e.g. ['Maybe Later'].  Matched
+    # case-insensitively but *exactly* — never as a substring, because the affirmative
+    # button ('Yes, Enable') sits directly beside it.  Empty falls back to clicking
+    # the backdrop.
+    BLOCKING_OVERLAY_DISMISS_LABELS: list[str] = []
+    BLOCKING_OVERLAY_ATTEMPTS: int = 3
     SESSION_EXPIRED_SELECTORS: list[str] = []
     # Milliseconds to wait after loadFinished before running the
     # SESSION_EXPIRED_SELECTORS DOM check.  Set this on platforms whose login
@@ -126,6 +150,12 @@ class BaseWebViewPlatform(BasePlatform):
         self._post_confirmed = False
         self._text: str = ''
         self._image_path: Path | None = None
+        # Files handed to Chromium's file picker via _LoggingWebEnginePage.chooseFiles().
+        self._staged_picker_files: list[str] = []
+        self._picker_invocations = 0
+        # Tests set this so an unstaged picker returns [] instead of opening a real
+        # native dialog, which would block the run with nothing able to dismiss it.
+        self.suppress_native_file_dialog = False
         self._poll_timer: QTimer | None = None
         self._poll_elapsed_ms: int = 0
         self._last_url: str = ''
@@ -635,8 +665,19 @@ class BaseWebViewPlatform(BasePlatform):
 
         normalized = url_string.lower()
         login_url = self.LOGIN_URL.strip().lower()
-        if login_url and normalized.startswith(login_url):
-            return True
+        if login_url:
+            # Prefix matching is only meaningful when LOGIN_URL has a path of its own
+            # (e.g. https://fetlife.com/login).  A bare origin such as Fansly's
+            # https://fansly.com/ is a prefix of *every* page on the site, so prefix
+            # matching there classified the whole platform as a login page and made
+            # test_connection() report WV-SESSION-EXPIRED against a perfectly valid
+            # session.  For a bare origin only the landing page itself counts.
+            login_path = QUrl(login_url).path().strip('/')
+            if login_path:
+                if normalized.startswith(login_url):
+                    return True
+            elif normalized.rstrip('/') == login_url.rstrip('/'):
+                return True
 
         path_and_query = f'{candidate.path()}?{candidate.query()}#{candidate.fragment()}'.lower()
         return any(re.search(pattern, path_and_query) for pattern in self.LOGIN_URL_PATTERNS)
@@ -851,41 +892,659 @@ class BaseWebViewPlatform(BasePlatform):
         QTimer.singleShot(self.PREFILL_DELAY_MS, self._do_prefill)
 
     def _do_prefill(self):
-        """Inject text and optionally set up image upload."""
+        """Pre-fill the open composer, including media for opted-in platforms."""
+        if self._image_path and self.MEDIA_PREFILL_ENABLED:
+            self._prefill_media()
+            if self.SUCCESS_SELECTOR:
+                QTimer.singleShot(500, self._inject_success_observer)
+            return
+
+        if self.BLOCKING_OVERLAY_SELECTOR:
+            self.dismiss_blocking_overlay()
         if self._text:
             self._inject_text(self._text)
         if self.SUCCESS_SELECTOR:
             QTimer.singleShot(500, self._inject_success_observer)
 
+    def _prefill_media(self) -> None:
+        """Run a platform's asynchronous media pre-fill sequence.
+
+        Subclasses opt in with ``MEDIA_PREFILL_ENABLED`` and override this hook. The
+        base implementation deliberately does nothing so existing WebView platforms
+        keep their text-only behaviour.
+        """
+
+    def _run_media_sequence(
+        self,
+        steps: Sequence[
+            tuple[
+                str,
+                Callable[[Callable[[bool, str, object | None], None]], None],
+            ]
+        ],
+    ) -> None:
+        """Run callback-based media *steps* in order, aborting on the first failure.
+
+        A step calls its completion callback with ``(ok, reason, detail)``. The
+        sequencer owns the single failure path so every abort is logged consistently
+        and no later action can run after a refusal.
+        """
+        platform_name = self.get_platform_name()
+        sequence_started = time.monotonic()
+        stopped = False
+
+        def run_step(index: int) -> None:
+            nonlocal stopped
+            if stopped:
+                return
+            if index >= len(steps):
+                elapsed_ms = round((time.monotonic() - sequence_started) * 1000)
+                get_logger().info(
+                    f'{platform_name}: media pre-fill complete in {elapsed_ms} ms; '
+                    'waiting for user confirmation'
+                )
+                stopped = True
+                return
+
+            step_name, action = steps[index]
+            step_started = time.monotonic()
+            get_logger().info(f'{platform_name}: media step started: {step_name}')
+            callback_used = False
+
+            def finish(ok: bool, reason: str = '', detail: object | None = None) -> None:
+                nonlocal callback_used, stopped
+                if callback_used or stopped:
+                    return
+                callback_used = True
+                elapsed_ms = round((time.monotonic() - step_started) * 1000)
+                if not ok:
+                    stopped = True
+                    explanation = reason or 'step reported failure without a reason'
+                    get_logger().error(
+                        f'{platform_name}: media pre-fill aborted at {step_name} '
+                        f'after {elapsed_ms} ms: {explanation}; detail={detail!r}'
+                    )
+                    return
+                get_logger().info(
+                    f'{platform_name}: media step completed: {step_name} '
+                    f'in {elapsed_ms} ms; detail={detail!r}'
+                )
+                run_step(index + 1)
+
+            try:
+                action(finish)
+            except Exception as exc:  # pragma: no cover - defensive UI boundary
+                finish(False, f'unexpected {type(exc).__name__}: {exc}')
+            QTimer.singleShot(
+                self.MEDIA_STEP_CALLBACK_TIMEOUT_MS,
+                lambda: finish(
+                    False,
+                    'step callback did not arrive before the bounded deadline '
+                    f'({self.MEDIA_STEP_CALLBACK_TIMEOUT_MS} ms)',
+                ),
+            )
+
+        run_step(0)
+
+    def _poll_media_step(
+        self,
+        probe: Callable[[Callable[[dict], None]], None],
+        ready: Callable[[dict], bool],
+        timeout_ms: int,
+        failure_reason: str,
+        callback: Callable[[bool, str, object | None], None],
+        *,
+        hard_failure: Callable[[dict], str | None] | None = None,
+    ) -> None:
+        """Poll an asynchronous DOM state without blocking the GUI thread."""
+        deadline = time.monotonic() + timeout_ms / 1000
+        last_state: dict = {}
+
+        def attempt() -> None:
+            def handle(result: dict) -> None:
+                nonlocal last_state
+                last_state = result if isinstance(result, dict) else {'raw': result}
+                reason = hard_failure(last_state) if hard_failure else None
+                if reason:
+                    callback(False, reason, last_state)
+                    return
+                if ready(last_state):
+                    callback(True, '', last_state)
+                    return
+                if time.monotonic() >= deadline:
+                    callback(False, failure_reason, last_state)
+                    return
+                QTimer.singleShot(self.MEDIA_STEP_POLL_INTERVAL_MS, attempt)
+
+            try:
+                probe(handle)
+            except Exception as exc:  # pragma: no cover - defensive UI boundary
+                callback(False, f'probe raised {type(exc).__name__}: {exc}', last_state)
+
+        attempt()
+
+    # ── Blocking overlays ───────────────────────────────────────────
+
+    def dismiss_blocking_overlay(
+        self, callback: 'Callable[[dict], None] | None' = None, _attempt: int = 1
+    ) -> None:
+        """Dismiss a modal covering the composer, if one is present.
+
+        Some platforms greet a session with a dialog — a notifications prompt, a
+        promo — behind a full-page backdrop that swallows the first click anywhere on
+        the page. Left in place it costs the *user* a click too, and any automation
+        that clicks blind through it is aiming at whatever coordinates it wanted with
+        an unknown dialog in front.
+
+        Dismissal prefers the dialog's **own decline control**, matched by exact label
+        against ``BLOCKING_OVERLAY_DISMISS_LABELS`` — the same rule FetLife's shipped
+        "Maybe later" dismissal uses. Exact matching is what makes this safe: these
+        prompts put an affirmative button directly beside the decline one, and a
+        substring or keyword match is how you end up enabling something on the account
+        holder's behalf.
+
+        When no declared label is on screen it falls back to clicking the **backdrop
+        element itself** — the standard dismiss gesture, dispatched on that element
+        rather than at a point, so it cannot land on a control inside the dialog.
+
+        Platforms opt in by setting ``BLOCKING_OVERLAY_SELECTOR``.
+        """
+        if not self._view or not self.BLOCKING_OVERLAY_SELECTOR:
+            return
+        page = self._view.page()
+        if not page:
+            return
+
+        selector = json.dumps(self.BLOCKING_OVERLAY_SELECTOR)
+        labels = json.dumps(
+            [label.strip().lower() for label in self.BLOCKING_OVERLAY_DISMISS_LABELS]
+        )
+        js = f"""
+        (function() {{
+            function shown(el) {{
+                if (!el) return false;
+                var r = el.getBoundingClientRect();
+                var s = getComputedStyle(el);
+                return r.width > 0 && r.height > 0
+                    && s.display !== 'none' && s.visibility !== 'hidden';
+            }}
+            var el = document.querySelector({selector});
+            if (!shown(el)) return {{present: false, dismissed: true}};
+
+            // The dialog is not necessarily inside the backdrop — on Fansly it is a
+            // sibling — so describe it separately for the log.
+            var dialog = document.querySelector('[class*="active-modal"]');
+            var text = dialog
+                ? (dialog.textContent || '').trim().replace(/\\s+/g, ' ').substring(0, 160)
+                : '';
+
+            // Exact label match only. Never a substring: the affirmative button sits
+            // beside the decline one.
+            var wanted = {labels};
+            var decline = Array.from(document.querySelectorAll(
+                'button, a, [role="button"], div[class*="btn"], span[class*="btn"]'
+            )).filter(shown).filter(function(b) {{
+                return wanted.indexOf((b.textContent || '').trim().toLowerCase()) !== -1;
+            }})[0];
+
+            var via;
+            if (decline) {{
+                via = 'label:' + (decline.textContent || '').trim();
+                decline.click();
+            }} else {{
+                via = 'backdrop';
+                el.click();
+            }}
+            return {{
+                present: true,
+                dismissed: !shown(document.querySelector({selector})),
+                via: via,
+                text: text
+            }};
+        }})();
+        """
+
+        def _handle(result):
+            state = result if isinstance(result, dict) else {}
+            if state.get('present'):
+                get_logger().info(
+                    f'{self.get_platform_name()}: blocking overlay '
+                    f'{"dismissed" if state.get("dismissed") else "still present"} '
+                    f'(attempt {_attempt}, via={state.get("via")}, '
+                    f'dialog="{state.get("text", "")}")'
+                )
+            if (
+                state.get('present')
+                and not state.get('dismissed')
+                and _attempt < self.BLOCKING_OVERLAY_ATTEMPTS
+            ):
+                QTimer.singleShot(
+                    self.POLL_INTERVAL_MS,
+                    lambda: self.dismiss_blocking_overlay(callback, _attempt + 1),
+                )
+                return
+            if callback:
+                callback(state)
+
+        page.runJavaScript(js, _handle)
+
     # ── Text injection ──────────────────────────────────────────────
 
-    def _inject_text(self, text: str):
+    def _inject_text(self, text: str, callback: Callable[[dict], None] | None = None) -> None:
         """Inject post text into the composer via JS."""
         if not self._view or not self.TEXT_SELECTOR:
+            if callback:
+                callback({'injected': False, 'reason': 'no webview or text selector'})
             return
         view = self._view
         page = view.page()
         if not page:
+            if callback:
+                callback({'injected': False, 'reason': 'no page'})
             return
         escaped = json.dumps(text)
         selector = json.dumps(self.TEXT_SELECTOR)
         js = f"""
         (function() {{
             const el = document.querySelector({selector});
-            if (el) {{
-                el.focus();
-                if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {{
-                    el.value = {escaped};
-                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                }} else {{
-                    el.textContent = {escaped};
-                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                }}
+            if (!el) return {{injected: false, reason: 'text field not found'}};
+            el.focus();
+            if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {{
+                el.value = {escaped};
+                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            }} else {{
+                el.textContent = {escaped};
+                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
             }}
+            return {{injected: true}};
         }})();
         """
-        page.runJavaScript(js)
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
+
+    # ── Media attachment ────────────────────────────────────────────
+
+    def get_media_file_selector(self, path: 'Path | None' = None) -> str | None:
+        """Return the composer file-input selector for *path* (or the staged media).
+
+        Defaults to ``MEDIA_FILE_SELECTOR``. Platforms that use a different composer
+        per media type override this to route by extension.
+        """
+        return self.MEDIA_FILE_SELECTOR or None
+
+    def stage_media_for_picker(self, path: Path) -> None:
+        """Queue *path* to satisfy the next native file-picker request.
+
+        Chromium refuses to open a file dialog without user activation, so staging alone
+        does nothing — something must then trigger the picker from a trusted gesture.
+        See open_media_picker().
+        """
+        self._staged_picker_files = [str(path)]
+
+    def take_staged_picker_files(self) -> list[str]:
+        """Consume the staged selection. Called by the page's chooseFiles() override."""
+        self._picker_invocations += 1
+        staged, self._staged_picker_files = self._staged_picker_files, []
+        return staged
+
+    @property
+    def picker_invocations(self) -> int:
+        """How many times the file picker has been satisfied for this platform."""
+        return self._picker_invocations
+
+    def trusted_click(
+        self, selector: str | tuple[str, ...], callback: Callable[[dict], None] | None = None
+    ) -> None:
+        """Click a visible element with a real Qt mouse event, granting user activation.
+
+        Chromium refuses to open a file picker without user activation, and JavaScript
+        cannot grant it — a ``runJavaScript``-driven click is rejected outright. A
+        synthesised ``QMouseEvent`` delivered to the render widget *is* trusted, and the
+        activation it grants then lets a subsequent JS ``input.click()`` through.
+
+        Measured 2026-08-12 against a local page, comparing every candidate mechanism:
+
+        | Mechanism | ``userActivation`` | ``chooseFiles()`` |
+        |---|---|---|
+        | JS ``.click()`` alone | False | not called |
+        | ``QApplication.sendEvent`` | True | called |
+        | ``QApplication.postEvent`` | True | called |
+        | ``QTest.mouseClick`` | True | called |
+
+        So this needs no test-harness import in shipped code. The event must go to the
+        view's **focusProxy** (the render widget), not the view itself.
+
+        **Confirmed on the target platform.** The table above was measured on Linux
+        (xcb under Xvfb); ``test_webview_user_activation.py`` was then re-run in the
+        Windows 11 VM and passes there too, on a GPU-less guest. Qt-level event
+        synthesis into Chromium therefore does not depend on the platform plugin or on
+        hardware acceleration — which matters, because every media upload is built on
+        it and Windows is the shipping target.
+
+        *selector* may be a tuple; the first match with real dimensions wins. The element
+        must be genuinely visible: composers hide their file inputs, so a hidden input has
+        no coordinates to click and this reports failure rather than clicking at (0, 0).
+        """
+        if not self._view:
+            if callback:
+                callback({'clicked': False, 'reason': 'no webview'})
+            return
+        page = self._view.page()
+        if not page:
+            if callback:
+                callback({'clicked': False, 'reason': 'no page'})
+            return
+
+        selectors = (selector,) if isinstance(selector, str) else tuple(selector)
+
+        def _measured(rect):
+            if isinstance(rect, dict) and rect.get('disabled'):
+                if callback:
+                    callback(
+                        {
+                            'clicked': False,
+                            'reason': 'control disabled',
+                            'selector': rect.get('selector'),
+                        }
+                    )
+                return
+            if not isinstance(rect, dict) or not rect.get('found'):
+                if callback:
+                    callback({'clicked': False, 'reason': 'no visible element', 'detail': rect})
+                return
+            x, y = int(rect['x']), int(rect['y'])
+            self._send_trusted_click(x, y)
+            if callback:
+                callback({'clicked': True, 'x': x, 'y': y, 'selector': rect.get('selector')})
+
+        js = f"""
+        (function() {{
+            var selectors = {json.dumps(list(selectors))};
+            for (var i = 0; i < selectors.length; i++) {{
+                var el = document.querySelector(selectors[i]);
+                if (!el) continue;
+                var r = el.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) continue;
+                // Avoid scrolling an already-visible dropdown item: Fansly closes
+                // its media menu on scroll. Only bring genuinely off-screen controls
+                // into view, then re-measure them.
+                if (r.bottom <= 0 || r.right <= 0
+                        || r.top >= window.innerHeight || r.left >= window.innerWidth) {{
+                    el.scrollIntoView({{block: 'center', inline: 'center'}});
+                    r = el.getBoundingClientRect();
+                }}
+                var x = Math.round(r.left + r.width / 2);
+                var y = Math.round(r.top + r.height / 2);
+                if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) {{
+                    continue;
+                }}
+                // Some SPA controls (notably Fansly's Post <div>) express disabled
+                // state as a class rather than the DOM property. Test the whole class
+                // token: substring matching would misclassify unrelated class names.
+                if (!!el.disabled || el.classList.contains('disabled')) {{
+                    return {{found: true, disabled: true, selector: selectors[i]}};
+                }}
+                return {{found: true, x: x, y: y, selector: selectors[i]}};
+            }}
+            return {{found: false, tried: selectors}};
+        }})();
+        """
+        page.runJavaScript(js, _measured)
+
+    def _send_trusted_click(self, x: int, y: int) -> None:
+        """Deliver a press/release pair at viewport coordinates to the render widget."""
+        if not self._view:
+            return
+        target = self._view.focusProxy() or self._view
+        pos = QPointF(x, y)
+        for event_type in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
+            QApplication.sendEvent(
+                target,
+                QMouseEvent(
+                    event_type,
+                    pos,
+                    pos,
+                    Qt.MouseButton.LeftButton,
+                    Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.NoModifier,
+                ),
+            )
+
+    def open_media_picker(
+        self, path: Path | None = None, callback: Callable[[dict], None] | None = None
+    ) -> None:
+        """Ask the page to open its file picker for the composer's media input.
+
+        The click is issued from JavaScript, which carries no user activation of its
+        own. Chromium accepts it only if a *trusted* gesture has already activated the
+        page — verified 2026-08-12: a JS ``input.click()`` fires chooseFiles when
+        ``navigator.userActivation.isActive`` is true, and is refused with "File chooser
+        dialog can only be shown with a user activation" when it is not. Use
+        ``trusted_click()`` to supply that gesture first.
+
+        **Refuses to click without activation** rather than clicking anyway. Chromium
+        swallows the refused click silently, so the JS still completes and an
+        ``opened: true`` return would be indistinguishable from success — measured
+        directly: without a prior gesture this reported ``opened: true`` while
+        ``picker_invocations`` never moved. Reporting the refusal is what makes the
+        return mean what it says.
+        """
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+        selector = self.get_media_file_selector(path)
+        if not selector:
+            if callback:
+                callback({'opened': False, 'reason': 'platform declares no media file input'})
+            return
+
+        js = f"""
+        (function() {{
+            var input = document.querySelector({json.dumps(selector)});
+            if (!input) return {{opened: false, reason: 'file input not found'}};
+            var active = !!(navigator.userActivation && navigator.userActivation.isActive);
+            if (!active) {{
+                return {{
+                    opened: false,
+                    reason: 'no user activation — call trusted_click() first',
+                    userActivationActive: false
+                }};
+            }}
+            input.click();
+            return {{opened: true, userActivationActive: true}};
+        }})();
+        """
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
+
+    def _activate_staged_media_picker(
+        self,
+        visible_selector: str | tuple[str, ...],
+        path: Path,
+        callback: Callable[[bool, str, object | None], None],
+        *,
+        fallback_to_input: bool = True,
+    ) -> None:
+        """Use a visible trusted control to deliver the staged path to a picker.
+
+        Many upload controls open the picker themselves. If the trusted click only
+        grants activation, ``open_media_picker()`` performs the hidden-input click.
+        An activation refusal is final; blindly retrying it would only turn a known
+        failure into another silent no-op.
+        """
+        before = self.picker_invocations
+
+        def clicked(result: dict) -> None:
+            state = result if isinstance(result, dict) else {'raw': result}
+            if not state.get('clicked'):
+                callback(
+                    False, state.get('reason', 'trusted attach control was not clicked'), state
+                )
+                return
+
+            def continue_after_visible_click() -> None:
+                # Chromium delivers the page's click handler shortly after Qt's event
+                # dispatch returns. Give it one event-loop turn before deciding the
+                # visible control did not open a picker; opening the hidden input too
+                # early creates a second picker whose empty selection can clear the
+                # first attachment.
+                if self.picker_invocations > before:
+                    callback(
+                        True,
+                        '',
+                        {
+                            'opened': True,
+                            'via': 'visible control',
+                            'pickerInvocations': self.picker_invocations,
+                        },
+                    )
+                    return
+
+                if not fallback_to_input:
+                    callback(
+                        False,
+                        "trusted control did not open Chromium's file picker",
+                        state,
+                    )
+                    return
+
+                def opened(open_result: dict) -> None:
+                    opened_state = (
+                        open_result if isinstance(open_result, dict) else {'raw': open_result}
+                    )
+                    if not opened_state.get('opened'):
+                        callback(
+                            False,
+                            opened_state.get('reason', 'media picker refused to open'),
+                            opened_state,
+                        )
+                        return
+
+                    def confirm_invocation() -> None:
+                        if self.picker_invocations <= before:
+                            callback(
+                                False,
+                                'picker reported open but chooseFiles() was not called',
+                                opened_state,
+                            )
+                            return
+                        callback(
+                            True,
+                            '',
+                            {
+                                **opened_state,
+                                'via': 'open_media_picker',
+                                'pickerInvocations': self.picker_invocations,
+                            },
+                        )
+
+                    QTimer.singleShot(0, confirm_invocation)
+
+                self.open_media_picker(path, callback=opened)
+
+            QTimer.singleShot(250, continue_after_visible_click)
+
+        self.trusted_click(visible_selector, callback=clicked)
+
+    def _attach_media(self, path: Path, callback: Callable[[dict], None] | None = None) -> None:
+        """Attach a local file to the open upload composer's file input.
+
+        The file is handed to the picker input via a synthetic ``DataTransfer`` so the
+        page's own change handlers run.  This reports only that the file was written and
+        the events dispatched — **not** that the form accepted it.  The picture composer
+        moves the file to a hidden ``picture[attachments][]`` field and clears the picker
+        asynchronously, so acceptance must be observed by polling
+        ``_media_attachment_state()`` rather than read back here.
+
+        The file is inlined into the script as base64, which bounds this to modest
+        media.  Wiring media upload into the automatic post flow (task #417 Level B)
+        should instead override ``QWebEnginePage.chooseFiles()`` and hand Chromium the
+        path directly — no size ceiling and a genuinely native file-picker path.
+        """
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+
+        selector = self.get_media_file_selector(path)
+        if not selector:
+            if callback:
+                callback({'dispatched': False, 'reason': 'platform declares no media file input'})
+            return
+        mime, _ = mimetypes.guess_type(str(path))
+        if not mime:
+            mime = 'video/mp4' if path.suffix.lower() in VIDEO_EXTENSIONS else 'image/jpeg'
+
+        try:
+            data_b64 = base64.b64encode(path.read_bytes()).decode('ascii')
+        except OSError as exc:
+            if callback:
+                callback({'dispatched': False, 'reason': f'could not read {path.name}: {exc}'})
+            return
+
+        js = f"""
+        (function() {{
+            var input = document.querySelector({json.dumps(selector)});
+            if (!input) return {{dispatched: false, reason: 'file input not found'}};
+            var binary = atob({json.dumps(data_b64)});
+            var bytes = new Uint8Array(binary.length);
+            for (var i = 0; i < binary.length; i++) {{
+                bytes[i] = binary.charCodeAt(i);
+            }}
+            var transfer = new DataTransfer();
+            transfer.items.add(
+                new File([bytes], {json.dumps(path.name)}, {{type: {json.dumps(mime)}}})
+            );
+            input.files = transfer.files;
+            input.dispatchEvent(new Event('input', {{bubbles: true}}));
+            input.dispatchEvent(new Event('change', {{bubbles: true}}));
+            return {{dispatched: true, fileName: {json.dumps(path.name)}}};
+        }})();
+        """
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
+
+    def _media_attachment_state(self, callback: Callable[[dict], None] | None = None) -> None:
+        """Report how many files the open upload form is currently holding.
+
+        Counts across every ``input[type="file"]`` on the page rather than the picker we
+        wrote to.  The picture composer hands the file to ``picture[attachments][]`` and
+        empties the picker, so inspecting the picker alone reports zero on success.
+        Poll this after ``_attach_media()`` — the hand-off is asynchronous.
+        """
+        if not self._view:
+            return
+        page = self._view.page()
+        if not page:
+            return
+
+        js = """
+        (function() {
+            var total = 0;
+            var holders = [];
+            document.querySelectorAll('input[type="file"]').forEach(function(el) {
+                if (el.files && el.files.length) {
+                    total += el.files.length;
+                    holders.push(el.name || el.id || '<unnamed>');
+                }
+            });
+            return {attached: total > 0, fileCount: total, holders: holders};
+        })();
+        """
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
 
     # ── URL capture ─────────────────────────────────────────────────
 
@@ -1099,6 +1758,32 @@ class _LoggingWebEnginePage(QWebEnginePage):
     ):
         super().__init__(profile, parent)
         self._platform = platform
+
+    def chooseFiles(  # noqa: N802 - mirrors Qt API
+        self,
+        mode: QWebEnginePage.FileSelectionMode,
+        oldFiles: Iterable[str | None],  # noqa: N803 - mirrors Qt API
+        acceptedMimeTypes: Iterable[str | None],  # noqa: N803 - mirrors Qt API
+    ) -> list[str]:
+        """Satisfy a page's file picker from the platform's staged selection.
+
+        This is how media reaches a WebView composer.  Chromium treats the returned
+        paths as a genuine user file selection and fires a real ``change`` event with a
+        real ``File`` — which is what site uploaders expect.  Assigning a synthetic
+        ``DataTransfer`` from JavaScript does not achieve that: Fansly's uploader
+        ignores it outright.
+
+        With nothing staged this falls through to Qt's own handler, so a user who opens
+        a picker themselves still gets the native dialog.  Functional tests set
+        ``suppress_native_file_dialog`` to return an empty selection instead — a real
+        modal dialog in a headless run blocks forever with nothing able to dismiss it.
+        """
+        staged = self._platform.take_staged_picker_files()
+        if staged:
+            return staged
+        if self._platform.suppress_native_file_dialog:
+            return []
+        return super().chooseFiles(mode, oldFiles, acceptedMimeTypes)
 
     def acceptNavigationRequest(  # noqa: N802
         self,

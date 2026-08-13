@@ -97,6 +97,9 @@ def test_snapchat_no_text_length_limit():
     assert SNAPCHAT_SPECS.max_text_length is None
 
 
-def test_fetlife_no_text_length_limit():
-    """Test that FetLife has no text length limit."""
-    assert FETLIFE_SPECS.max_text_length is None
+def test_fetlife_status_text_length_limit():
+    """FetLife text posts are statuses, which FetLife caps at 690 characters.
+
+    690 is the limit FetLife shows in its own composer; "Say It!" disables past it.
+    """
+    assert FETLIFE_SPECS.max_text_length == 690

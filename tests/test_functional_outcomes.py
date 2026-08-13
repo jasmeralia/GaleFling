@@ -178,3 +178,58 @@ def test_close_webview_evicts_shared_profile(tmp_path):
 
     assert 'onlyfans_1' not in OnlyFansPlatform._profile_registry
     view.close.assert_called_once()
+
+
+# ── Credential redaction ────────────────────────────────────────────
+
+RedactedCredentials = functional_conftest.RedactedCredentials
+
+
+def test_redacted_credentials_reads_like_a_dict():
+    """Reading a value still works — only displaying the mapping is blocked."""
+    creds = RedactedCredentials({'email': 'a@b.test', 'password': 'hunter2'})
+    assert creds['password'] == 'hunter2'
+    assert creds['email'] == 'a@b.test'
+    assert sorted(creds) == ['email', 'password']
+    assert isinstance(creds, dict)
+
+
+def test_redacted_credentials_never_renders_its_values():
+    """repr, str and f-string interpolation must all show key names only."""
+    creds = RedactedCredentials({'email': 'a@b.test', 'password': 'hunter2'})
+    for rendered in (repr(creds), str(creds), f'{creds}', '{}'.format(creds)):  # noqa: UP032
+        assert 'hunter2' not in rendered
+        assert 'a@b.test' not in rendered
+        assert 'password' in rendered  # the key name is safe, and useful
+
+
+def test_redacted_credentials_survives_pytests_own_repr():
+    """The leak path was pytest's traceback rendering, not a print in a test.
+
+    pytest renders fixture arguments with ``saferepr``; asserting on our own
+    ``__repr__`` alone would not prove that path is closed.
+    """
+    from _pytest._io.saferepr import saferepr
+
+    creds = RedactedCredentials({'password': 'hunter2'})
+    assert 'hunter2' not in saferepr(creds)
+
+
+def test_every_credential_fixture_returns_a_redacted_mapping():
+    """A new credential fixture that forgets to wrap its return is the failure mode.
+
+    Asserted over the module rather than fixture by fixture so this keeps holding as
+    platforms are added.
+    """
+    import inspect
+
+    unwrapped = []
+    for name, obj in vars(functional_conftest).items():
+        if not name.endswith('_credentials'):
+            continue
+        source = inspect.getsource(getattr(obj, '__wrapped__', obj))
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith('return ') and 'RedactedCredentials' not in stripped:
+                unwrapped.append(f'{name}: {stripped}')
+    assert not unwrapped, f'credential fixtures returning unredacted values: {unwrapped}'

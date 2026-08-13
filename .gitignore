@@ -77,3 +77,9 @@ tests/functional/creds_import.json
 
 # Local Windows VM paths and credentials
 /tools/windows-vm/vm.env
+
+# Throwaway investigation harnesses. A spike answers one question and is then done;
+# its durable output belongs in AGENTS.md or docs/, not in a script nobody maintains.
+# Ignoring the directory also keeps a harness that handles live credentials, drives real
+# logins, and writes real session profiles from being committed by accident.
+/tools/spikes/

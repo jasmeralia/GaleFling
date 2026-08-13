@@ -8,10 +8,11 @@ Credentials are read from tests/functional/.env:
 from __future__ import annotations
 
 import contextlib
-import uuid
 
 import pytest
 import requests
+
+from tests.functional.conftest import mutating_post_text
 
 FB_GRAPH_BASE = 'https://graph.facebook.com/v25.0'
 
@@ -126,8 +127,7 @@ class TestMetaFacebookPageTextPost:
         """Post a text-only update to the Facebook Page and verify success."""
         from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
 
-        tag = uuid.uuid4().hex[:8]
-        text = f'GaleFling functional test {tag} — safe to delete'
+        text = mutating_post_text()
 
         platform = MetaFacebookPagePlatform(_make_auth(meta_facebook_credentials))
         result = platform.post(text)
@@ -148,8 +148,7 @@ class TestMetaFacebookPagePhotoPost:
         """Upload a single photo to the Facebook Page and verify success."""
         from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling photo test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaFacebookPagePlatform(_make_auth(meta_facebook_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg])
@@ -166,8 +165,7 @@ class TestMetaFacebookPagePhotoPost:
         """Upload two photos as a multi-photo feed post and verify success."""
         from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
 
-        tag = uuid.uuid4().hex[:8]
-        caption = f'GaleFling multi-photo test {tag} — safe to delete'
+        caption = mutating_post_text()
 
         platform = MetaFacebookPagePlatform(_make_auth(meta_facebook_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
@@ -190,8 +188,7 @@ class TestMetaFacebookPageVideoPost:
         """Upload a video to the Facebook Page and verify success."""
         from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
 
-        tag = uuid.uuid4().hex[:8]
-        description = f'GaleFling video test {tag} — safe to delete'
+        description = mutating_post_text()
 
         platform = MetaFacebookPagePlatform(_make_auth(meta_facebook_credentials))
         result = platform.post(description, media_paths=[sample_video])

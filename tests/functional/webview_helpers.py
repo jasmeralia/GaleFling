@@ -6,11 +6,12 @@ login helpers for platforms that still support automated session refresh.
 """
 
 import contextlib
+import gc
 import json
 from pathlib import Path
 from unittest.mock import patch
 
-from PyQt6.QtCore import QEventLoop, Qt, QTimer, QUrl
+from PyQt6.QtCore import QEventLoop, QPoint, Qt, QTimer, QUrl
 from PyQt6.QtTest import QTest
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -28,6 +29,11 @@ _PLATFORM_CLASSES: dict[str, type[BaseWebViewPlatform]] = {
     'fetlife': FetLifePlatform,
     'snapchat': SnapchatPlatform,
 }
+
+# Non-zero while close_webview() is deliberately destroying a page.  The renderer
+# crash monitor in conftest uses this to tell an intentional teardown apart from a
+# renderer that exited on its own mid-test.
+_TEARDOWN_DEPTH = 0
 
 
 def platform_class_for_account(account_id: str) -> type[BaseWebViewPlatform]:
@@ -117,6 +123,203 @@ def run_js(page: QWebEnginePage, js: str, timeout_ms: int = 5000):
     return state['value']
 
 
+def call_platform(method, *args, timeout_ms: int = 20000) -> dict:
+    """Call a platform method whose result arrives via an async runJavaScript callback.
+
+    Platform helpers like ``_attach_media()`` and ``_certify_upload_consent()`` hand
+    their result to a callback rather than returning it, so a test cannot read one
+    synchronously.  A non-dict result is wrapped rather than discarded: a timed-out
+    call and a call that genuinely returned ``None`` are different failures and the
+    caller needs to be able to tell them apart.
+    """
+    state: dict = {'done': False, 'value': None}
+
+    def callback(value):
+        state['done'] = True
+        state['value'] = value
+
+    method(*args, callback=callback)
+
+    elapsed = 0
+    while not state['done'] and elapsed < timeout_ms:
+        wait_ms(100)
+        elapsed += 100
+
+    value = state['value']
+    if isinstance(value, dict):
+        return value
+    return {'timed_out': not state['done'], 'raw': value}
+
+
+def wait_for_attachment(platform: BaseWebViewPlatform, timeout_ms: int = 15000) -> dict:
+    """Poll ``_media_attachment_state()`` until the open form reports a file.
+
+    Upload forms move the file from the picker to their own field asynchronously, so
+    acceptance cannot be read back from the attach call itself.  Returns the last
+    observed state on timeout so a failure message says what the form was holding.
+    """
+    elapsed = 0
+    state: dict = {}
+    while elapsed < timeout_ms:
+        state = call_platform(platform._media_attachment_state)
+        if state.get('attached'):
+            return state
+        wait_ms(500)
+        elapsed += 500
+    return state
+
+
+# Deliberately no shared delete-confirmation snippet either.
+#
+# One existed and was removed 2026-08-12, alongside the JS-click delete helper above.
+# It scoped with `document.querySelector('[role="dialog"], ..., .modal, dialog[open],
+# ...')` and applied **no visibility test**, so on FetLife it selected the account
+# sidebar — an invisible `<aside role="dialog">` earlier in document order than the
+# real modal. It then searched that empty drawer and returned
+# `{confirmed: false, scoped: true}`, which reads as "the dialog had no confirm button"
+# rather than "we were scoped to the wrong element". Measured against a live status.
+#
+# The replacement lives with its platform: `_CONFIRM_DELETE_CONTROL_JS` in
+# test_webview_fetlife.py scopes to a *visible* modal footer and is clicked with a
+# trusted mouse event. Any future platform needs its own, verified the same way —
+# a shared "find something that says delete" snippet is how the wrong element gets
+# clicked on a page full of destructive controls.
+
+
+def element_center_js(page: QWebEnginePage, js_expr: str) -> tuple[int, int] | None:
+    """Viewport centre of the element *js_expr* evaluates to, or None.
+
+    Takes an expression rather than a selector because the controls that need a
+    trusted click are often only identifiable by their text — FetLife's Delete entry
+    is an ``<a href="#0">`` indistinguishable from its siblings by CSS alone.
+    """
+    rect = run_js(
+        page,
+        f"""
+        (function() {{
+            var el = {js_expr};
+            if (!el) return null;
+            // Scroll into view first: an element below the fold reports viewport
+            // coordinates outside the widget, so the synthetic click would land
+            // somewhere else entirely (or nowhere) and grant no activation.
+            el.scrollIntoView({{block: 'center', inline: 'center'}});
+            var r = el.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return null;
+            return {{
+                x: Math.round(r.left + r.width / 2),
+                y: Math.round(r.top + r.height / 2),
+                viewportH: window.innerHeight,
+                viewportW: window.innerWidth
+            }};
+        }})();
+        """,
+        timeout_ms=10000,
+    )
+    if not isinstance(rect, dict):
+        return None
+    x, y = int(rect['x']), int(rect['y'])
+    if not (0 <= x < int(rect['viewportW']) and 0 <= y < int(rect['viewportH'])):
+        return None
+    return x, y
+
+
+def element_center(page: QWebEnginePage, selector: str) -> tuple[int, int] | None:
+    """Viewport centre of the first element matching *selector*, or None."""
+    return element_center_js(page, f'document.querySelector({json.dumps(selector)})')
+
+
+def trusted_click_at(view: QWebEngineView, x: int, y: int, settle_ms: int = 1200) -> None:
+    """Hover then click at viewport coordinates with real Qt mouse events.
+
+    The hover is not decoration: menus that open on pointer entry never render if the
+    click is the first event the element sees, so the click lands on nothing.
+    """
+    target = view.focusProxy() or view
+    QTest.mouseMove(target, QPoint(x, y))
+    wait_ms(350)
+    QTest.mouseClick(
+        target, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(x, y)
+    )
+    wait_ms(settle_ms)
+
+
+def trusted_click(
+    view: QWebEngineView, page: QWebEnginePage, selector: str | tuple[str, ...]
+) -> bool:
+    """Click a visible element with a real Qt mouse event, granting user activation.
+
+    Chromium refuses to open a file picker without user activation, and JavaScript
+    cannot grant it — a ``runJavaScript``-driven click is rejected with "File chooser
+    dialog can only be shown with a user activation". A ``QTest`` mouse event is
+    trusted, and the activation it grants then lets a *subsequent* JS ``input.click()``
+    through (verified 2026-08-12).
+
+    This stands in for the user's own click; it is not a reimplementation of anything
+    the platform does.
+    """
+    selectors = (selector,) if isinstance(selector, str) else tuple(selector)
+    point = None
+    for candidate in selectors:
+        point = element_center(page, candidate)
+        if point is not None:
+            break
+    if point is None:
+        return False
+    wait_ms(400)  # let the scroll settle before clicking the measured point
+
+    trusted_click_at(view, *point, settle_ms=300)
+    return bool(run_js(page, '!!(navigator.userActivation && navigator.userActivation.isActive)'))
+
+
+def attach_via_file_picker(
+    view: QWebEngineView,
+    page: QWebEnginePage,
+    platform: BaseWebViewPlatform,
+    path: Path,
+    activation_selector: str | tuple[str, ...],
+    timeout_ms: int = 15000,
+) -> dict:
+    """Stage *path* and drive the composer's picker into taking it.
+
+    ``activation_selector`` must be a *visible* element safe to click — the composer's
+    own attach control. Clicking the file input itself will not do: composers hide it
+    (``class="hidden"``, zero size), so it has no clickable coordinates.
+    """
+    platform.suppress_native_file_dialog = True
+    before = platform.picker_invocations
+    platform.stage_media_for_picker(path)
+
+    activated = trusted_click(view, page, activation_selector)
+    if not activated:
+        return {'attached': False, 'reason': f'no user activation from {activation_selector!r}'}
+
+    platform.open_media_picker(path)
+
+    elapsed = 0
+    while platform.picker_invocations == before and elapsed < timeout_ms:
+        wait_ms(250)
+        elapsed += 250
+
+    if platform.picker_invocations == before:
+        return {'attached': False, 'reason': 'file picker never opened', 'activated': True}
+    return {'attached': True, 'activated': True, 'elapsed_ms': elapsed}
+
+
+# Deliberately no shared "delete the current post" helper.
+#
+# One existed and was removed 2026-08-12: it drove deletion with JavaScript clicks,
+# which cannot work on the only platform whose delete control has been investigated.
+# FetLife's Delete is an <a href="#0"> whose handler is bound in JavaScript, so a
+# synthetic .click() never reaches it and no confirmation is raised. It also matched
+# destructive controls by substring ("delete this", aria-label "more"), and it
+# reported success from a confirmation *click* without ever verifying the artifact
+# was gone. Nothing called it.
+#
+# Deletion needs trusted_click() plus a reload-and-confirm-absent check; see
+# _delete_status_by_tag() in test_webview_fetlife.py for the shape, and Odoo task 420
+# for the opt-in cleanup pass that will generalise it.
+
+
 def create_webview(
     data_dir: Path, account_id: str
 ) -> tuple[QWebEngineView, QWebEnginePage, BaseWebViewPlatform]:
@@ -142,21 +345,69 @@ def create_webview(
         return view, page, platform
 
 
+def teardown_in_progress() -> bool:
+    """Whether a test WebView is currently being torn down by close_webview()."""
+    return _TEARDOWN_DEPTH > 0
+
+
+def _pump_deferred_deletes(ms: int = 500) -> None:
+    """Run pending deleteLater() calls so C++ objects are destroyed before we continue."""
+    app = QApplication.instance()
+    if app is not None:
+        app.processEvents()
+    wait_ms(ms)
+    if app is not None:
+        app.processEvents()
+
+
 def close_webview(
     view: QWebEngineView,
     page: QWebEnginePage,
     platform: BaseWebViewPlatform,
 ) -> None:
-    """Tear down a platform-backed test WebView and release its shared profile."""
+    """Tear down a platform-backed test WebView and fully release its shared profile.
+
+    ``BaseWebViewPlatform._evict_profile()`` only drops the registry key — it does not
+    destroy the ``QWebEngineProfile`` or release Chromium's lock on the profile's
+    persistent storage directory.  The profile lives until its last Python reference
+    goes away, and ``platform._profile`` is one of them.
+
+    That distinction is load-bearing.  When a test *fails*, pytest keeps the assertion
+    traceback alive, which keeps the test frame's ``view`` / ``page`` / ``platform``
+    locals alive with it.  If this function does not clear every reference itself, the
+    old profile survives the test, the next ``create_webview()`` builds a *second*
+    profile against the same ``persistentStoragePath``, and Chromium deadlocks — so one
+    failing assertion wedges every WebView test that runs after it.
+    """
+    global _TEARDOWN_DEPTH
+
     account_id = platform._account_id or 'default'
-    with contextlib.suppress(RuntimeError):
-        view.close()
+    _TEARDOWN_DEPTH += 1
+    try:
         platform._view = None
         platform._page = None
-        view.deleteLater()
-    wait_ms(500)
-    BaseWebViewPlatform._evict_profile(account_id)
-    wait_ms(500)
+        platform._profile = None
+
+        if view is not None:
+            with contextlib.suppress(RuntimeError):
+                view.close()
+            with contextlib.suppress(RuntimeError):
+                view.deleteLater()
+        if page is not None:
+            with contextlib.suppress(RuntimeError):
+                page.deleteLater()
+
+        # Destroy the pages before dropping the profile: Qt requires a profile to
+        # outlive every page using it.
+        _pump_deferred_deletes()
+        BaseWebViewPlatform._evict_profile(account_id)
+        # The caller's own locals may still reference the profile transitively; a
+        # collection pass drops those cycles so the C++ object is destroyed here
+        # rather than at some arbitrary point during a later test.
+        gc.collect()
+        _pump_deferred_deletes()
+    finally:
+        _TEARDOWN_DEPTH -= 1
 
 
 def has_cookie_db(data_dir: Path, account_id: str) -> bool:

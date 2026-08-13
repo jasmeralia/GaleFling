@@ -92,6 +92,29 @@ Platform limits and capabilities are defined in `src/utils/constants.py` (`Platf
 | Fansly | Yes | No (SPA) | Yes | No |
 | FetLife | Yes | Yes | Yes (cookie-only check) | No |
 
+## Mixing images and video in one post
+
+Several platforms accept a single post containing **both** images and video — Instagram
+and Threads carousels do, and so does Fansly's composer. The `Max Attachments` column
+above counts images only and says nothing about mixing; do not read it as evidence that
+a platform cannot mix media.
+
+**GaleFling does not offer mixed posts.** A video is always a sole attachment:
+
+| Layer | Behavior |
+|---|---|
+| Composer UI (`post_composer.py::_choose_media`) | Once a video is attached, **Add Media** is disabled. With images already attached, the file dialog offers image formats only, and a video selected alongside them is skipped. |
+| Platform gating (`main_window.py::_apply_count_restriction`) | With any video present, the per-post cap drops to 1 for every platform regardless of its own `max_media_attachments`. |
+| Platform adapters | Unrestricted — `MetaInstagramPlatform.post()` and `MetaThreadsPlatform.post()` accept `media_paths=[image, video]` and publish a mixed carousel. |
+
+This is a deliberate product restriction, not a platform limitation, and the two halves
+disagree on purpose: the adapters can do more than the UI exposes. The functional suite
+covers the mixed carousel by calling `post()` directly (`test_carousel_image_and_video`
+for Instagram and Threads), which is the only way to reach that path — the GUI will not
+produce such a selection. If mixed posts are ever offered to users, the restriction to
+lift is in the composer, and the adapters for other platforms would need their own
+mixed-media handling before that would be safe.
+
 ## Key Capability Flags in Code
 
 `PlatformSpecs` fields used by UI and processing logic:
@@ -99,7 +122,7 @@ Platform limits and capabilities are defined in `src/utils/constants.py` (`Platf
 - `supported_video_formats`, `max_video_dimensions`, `max_video_file_size_mb`, `max_video_duration_seconds` — video constraints
 - `max_text_length`, `supports_text`, `supports_text_with_media` — text behavior
 - `api_type`, `requires_user_confirm` — posting model
-- `max_media_attachments` — attachment cap
+- `max_media_attachments` — attachment cap, counting images (see "Mixing images and video" above — a video being a sole attachment is GaleFling's rule, not the platform's)
 
 The specs objects for Threads and Facebook are `META_THREADS_API_SPECS` and
 `META_FACEBOOK_PAGE_SPECS` in `src/utils/constants.py`, registered under the

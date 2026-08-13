@@ -10,11 +10,11 @@ username/password login is not supported — see docs/platforms/ONLYFANS_SESSION
 
 import json
 import os
-import uuid
 
 import pytest
 
-from tests.functional.conftest import ONLYFANS_ACCOUNT_ID, fail_or_skip
+from src.platforms.onlyfans import OnlyFansPlatform
+from tests.functional.conftest import ONLYFANS_ACCOUNT_ID, fail_or_skip, mutating_post_tag
 from tests.functional.webview_helpers import (
     close_webview,
     create_webview,
@@ -94,7 +94,12 @@ class TestOnlyFansComposer:
             close_webview(view, page, platform)
 
     def test_composer_accessible(self, galefling_data_dir, onlyfans_session):
-        """Check if the composer is present and attempt text injection."""
+        """Expand the composer, then inject through OnlyFansPlatform._inject_text().
+
+        Injection goes through the shipped platform so a regression in ``_inject_text``
+        or ``TEXT_SELECTOR`` fails here. The composer selector is read from the platform
+        rather than copied, for the same reason (Phase 5).
+        """
         assert onlyfans_session == ONLYFANS_ACCOUNT_ID
         get_or_create_app()
         view, page, platform = create_webview(galefling_data_dir, ONLYFANS_ACCOUNT_ID)
@@ -102,93 +107,95 @@ class TestOnlyFansComposer:
             _ensure_authenticated_page(page)
             wait_ms(5000)
 
-            # Try to find the composer — it may need a click to expand
+            selector = json.dumps(OnlyFansPlatform.TEXT_SELECTOR)
+
+            # The composer may need a click to expand before it exists in the DOM.
             result = run_js(
                 page,
-                """
-                (function() {
-                    var composer = document.querySelector(
-                        'div[contenteditable="true"].b-make-post__text'
-                    );
-                    if (composer) return {composerFound: true, clicked: false};
+                f"""
+                (function() {{
+                    var composer = document.querySelector({selector});
+                    if (composer) return {{composerFound: true, clicked: false}};
 
-                    // Composer not in DOM yet — click the placeholder/compose area to expand it
                     var placeholder = document.querySelector(
                         '.b-make-post__placeholder, .b-make-post, '
                         + '[data-post-create], .b-write-post, '
                         + '.post-create, .create-post'
                     );
-                    if (placeholder) {
+                    if (placeholder) {{
                         placeholder.click();
-                        return {composerFound: false, clicked: true, selector: placeholder.className};
-                    }
+                        return {{
+                            composerFound: false,
+                            clicked: true,
+                            selector: placeholder.className
+                        }};
+                    }}
 
-                    // Try clicking any element that looks like a compose trigger
                     var candidates = Array.from(document.querySelectorAll(
                         'div[class*="make-post"], div[class*="write-post"], '
                         + 'div[class*="create-post"], div[class*="compose"]'
                     ));
-                    if (candidates.length > 0) {
+                    if (candidates.length > 0) {{
                         candidates[0].click();
-                        return {composerFound: false, clicked: true, selector: candidates[0].className};
-                    }
+                        return {{
+                            composerFound: false,
+                            clicked: true,
+                            selector: candidates[0].className
+                        }};
+                    }}
 
-                    return {
+                    return {{
                         composerFound: false,
                         clicked: false,
                         editableCount: document.querySelectorAll('[contenteditable="true"]').length
-                    };
-                })();
+                    }};
+                }})();
                 """,
             )
             assert isinstance(result, dict)
 
             if result.get('clicked') and not result.get('composerFound'):
-                # Clicked the compose area — wait for the editor to appear
                 wait_ms(2000)
                 recheck = run_js(
                     page,
-                    """
-                    (function() {
-                        var composer = document.querySelector(
-                            'div[contenteditable="true"].b-make-post__text'
-                        );
-                        return {
-                            composerFound: !!composer,
+                    f"""
+                    (function() {{
+                        return {{
+                            composerFound: !!document.querySelector({selector}),
                             editableCount: document.querySelectorAll(
                                 '[contenteditable="true"]'
                             ).length
-                        };
-                    })();
+                        }};
+                    }})();
                     """,
                 )
                 if isinstance(recheck, dict):
                     result = recheck
 
             if not result.get('composerFound'):
-                platform = os.environ.get('QT_QPA_PLATFORM', 'default')
+                qt_platform = os.environ.get('QT_QPA_PLATFORM', 'default')
                 fail_or_skip(
                     f'OnlyFans composer not found after click attempt '
-                    f'(platform={platform}, '
+                    f'(platform={qt_platform}, '
                     f'editables={result.get("editableCount", 0)}, '
-                    'selector=div[contenteditable="true"].b-make-post__text). '
+                    f'selector={OnlyFansPlatform.TEXT_SELECTOR}). '
                     'May require full browser rendering.'
                 )
 
-            # Composer found — inject text
-            tag = uuid.uuid4().hex[:8]
-            test_text = f'GaleFling functional test {tag}'
+            test_text = mutating_post_tag()
+            platform._inject_text(test_text)
+            wait_ms(1000)
+
             inject_result = run_js(
                 page,
                 f"""
                 (function() {{
-                    var el = document.querySelector(
-                        'div[contenteditable="true"].b-make-post__text'
-                    );
+                    var el = document.querySelector({selector});
                     if (!el) return {{found: false}};
-                    el.focus();
-                    document.execCommand('insertText', false, {json.dumps(test_text)});
-                    return {{found: true, content: el.textContent.substring(0, 100)}};
+                    return {{
+                        found: true,
+                        content: (el.textContent || el.value || '').substring(0, 100)
+                    }};
                 }})();
                 """,
             )

@@ -99,6 +99,27 @@ galefling/
 - Keep lint/tests green as the default quality gate.
 - Use `make deps` to set up the `.venv` and install dependencies; all `make` targets use the venv Python automatically.
 
+## Development Platforms
+
+- **Linux (Kubuntu) is the primary development platform**, not a secondary target. Features
+  are built and exercised natively via `make run`, and functional tests are normally
+  written and run under Linux first. Do not treat Linux support as something to be added
+  or verified after the fact.
+- **Windows is the release target** — it is Rin's platform — and is therefore the side more
+  likely to drift, since it is not where daily development happens. The control for that is
+  the release process rather than extra CI: builds ship as **pre-releases**, and promotion
+  to latest-stable follows the operator's own Windows verification, now via the
+  `galefling-win11` VM.
+- **Agents never promote releases.** Do not mark a release as latest, flip a pre-release to
+  stable, or otherwise change release visibility — no `gh release edit --latest`, no
+  equivalent API call. That decision rests on Windows verification the operator performs
+  and is theirs alone, in the same way that CI creates version tags and agents do not push
+  them by hand.
+- **The WSL functional-testing path is effectively dead.** It remains supported and should
+  not be removed, but it is unlikely to be exercised — active development happens under
+  Kubuntu rather than by booting into Windows. Do not assume WSL-only instructions have
+  been validated recently, and do not treat WSL as a validation route for new work.
+
 ## Windows WebView Test VM
 
 - Reusable VM scripts and answer-file templates live in `tools/windows-vm/`.

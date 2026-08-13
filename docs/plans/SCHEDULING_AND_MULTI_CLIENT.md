@@ -322,10 +322,11 @@ time.
 
 Three channels, none of which need a service worker or a notification model:
 
-- **Email.** The natural channel for something that happens while nobody is looking, and
-  it reaches Rin and Jas on any device without the phone client being open. `boto3` is
-  already a dependency and the AWS credential/config pattern already exists for S3 media
-  staging, so SES is a small addition; plain SMTP is equally viable.
+- **Email over SMTP.** The natural channel for something that happens while nobody is
+  looking: it reaches Rin and Jas on any device without the phone client being open, and
+  needs no service worker, no notification model, and no secure context. See
+  [Email configuration](#email-configuration) — this is chosen over SES specifically
+  because it can be pre-configured for Rin rather than set up by her.
 - **Visible failure state in the desktop GUI**, alongside the existing results dialog.
 - **The existing log-upload path**, for diagnosis after the fact.
 
@@ -339,6 +340,38 @@ not posted at all, so the threshold should probably be short and configurable.
 Delegated posts (OnlyFans, Fansly, Instagram, Threads) sidestep this entirely — the
 platform fires them whether or not the desktop was up — and are reconciled on the next
 session by checking whether the platform actually published.
+
+#### Email configuration
+
+SMTP is preferred over SES for an R5 reason rather than a technical one: **it can ride the
+credential import Jas already hands Rin.** `src/core/credential_importer.py` is versioned,
+accepts partial imports, and already carries `meta`, `twitter`, and `aws` sections; an
+`smtp` section alongside them means host, port, username, app password, and recipients all
+arrive pre-filled. Rin configures nothing and sees no mail settings unless she goes
+looking. SES would mean AWS identity verification and a sending-domain setup with no
+corresponding benefit at this volume.
+
+Gmail specifics worth pinning down before implementation:
+
+- `smtp.gmail.com` port 587 with STARTTLS (or 465 implicit TLS). Outbound only, and no
+  different in posture from the platform APIs and S3 uploads the app already makes.
+- **An App Password is required** — Google removed plain-password SMTP access, and
+  generating an App Password requires 2-Step Verification on the account.
+- The `From:` header is rewritten to the authenticated account unless a verified alias is
+  used, so the sending identity is whoever owns the mailbox.
+- Free-account sending limits are around 500 messages/day, which is irrelevant here.
+
+**Open decision — which mailbox.** This matters more than the transport:
+
+| Option | Assessment |
+|--------|------------|
+| **A dedicated account created for this** | **Recommended.** Contains the blast radius; the App Password grants nothing but SMTP send from a mailbox that holds nothing. |
+| Jas's personal account | Puts an App Password for Jas's Google identity on someone else's computer. Avoid. |
+| Rin's own account | She would have to enable 2-Step Verification and generate an App Password herself — precisely the kind of step R5 exists to remove. |
+
+The App Password is a credential like any other: stored through `AuthManager` (`keyring`
+is already a dependency), never logged, and covered by the same handling rules as platform
+credentials.
 
 #### Explicitly not in scope: monitoring Rin's machine
 
@@ -468,9 +501,10 @@ once the architecture stops fighting the platforms.
 1. Rin's sleep settings and autologon state — Jas to confirm; expected to already be correct.
 2. Does mDNS resolve end-to-end on Rin's actual network — her iPhone to her desktop
    through the Dream Machine? Everything about discovery rests on this. (Phase 0.4)
-3. Failure-email transport: SES, reusing the existing AWS credential pattern, or plain
-   SMTP? And what staleness threshold should startup reconciliation use before it marks a
-   due post missed rather than posting it late?
+3. Which mailbox sends the failure emails? A dedicated account is recommended — see
+   [Email configuration](#email-configuration).
+4. What staleness threshold should startup reconciliation use before marking a due post
+   missed rather than posting it late?
 
 ---
 
@@ -548,6 +582,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 | Date | Change |
 |------|--------|
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`; re-framed from mobile port to desktop-resident scheduler + mobile web client. |
+| 2026-08-13 | Failure notification settled on SMTP over SES (Jas), delivered through the existing credential-import file as a new `smtp` section so Rin configures nothing. Gmail App Password requirements documented; which mailbox to send from raised as an open decision, with a dedicated account recommended over Jas's personal one. |
 | 2026-08-13 | Separated two problems that had been conflated (Jas): GaleFling reporting its own posting failures is in scope and best served by email; whether Rin's machine is up is **not** monitored and not Jas's responsibility. Dead-man's switch dropped entirely rather than scoped. Startup reconciliation reframed as queue correctness rather than alerting, with a staleness threshold noted as an open design question. |
 | 2026-08-13 | Rewrote R4/alerting: split app-running from app-not-running failures, promoted startup queue reconciliation to the primary defence, scoped the dead-man's switch to sustained outages only, and removed a stale reference to pushing to paired devices — there is no push channel in the baseline. |
 | 2026-08-13 | Clarified what plain HTTP actually costs (Jas): push is moot since GaleFling has no notification model, and "offline" means the app will not open at all while off-LAN, i.e. no compose-while-away. Both sit behind the same secure-context gate, so the TLS upgrade is one decision rather than two. |

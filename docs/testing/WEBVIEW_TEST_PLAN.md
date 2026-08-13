@@ -481,59 +481,35 @@ The generalisable question to ask of each remaining family, alongside the one ab
 answer is "none, the caption/URL/return value would still look right", the
 post-condition is decorative regardless of what code path produced it.
 
-### The whole media path is tested but unreachable (2026-08-12)
+### The WebView media path is wired (2026-08-12)
 
-**No WebView platform attaches media in the shipped post flow. Every media test on
-every WebView platform exercises a method the app never calls.** This is the most
-serious Phase 5 gap found so far, and it is not FetLife-specific — it was found by
-asking the FetLife caption question of Fansly too.
+Task #417 Level B connected the verified media helpers to the shipped
+`BaseWebViewPlatform._do_prefill()` entry point for Fansly and FetLife. Media remains
+opt-in, so OnlyFans, Snapchat, and future WebView adapters keep their prior text-only
+behavior until they implement a complete platform sequence.
 
-`_do_prefill()` is the entire shipped composer path:
+The orchestration is callback-based and never blocks the GUI thread. A small sequencer
+logs every named step, stops at the first refusal, and uses bounded `QTimer.singleShot`
+polls for DOM state that changes asynchronously. A failed permission policy, missing
+control, absent attachment, or disabled control therefore cannot fall through to later
+steps.
 
-```python
-if self.BLOCKING_OVERLAY_SELECTOR:
-    self.dismiss_blocking_overlay()
-if self._text:
-    self._inject_text(self._text)
-```
-
-`prepare_post()` stores `_image_path`, and it is read in exactly two places — both
-routing decisions (`FetLifePlatform.get_composer_url()` and `get_media_file_selector()`).
-Nothing attaches it. Confirmed by grepping `src/` for each entry point:
-
-| Method | Defined | Called from `src/` |
+| Platform | Shipped `_do_prefill()` media behavior | Final state |
 |---|---|---|
-| `BaseWebViewPlatform._attach_media()` | `base_webview.py:1098` | nothing |
-| `BaseWebViewPlatform.stage_media_for_picker()` / `open_media_picker()` | `base_webview.py:1041`/`1061` | nothing |
-| `FanslyPlatform.apply_media_permissions()` | `fansly.py:73` | nothing |
-| `FetLifePlatform._certify_upload_consent()` | `fetlife.py:345` | nothing |
-| `FetLifePlatform._inject_media_caption()` | `fetlife.py:297` | nothing |
+| FetLife | Stage → trusted **Choose File** click → picker → retain attachment → fill media caption/title → certify exact consent field → recheck avatar replacement | Form ready; upload submit untouched |
+| Fansly | Dismiss overlay → fill text → stage → open image dropdown → exact **Upload New** → picker → modal → no-paywall permissions → enabled **Upload** → attachment poll → wait for Post to enable | Composer ready; Post untouched |
 
-So the app's real media behaviour is: pick the right composer URL, inject text where a
-text field exists, and leave the user to attach the file by hand in the WebView panel.
-That is coherent with `requires_user_confirm=True` — it is not a bug in itself. The
-Phase 5 problem is what the tests are then taken to mean.
+`_attach_media()` remains for the established functional tests, but it is not the
+production route: its base64-in-JavaScript design cannot support FetLife's 500 MB video
+limit. The shipped path uses the `chooseFiles()` override and passes a filesystem path.
 
-**What the media tests do and do not prove.** They are not worthless: they characterise
-the live sites accurately, and they prove the shipped *methods* work — Fansly's
-permission policy really does clear Require Subscription, FetLife's consent matcher
-really does avoid `picture[is_avatar]`. What they cannot prove is that **GaleFling**
-posts media, because GaleFling never runs any of it. A reader who sees
-`test_image_post_creates_a_post_with_media` pass will reasonably conclude the app can
-post an image with media. It cannot.
+The FetLife `/pictures/new` and `/videos/new` paths were verified live and
+non-mutatively through `_do_prefill()` on 2026-08-12: exactly one picker invocation per
+run, each file retained in the correct form field, caption/title injected, consent
+checked, and `picture[is_avatar]` still off on the picture form. No upload submit was
+clicked.
 
-This inverts the usual Phase 5 violation. The familiar one is a test that reimplements
-shipped behaviour, so a shipped break stays green. This one is a test that drives real
-shipped methods faithfully — while the shipped *flow* routes around all of them. Both
-produce a green suite that overstates what works, and neither is visible from "does the
-test call platform code?"
-
-Closing it is task #417 Level B (wire media upload into the post flow), after which the
-media tests should be re-pointed at whatever the real entry point becomes, rather than
-calling `_attach_media()` and friends directly. Until then, treat every green media test
-as a statement about the platform, not about the product.
-
-#### The blocker to closing it is gone (2026-08-12)
+#### Trusted activation implementation (2026-08-12)
 
 Wiring media in needs a *trusted* gesture: Chromium refuses a file picker without user
 activation, and JavaScript cannot grant it. The functional tests got one from
@@ -560,9 +536,12 @@ That verification also caught a false success in shipped code: `open_media_picke
 returned `opened: true` with no activation, because the JS completes and Chromium drops
 the click silently while `picker_invocations` never moves. It refuses now.
 
-So the remaining work for #417 Level B is orchestration only — the plumbing
-(`chooseFiles()` override, staging, trusted click, picker) is complete and verified on
-the shipping platform.
+The production sequence also waits one event-loop turn after the trusted click before
+using `open_media_picker()` as a fallback. Live FetLife testing found that Chromium can
+deliver the page's click handler just after Qt event dispatch returns; an immediate
+fallback opened a second picker whose empty selection cleared the first attachment.
+The bounded delay lets the visible control's picker win and only uses the hidden-input
+fallback when no `chooseFiles()` invocation occurred.
 
 FetLife's status deletion also moved from "documented as impossible" to implemented:
 its `<a href="#0">` Delete control binds its handler in JS and ignores a synthetic

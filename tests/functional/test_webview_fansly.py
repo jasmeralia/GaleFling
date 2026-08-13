@@ -717,12 +717,20 @@ class TestFanslyPost:
                     var file = document.querySelector(
                         {json.dumps(FanslyPlatform.MEDIA_FILE_SELECTOR)}
                     );
+                    var mediaMenu = document.querySelector(
+                        {json.dumps(FanslyPlatform.MEDIA_MENU_SELECTOR)}
+                    );
+                    var mediaContainer = document.querySelector(
+                        '[class*="media-upload-container"]'
+                    );
                     return {{
                         textareaCount: document.querySelectorAll('textarea').length,
                         textareaFound: !!ta,
                         maxlength: ta ? ta.getAttribute('maxlength') : null,
                         fileFound: !!file,
-                        accept: file ? file.getAttribute('accept') : null
+                        accept: file ? file.getAttribute('accept') : null,
+                        mediaMenuFound: !!mediaMenu,
+                        mediaContainerFound: !!mediaContainer
                     }};
                 }})();
                 """,
@@ -736,6 +744,13 @@ class TestFanslyPost:
                 f'{state.get("textareaCount")} textareas on the page: {state}'
             )
             assert state.get('fileFound'), f'Composer media input missing: {state}'
+            assert state.get('mediaMenuFound'), (
+                f'Visible media dropdown parent missing for {FanslyPlatform.MEDIA_MENU_SELECTOR}: '
+                f'{state}'
+            )
+            assert state.get('mediaContainerFound'), (
+                f'Composer media-upload-container missing: {state}'
+            )
             assert str(state.get('maxlength')) == str(
                 FanslyPlatform().get_specs().max_text_length
             ), (

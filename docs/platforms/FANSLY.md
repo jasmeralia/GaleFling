@@ -98,14 +98,10 @@ Target these by exact field name. The modal is a permissions block, so a keyword
 
 ## Media upload flow
 
-> **GaleFling does not currently drive this flow.** The shipped post path
-> (`BaseWebViewPlatform._do_prefill()`) dismisses the overlay, injects text, and stops —
-> it never calls `stage_media_for_picker()`, `open_media_picker()`, or
-> `apply_media_permissions()`. The user attaches media by hand in the WebView panel.
-> Everything below is verified against the live site and is exercised by the functional
-> tests, which call those methods directly; it is not yet reachable from the app.
-> Wiring it in is task #417 Level B. See `docs/testing/WEBVIEW_TEST_PLAN.md` → "The
-> whole media path is tested but unreachable".
+GaleFling drives this flow from `BaseWebViewPlatform._do_prefill()` when a media path is
+present. The callback sequence is bounded and aborts on the first failed or refused
+step, with the reason recorded in the application log. It leaves the composer ready for
+the user and never clicks **Post**.
 
 Attaching media is a multi-step flow driven by Fansly's own UI, not a single file input:
 
@@ -115,6 +111,13 @@ Attaching media is a multi-step flow driven by Fansly's own UI, not a single fil
 4. An **Upload media** modal appears with the permission controls above.
 5. Click **Upload** to confirm — only now does the media reach the composer.
 6. Add the caption and post.
+
+The shipped sequence dismisses the greeting overlay, fills the caption, stages the
+file, opens the media dropdown, selects the exact **Upload New** leaf, waits for the
+modal, applies the no-paywall permissions, clicks the enabled **Upload** control, waits
+for the composer attachment, and finally waits for **Post** to lose its whole-token
+`disabled` class. The last observation is readiness only; user confirmation remains
+required.
 
 Writing a file onto the input directly does not work, with either a synthetic `DataTransfer` or the picker: Fansly's uploader is never in the call stack, so the modal never opens and the composer stays empty. Posting anyway publishes the caption with **no media attached**.
 

@@ -661,6 +661,140 @@ def _fetlife_with_page():
     return platform, page
 
 
+def test_media_step_sequencer_aborts_after_a_failed_step():
+    """A failed callback must be the end of the sequence, not advisory metadata."""
+    platform = FanslyPlatform(account_id='fansly_1')
+    called: list[str] = []
+
+    def fail(done):
+        called.append('failed step')
+        done(False, 'deliberate refusal', {'ok': False})
+
+    def must_not_run(done):
+        called.append('later step')
+        done(True, '', None)
+
+    platform._run_media_sequence([('fail here', fail), ('publish anyway', must_not_run)])
+
+    assert called == ['failed step']
+
+
+def test_trusted_click_refuses_a_disabled_control(monkeypatch):
+    """Fansly uses a class token, not the DOM property, to disable its Post div."""
+
+    class _DisabledPage:
+        def __init__(self):
+            self.script = ''
+
+        def runJavaScript(self, script, callback=None):  # noqa: N802 - mirrors Qt API
+            self.script = script
+            if callback:
+                callback({'found': True, 'disabled': True, 'selector': 'div.new-post-btn'})
+
+    page = _DisabledPage()
+    platform = FanslyPlatform(account_id='fansly_1')
+    platform._view = _RecordingView(page)
+    sent_clicks: list[tuple[int, int]] = []
+    monkeypatch.setattr(platform, '_send_trusted_click', lambda x, y: sent_clicks.append((x, y)))
+    results: list[dict] = []
+
+    platform.trusted_click('div.new-post-btn', callback=results.append)
+
+    assert results == [
+        {
+            'clicked': False,
+            'reason': 'control disabled',
+            'selector': 'div.new-post-btn',
+        }
+    ]
+    assert sent_clicks == []
+    assert "classList.contains('disabled')" in page.script
+
+
+def test_fansly_permission_failure_aborts_media_prefill(monkeypatch, tmp_path):
+    """A failed no-paywall policy must prevent Upload and every later step."""
+    from src.platforms import base_webview
+
+    class _ImmediateTimer:
+        @staticmethod
+        def singleShot(_delay, callback):  # noqa: N802 - mirrors Qt API
+            callback()
+
+    monkeypatch.setattr(base_webview, 'QTimer', _ImmediateTimer)
+    platform, _ = _fansly_with_page()
+    platform._image_path = tmp_path / 'photo.jpg'
+    later_calls: list[str] = []
+    permission_calls: list[str] = []
+
+    monkeypatch.setattr(
+        platform,
+        'dismiss_blocking_overlay',
+        lambda callback=None: callback({'present': False, 'dismissed': True}),
+    )
+    monkeypatch.setattr(
+        platform,
+        '_fansly_composer_media_state',
+        lambda callback: callback({'found': True, 'mediaCount': 0}),
+    )
+    monkeypatch.setattr(
+        platform,
+        '_mark_fansly_upload_new',
+        lambda callback: callback({'found': True}),
+    )
+    monkeypatch.setattr(
+        platform,
+        '_fansly_upload_modal_state',
+        lambda callback: callback({'visible': True}),
+    )
+
+    def trusted_click(selector, callback=None):
+        if selector == platform.UPLOAD_NEW_MARKER_SELECTOR:
+            platform.take_staged_picker_files()
+        callback({'clicked': True, 'selector': selector})
+
+    monkeypatch.setattr(platform, 'trusted_click', trusted_click)
+
+    def fail_permissions(callback=None):
+        permission_calls.append('permissions')
+        callback({'ok': False, 'state': {}})
+
+    monkeypatch.setattr(platform, 'apply_media_permissions', fail_permissions)
+    monkeypatch.setattr(
+        platform,
+        '_mark_fansly_upload_button',
+        lambda callback: later_calls.append('upload button'),
+    )
+    monkeypatch.setattr(
+        platform,
+        '_fansly_post_control_state',
+        lambda callback: later_calls.append('post readiness'),
+    )
+
+    platform._prefill_media()
+
+    assert permission_calls == ['permissions']
+    assert later_calls == []
+
+
+def test_platform_without_media_opt_in_keeps_text_prefill(monkeypatch, tmp_path):
+    """An attached path must not change legacy platforms until they explicitly opt in."""
+
+    class _LegacyWebView(FanslyPlatform):
+        MEDIA_PREFILL_ENABLED = False
+
+    platform = _LegacyWebView(account_id='legacy_1')
+    platform._image_path = tmp_path / 'photo.jpg'
+    platform._text = 'legacy text'
+    calls: list[str] = []
+    monkeypatch.setattr(platform, 'dismiss_blocking_overlay', lambda: calls.append('overlay'))
+    monkeypatch.setattr(platform, '_inject_text', lambda text: calls.append(f'text:{text}'))
+    monkeypatch.setattr(platform, '_prefill_media', lambda: calls.append('media'))
+
+    platform._do_prefill()
+
+    assert calls == ['overlay', 'text:legacy text']
+
+
 def test_fetlife_media_file_selector_routes_by_extension(tmp_path):
     platform = FetLifePlatform(account_id='fetlife_1')
     assert platform.get_media_file_selector() is None

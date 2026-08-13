@@ -75,17 +75,15 @@ class TestTextWarning:
         composer.set_text('Hello world')
         assert composer._text_warning.isHidden()
 
-    def test_warning_shown_for_fetlife_with_media_and_text(self, composer):
-        """FetLife should warn that text is ignored when media is attached."""
+    def test_no_warning_for_fetlife_with_media_and_text(self, composer):
+        """FetLife media captions are filled by the shipped WebView media flow."""
         with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as f:
             media = Path(f.name)
         composer.set_media_paths([media])
         composer.set_platform_state(selected=['fetlife_1'], enabled=['fetlife_1'])
         composer.set_text('Hello world')
 
-        assert not composer._text_warning.isHidden()
-        assert 'FetLife' in composer._text_warning.text()
-        assert 'media is attached' in composer._text_warning.text()
+        assert composer._text_warning.isHidden()
         media.unlink(missing_ok=True)
 
     def test_no_warning_for_fetlife_text_only(self, composer):

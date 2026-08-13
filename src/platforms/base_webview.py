@@ -11,7 +11,7 @@ import mimetypes
 import re
 import sqlite3
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 from src.core.webview_environment import (
@@ -98,6 +98,12 @@ class BaseWebViewPlatform(BasePlatform):
     # Composer file-input selector for platforms with a single multi-accept input.
     # Platforms with one composer per media type override get_media_file_selector().
     MEDIA_FILE_SELECTOR: str = ''
+    # Shipped media pre-fill is opt-in. WebView platforms that implement a complete,
+    # verified picker sequence set this and override _prefill_media(). Platforms that
+    # do not opt in retain the existing text-only pre-fill behaviour.
+    MEDIA_PREFILL_ENABLED: bool = False
+    MEDIA_STEP_POLL_INTERVAL_MS: int = 500
+    MEDIA_STEP_CALLBACK_TIMEOUT_MS: int = 130000
     # Selector for a modal backdrop that covers the composer and swallows the first
     # click on the page.  Set it to have dismiss_blocking_overlay() clear it after
     # load; leave it empty and no overlay handling runs.
@@ -886,13 +892,136 @@ class BaseWebViewPlatform(BasePlatform):
         QTimer.singleShot(self.PREFILL_DELAY_MS, self._do_prefill)
 
     def _do_prefill(self):
-        """Inject text and optionally set up image upload."""
+        """Pre-fill the open composer, including media for opted-in platforms."""
+        if self._image_path and self.MEDIA_PREFILL_ENABLED:
+            self._prefill_media()
+            if self.SUCCESS_SELECTOR:
+                QTimer.singleShot(500, self._inject_success_observer)
+            return
+
         if self.BLOCKING_OVERLAY_SELECTOR:
             self.dismiss_blocking_overlay()
         if self._text:
             self._inject_text(self._text)
         if self.SUCCESS_SELECTOR:
             QTimer.singleShot(500, self._inject_success_observer)
+
+    def _prefill_media(self) -> None:
+        """Run a platform's asynchronous media pre-fill sequence.
+
+        Subclasses opt in with ``MEDIA_PREFILL_ENABLED`` and override this hook. The
+        base implementation deliberately does nothing so existing WebView platforms
+        keep their text-only behaviour.
+        """
+
+    def _run_media_sequence(
+        self,
+        steps: Sequence[
+            tuple[
+                str,
+                Callable[[Callable[[bool, str, object | None], None]], None],
+            ]
+        ],
+    ) -> None:
+        """Run callback-based media *steps* in order, aborting on the first failure.
+
+        A step calls its completion callback with ``(ok, reason, detail)``. The
+        sequencer owns the single failure path so every abort is logged consistently
+        and no later action can run after a refusal.
+        """
+        platform_name = self.get_platform_name()
+        sequence_started = time.monotonic()
+        stopped = False
+
+        def run_step(index: int) -> None:
+            nonlocal stopped
+            if stopped:
+                return
+            if index >= len(steps):
+                elapsed_ms = round((time.monotonic() - sequence_started) * 1000)
+                get_logger().info(
+                    f'{platform_name}: media pre-fill complete in {elapsed_ms} ms; '
+                    'waiting for user confirmation'
+                )
+                stopped = True
+                return
+
+            step_name, action = steps[index]
+            step_started = time.monotonic()
+            get_logger().info(f'{platform_name}: media step started: {step_name}')
+            callback_used = False
+
+            def finish(ok: bool, reason: str = '', detail: object | None = None) -> None:
+                nonlocal callback_used, stopped
+                if callback_used or stopped:
+                    return
+                callback_used = True
+                elapsed_ms = round((time.monotonic() - step_started) * 1000)
+                if not ok:
+                    stopped = True
+                    explanation = reason or 'step reported failure without a reason'
+                    get_logger().error(
+                        f'{platform_name}: media pre-fill aborted at {step_name} '
+                        f'after {elapsed_ms} ms: {explanation}; detail={detail!r}'
+                    )
+                    return
+                get_logger().info(
+                    f'{platform_name}: media step completed: {step_name} '
+                    f'in {elapsed_ms} ms; detail={detail!r}'
+                )
+                run_step(index + 1)
+
+            try:
+                action(finish)
+            except Exception as exc:  # pragma: no cover - defensive UI boundary
+                finish(False, f'unexpected {type(exc).__name__}: {exc}')
+            QTimer.singleShot(
+                self.MEDIA_STEP_CALLBACK_TIMEOUT_MS,
+                lambda: finish(
+                    False,
+                    'step callback did not arrive before the bounded deadline '
+                    f'({self.MEDIA_STEP_CALLBACK_TIMEOUT_MS} ms)',
+                ),
+            )
+
+        run_step(0)
+
+    def _poll_media_step(
+        self,
+        probe: Callable[[Callable[[dict], None]], None],
+        ready: Callable[[dict], bool],
+        timeout_ms: int,
+        failure_reason: str,
+        callback: Callable[[bool, str, object | None], None],
+        *,
+        hard_failure: Callable[[dict], str | None] | None = None,
+    ) -> None:
+        """Poll an asynchronous DOM state without blocking the GUI thread."""
+        deadline = time.monotonic() + timeout_ms / 1000
+        last_state: dict = {}
+
+        def attempt() -> None:
+            def handle(result: dict) -> None:
+                nonlocal last_state
+                last_state = result if isinstance(result, dict) else {'raw': result}
+                reason = hard_failure(last_state) if hard_failure else None
+                if reason:
+                    callback(False, reason, last_state)
+                    return
+                if ready(last_state):
+                    callback(True, '', last_state)
+                    return
+                if time.monotonic() >= deadline:
+                    callback(False, failure_reason, last_state)
+                    return
+                QTimer.singleShot(self.MEDIA_STEP_POLL_INTERVAL_MS, attempt)
+
+            try:
+                probe(handle)
+            except Exception as exc:  # pragma: no cover - defensive UI boundary
+                callback(False, f'probe raised {type(exc).__name__}: {exc}', last_state)
+
+        attempt()
 
     # ── Blocking overlays ───────────────────────────────────────────
 
@@ -1001,33 +1130,40 @@ class BaseWebViewPlatform(BasePlatform):
 
     # ── Text injection ──────────────────────────────────────────────
 
-    def _inject_text(self, text: str):
+    def _inject_text(self, text: str, callback: Callable[[dict], None] | None = None) -> None:
         """Inject post text into the composer via JS."""
         if not self._view or not self.TEXT_SELECTOR:
+            if callback:
+                callback({'injected': False, 'reason': 'no webview or text selector'})
             return
         view = self._view
         page = view.page()
         if not page:
+            if callback:
+                callback({'injected': False, 'reason': 'no page'})
             return
         escaped = json.dumps(text)
         selector = json.dumps(self.TEXT_SELECTOR)
         js = f"""
         (function() {{
             const el = document.querySelector({selector});
-            if (el) {{
-                el.focus();
-                if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {{
-                    el.value = {escaped};
-                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                }} else {{
-                    el.textContent = {escaped};
-                    el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                }}
+            if (!el) return {{injected: false, reason: 'text field not found'}};
+            el.focus();
+            if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {{
+                el.value = {escaped};
+                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+            }} else {{
+                el.textContent = {escaped};
+                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
             }}
+            return {{injected: true}};
         }})();
         """
-        page.runJavaScript(js)
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
 
     # ── Media attachment ────────────────────────────────────────────
 
@@ -1078,9 +1214,8 @@ class BaseWebViewPlatform(BasePlatform):
         | ``QApplication.postEvent`` | True | called |
         | ``QTest.mouseClick`` | True | called |
 
-        So this needs no ``QtTest`` import — that module is a test-harness dependency and
-        has no business in shipped code. The event must go to the view's **focusProxy**
-        (the render widget), not the view itself.
+        So this needs no test-harness import in shipped code. The event must go to the
+        view's **focusProxy** (the render widget), not the view itself.
 
         **Confirmed on the target platform.** The table above was measured on Linux
         (xcb under Xvfb); ``test_webview_user_activation.py`` was then re-run in the
@@ -1106,6 +1241,16 @@ class BaseWebViewPlatform(BasePlatform):
         selectors = (selector,) if isinstance(selector, str) else tuple(selector)
 
         def _measured(rect):
+            if isinstance(rect, dict) and rect.get('disabled'):
+                if callback:
+                    callback(
+                        {
+                            'clicked': False,
+                            'reason': 'control disabled',
+                            'selector': rect.get('selector'),
+                        }
+                    )
+                return
             if not isinstance(rect, dict) or not rect.get('found'):
                 if callback:
                     callback({'clicked': False, 'reason': 'no visible element', 'detail': rect})
@@ -1121,13 +1266,26 @@ class BaseWebViewPlatform(BasePlatform):
             for (var i = 0; i < selectors.length; i++) {{
                 var el = document.querySelector(selectors[i]);
                 if (!el) continue;
-                el.scrollIntoView({{block: 'center', inline: 'center'}});
                 var r = el.getBoundingClientRect();
                 if (r.width <= 0 || r.height <= 0) continue;
+                // Avoid scrolling an already-visible dropdown item: Fansly closes
+                // its media menu on scroll. Only bring genuinely off-screen controls
+                // into view, then re-measure them.
+                if (r.bottom <= 0 || r.right <= 0
+                        || r.top >= window.innerHeight || r.left >= window.innerWidth) {{
+                    el.scrollIntoView({{block: 'center', inline: 'center'}});
+                    r = el.getBoundingClientRect();
+                }}
                 var x = Math.round(r.left + r.width / 2);
                 var y = Math.round(r.top + r.height / 2);
                 if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) {{
                     continue;
+                }}
+                // Some SPA controls (notably Fansly's Post <div>) express disabled
+                // state as a class rather than the DOM property. Test the whole class
+                // token: substring matching would misclassify unrelated class names.
+                if (!!el.disabled || el.classList.contains('disabled')) {{
+                    return {{found: true, disabled: true, selector: selectors[i]}};
                 }}
                 return {{found: true, x: x, y: y, selector: selectors[i]}};
             }}
@@ -1205,6 +1363,95 @@ class BaseWebViewPlatform(BasePlatform):
             page.runJavaScript(js, callback)
         else:
             page.runJavaScript(js)
+
+    def _activate_staged_media_picker(
+        self,
+        visible_selector: str | tuple[str, ...],
+        path: Path,
+        callback: Callable[[bool, str, object | None], None],
+        *,
+        fallback_to_input: bool = True,
+    ) -> None:
+        """Use a visible trusted control to deliver the staged path to a picker.
+
+        Many upload controls open the picker themselves. If the trusted click only
+        grants activation, ``open_media_picker()`` performs the hidden-input click.
+        An activation refusal is final; blindly retrying it would only turn a known
+        failure into another silent no-op.
+        """
+        before = self.picker_invocations
+
+        def clicked(result: dict) -> None:
+            state = result if isinstance(result, dict) else {'raw': result}
+            if not state.get('clicked'):
+                callback(
+                    False, state.get('reason', 'trusted attach control was not clicked'), state
+                )
+                return
+
+            def continue_after_visible_click() -> None:
+                # Chromium delivers the page's click handler shortly after Qt's event
+                # dispatch returns. Give it one event-loop turn before deciding the
+                # visible control did not open a picker; opening the hidden input too
+                # early creates a second picker whose empty selection can clear the
+                # first attachment.
+                if self.picker_invocations > before:
+                    callback(
+                        True,
+                        '',
+                        {
+                            'opened': True,
+                            'via': 'visible control',
+                            'pickerInvocations': self.picker_invocations,
+                        },
+                    )
+                    return
+
+                if not fallback_to_input:
+                    callback(
+                        False,
+                        "trusted control did not open Chromium's file picker",
+                        state,
+                    )
+                    return
+
+                def opened(open_result: dict) -> None:
+                    opened_state = (
+                        open_result if isinstance(open_result, dict) else {'raw': open_result}
+                    )
+                    if not opened_state.get('opened'):
+                        callback(
+                            False,
+                            opened_state.get('reason', 'media picker refused to open'),
+                            opened_state,
+                        )
+                        return
+
+                    def confirm_invocation() -> None:
+                        if self.picker_invocations <= before:
+                            callback(
+                                False,
+                                'picker reported open but chooseFiles() was not called',
+                                opened_state,
+                            )
+                            return
+                        callback(
+                            True,
+                            '',
+                            {
+                                **opened_state,
+                                'via': 'open_media_picker',
+                                'pickerInvocations': self.picker_invocations,
+                            },
+                        )
+
+                    QTimer.singleShot(0, confirm_invocation)
+
+                self.open_media_picker(path, callback=opened)
+
+            QTimer.singleShot(250, continue_after_visible_click)
+
+        self.trusted_click(visible_selector, callback=clicked)
 
     def _attach_media(self, path: Path, callback: Callable[[dict], None] | None = None) -> None:
         """Attach a local file to the open upload composer's file input.

@@ -238,7 +238,7 @@ FETLIFE_SPECS = PlatformSpecs(
     supported_video_formats=['MP4'],
     max_video_dimensions=(1920, 1080),
     max_video_file_size_mb=500.0,
-    supports_text_with_media=False,
+    supports_text_with_media=True,
 )
 
 META_THREADS_API_SPECS = PlatformSpecs(

@@ -149,5 +149,5 @@ class TestFetLifeSession:
         specs = platform.get_specs()
         assert specs.platform_name == 'FetLife'
         assert specs.api_type == 'webview'
-        assert not specs.supports_text_with_media
+        assert specs.supports_text_with_media
         assert specs.max_accounts == 1

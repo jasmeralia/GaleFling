@@ -8,6 +8,7 @@ from PyQt6.QtCore import QUrl
 from PyQt6.QtWebEngineCore import QWebEngineScript
 from PyQt6.QtWidgets import QWidget
 
+from src.core.logger import get_logger
 from src.platforms.base_webview import BaseWebViewPlatform
 from src.utils.constants import FETLIFE_SPECS, VIDEO_EXTENSIONS, PlatformSpecs
 
@@ -36,6 +37,9 @@ class FetLifePlatform(BaseWebViewPlatform):
     COOKIE_DOMAINS = ['fetlife.com']
     AUTH_COOKIE_NAMES = ['_fl_sessionid', 'remember_user_token', '_fl_session_remember_me']
     PREFILL_DELAY_MS = 200  # Traditional server-rendered pages load fast
+    MEDIA_PREFILL_ENABLED = True
+    MEDIA_ATTACHMENT_TIMEOUT_MS = 30000
+    MEDIA_STEP_CALLBACK_TIMEOUT_MS = 35000
 
     # Upload composers expose the picker as a hidden <input type="file"> carrying the
     # `accept` list (#picture_attachments / #video_video).  Match on `accept` rather
@@ -43,6 +47,9 @@ class FetLifePlatform(BaseWebViewPlatform):
     # (`picture[attachments][]`) carries no accept list — see _attach_media().
     IMAGE_FILE_SELECTOR = 'input[type="file"][accept*="image"]'
     VIDEO_FILE_SELECTOR = 'input[type="file"][accept*="video"]'
+    # The hidden input itself has zero dimensions. The sequence marks the visible
+    # button whose exact text is "Choose File", then trusted_click() uses this selector.
+    MEDIA_ATTACH_CONTROL_SELECTOR = '[data-galefling-media-target="attach-control"]'
     IMAGE_SUBMIT_LABEL = 'Upload Your Picture'
     VIDEO_SUBMIT_LABEL = 'Upload Your Video'
 
@@ -251,7 +258,7 @@ class FetLifePlatform(BaseWebViewPlatform):
     def get_specs(self) -> PlatformSpecs:
         return FETLIFE_SPECS
 
-    def _inject_text(self, text: str):
+    def _inject_text(self, text: str, callback: Callable[[dict], None] | None = None) -> None:
         """Fill the status composer's textarea on the feed.
 
         Uses the ``HTMLTextAreaElement`` prototype setter so the value lands on the
@@ -260,26 +267,173 @@ class FetLifePlatform(BaseWebViewPlatform):
         enables for 1..690 characters and disables at 691.
         """
         if not self._view:
+            if callback:
+                callback({'injected': False, 'reason': 'no WebView'})
             return
         page = self._view.page()
         if not page:
+            if callback:
+                callback({'injected': False, 'reason': 'no page'})
             return
-        page.runJavaScript(
-            f"""
+        js = f"""
             (function() {{
                 const box = document.querySelector({json.dumps(self.TEXT_SELECTOR)});
-                if (!box) return;
+                if (!box) return {{injected: false, reason: 'status textarea not found'}};
                 const setter = Object.getOwnPropertyDescriptor(
                     window.HTMLTextAreaElement.prototype, 'value'
                 ).set;
                 setter.call(box, {json.dumps(text)});
                 box.dispatchEvent(new Event('input', {{ bubbles: true }}));
                 box.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                return {{injected: true}};
             }})();
             """
-        )
+        if callback:
+            page.runJavaScript(js, callback)
+        else:
+            page.runJavaScript(js)
 
     # ── Media upload composers ──────────────────────────────────────
+
+    def _prefill_media(self) -> None:
+        """Attach one media file, fill its caption, and certify the upload form.
+
+        The status textarea does not exist on the picture/video composers, so media
+        text is handled explicitly by ``_inject_media_caption()``. This flow never
+        clicks FetLife's upload submit control; the user confirms in the WebView panel.
+        """
+        path = self._image_path
+        if not path or not self._view or not self._view.page():
+            get_logger().error(
+                f'{self.get_platform_name()}: media pre-fill aborted before start: '
+                'missing media path or WebView page'
+            )
+            return
+
+        def avatar_guard(done) -> None:
+            def handled(result: dict) -> None:
+                if not isinstance(result, dict):
+                    done(False, 'avatar replacement state could not be inspected', result)
+                    return
+                done(
+                    not bool(result.get('checked')),
+                    'picture[is_avatar] is checked; refusing to alter the account avatar',
+                    result,
+                )
+
+            self._avatar_upload_state(handled)
+
+        def stage(done) -> None:
+            self.stage_media_for_picker(path)
+            done(True, '', {'file': path.name})
+
+        def attach(done) -> None:
+            self._activate_staged_media_picker(self.MEDIA_ATTACH_CONTROL_SELECTOR, path, done)
+
+        def wait_for_attach_control(done) -> None:
+            self._poll_media_step(
+                self._mark_fetlife_attach_control,
+                lambda state: bool(state.get('found')),
+                self.MEDIA_ATTACHMENT_TIMEOUT_MS,
+                'visible Choose File control was not found on the upload composer',
+                done,
+            )
+
+        def wait_for_attachment(done) -> None:
+            self._poll_media_step(
+                self._media_attachment_state,
+                lambda state: bool(state.get('attached')),
+                self.MEDIA_ATTACHMENT_TIMEOUT_MS,
+                'FetLife never retained the picker selection in the upload form',
+                done,
+            )
+
+        def caption(done) -> None:
+            is_video = path.suffix.lower() in VIDEO_EXTENSIONS
+
+            def handled(result: dict) -> None:
+                state = result if isinstance(result, dict) else {'raw': result}
+                ok = bool(state.get('caption')) and (not is_video or bool(state.get('title')))
+                done(ok, 'media caption or required video title field was not found', state)
+
+            self._inject_media_caption(self._text, callback=handled)
+
+        def certify(done) -> None:
+            def handled(result: dict) -> None:
+                state = result if isinstance(result, dict) else {'raw': result}
+                done(
+                    bool(state.get('certified')),
+                    state.get('reason', 'upload consent could not be certified'),
+                    state,
+                )
+
+            self._certify_upload_consent(callback=handled)
+
+        self._run_media_sequence(
+            [
+                ('verify avatar replacement is off', avatar_guard),
+                ('stage picker file', stage),
+                ('find exact Choose File control', wait_for_attach_control),
+                ('open trusted media picker', attach),
+                ('wait for upload form attachment', wait_for_attachment),
+                ('fill media caption', caption),
+                ('certify upload consent', certify),
+                ('recheck avatar replacement is off', avatar_guard),
+            ]
+        )
+
+    def _mark_fetlife_attach_control(self, callback: Callable[[dict], None]) -> None:
+        """Mark the visible button whose label is exactly ``Choose File``."""
+        if not self._view or not self._view.page():
+            callback({'found': False, 'reason': 'no WebView page'})
+            return
+        page = self._view.page()
+        if not page:
+            callback({'found': False, 'reason': 'no WebView page'})
+            return
+        page.runJavaScript(
+            """
+            (function() {
+                var marker = 'data-galefling-media-target';
+                document.querySelectorAll('[' + marker + ']').forEach(function(el) {
+                    el.removeAttribute(marker);
+                });
+                function shown(el) {
+                    if (!el) return false;
+                    var r = el.getBoundingClientRect();
+                    var s = getComputedStyle(el);
+                    return r.width > 0 && r.height > 0
+                        && s.display !== 'none' && s.visibility !== 'hidden';
+                }
+                var target = Array.from(document.querySelectorAll('button')).filter(function(el) {
+                    return shown(el) && (el.textContent || '').trim() === 'Choose File';
+                })[0];
+                if (!target) return {found: false, reason: 'exact Choose File button not visible'};
+                target.setAttribute(marker, 'attach-control');
+                return {found: true};
+            })();
+            """,
+            callback,
+        )
+
+    def _avatar_upload_state(self, callback: Callable[[dict], None]) -> None:
+        """Report the exact avatar-replacement checkbox without changing it."""
+        if not self._view or not self._view.page():
+            callback({'checked': False, 'reason': 'no WebView page'})
+            return
+        page = self._view.page()
+        if not page:
+            callback({'checked': False, 'reason': 'no WebView page'})
+            return
+        page.runJavaScript(
+            f"""
+            (function() {{
+                var box = document.querySelector({json.dumps(self.AVATAR_CHECKBOX_SELECTOR)});
+                return {{present: !!box, checked: !!(box && box.checked)}};
+            }})();
+            """,
+            callback,
+        )
 
     def get_media_file_selector(self, path: Path | None = None) -> str | None:
         """Route to the picture or video composer's picker for the staged media.
@@ -299,10 +453,10 @@ class FetLifePlatform(BaseWebViewPlatform):
     ) -> None:
         """Fill the caption on the open upload composer (and the title, for video).
 
-        FetLife's picture and video composers both accept a caption, so a media post is
-        not necessarily text-free — ``FETLIFE_SPECS.supports_text_with_media`` says
-        otherwise and looks stale.  The video form additionally has a ``video[title]``;
-        it is filled from the first line so an upload is not rejected the way a titleless
+        FetLife's picture and video composers both accept a caption, and the shipped
+        media pre-fill path calls this method rather than the status-only
+        ``_inject_text()``. The video form additionally has a ``video[title]``; it is
+        filled from the first line so an upload is not rejected the way a titleless
         writing is.
         """
         if not self._view:

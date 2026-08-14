@@ -260,9 +260,11 @@ def test_post_video_permalink_failure_never_logs_the_token(mock_post, mock_get, 
     with caplog.at_level(logging.WARNING):
         _make_platform().post('video description', media_paths=[video])
 
+    # The message is kept and redacted rather than discarded, so the parameter name
+    # survives while its value does not — that is what makes the log still debuggable.
     assert 'SUPERSECRET' not in caplog.text
-    assert 'access_token' not in caplog.text
-    assert 'ConnectionError' in caplog.text
+    assert 'access_token=***' in caplog.text
+    assert 'graph.facebook.com' in caplog.text
 
 
 # ── post() — error code mapping ──────────────────────────────────────────────

@@ -101,7 +101,7 @@ class MetaFacebookPagePlatform(BasePlatform):
         except requests.ConnectionError:
             return False, 'NET-CONNECTION'
         except Exception as exc:
-            get_logger().error(f'Facebook Page connection test failed: {exc}')
+            get_logger().error(f'Facebook Page connection test failed: {redact_credentials(exc)}')
             return False, 'FB-AUTH-INVALID'
 
     def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
@@ -358,10 +358,10 @@ class MetaFacebookPagePlatform(BasePlatform):
                 return None
             permalink = resp.json().get('permalink_url') or ''
         except Exception as exc:
-            # Class name only: a requests error renders the request URL, which carries
+            # redact_credentials: a requests error renders the request URL, which carries
             # access_token in its query string, and app logs get submitted for support.
             get_logger().warning(
-                f'Facebook Page video permalink fetch failed: {type(exc).__name__}'
+                f'Facebook Page video permalink fetch failed: {redact_credentials(exc)}'
             )
             return None
         if not permalink:

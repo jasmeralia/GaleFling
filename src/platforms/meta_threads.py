@@ -115,7 +115,7 @@ class MetaThreadsPlatform(BasePlatform):
         except requests.ConnectionError:
             return False, 'NET-CONNECTION'
         except Exception as exc:
-            get_logger().error(f'Threads connection test failed: {exc}')
+            get_logger().error(f'Threads connection test failed: {redact_credentials(exc)}')
             return False, 'TH-AUTH-INVALID'
 
     def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
@@ -251,7 +251,9 @@ class MetaThreadsPlatform(BasePlatform):
             get_logger().debug(f'Threads quota: {quota_usage}/{quota_total} posts used today')
             return int(quota_usage) >= int(quota_total)
         except Exception as exc:
-            get_logger().debug(f'Threads quota check failed (skipping quota gate): {exc}')
+            get_logger().debug(
+                f'Threads quota check failed (skipping quota gate): {redact_credentials(exc)}'
+            )
             return False
 
     # ── Post type implementations ─────────────────────────────────────
@@ -465,7 +467,7 @@ class MetaThreadsPlatform(BasePlatform):
             if resp.status_code == 200:
                 return resp.json().get('permalink')
         except Exception as exc:
-            get_logger().warning(f'Threads permalink fetch failed: {exc}')
+            get_logger().warning(f'Threads permalink fetch failed: {redact_credentials(exc)}')
         return None
 
     @staticmethod

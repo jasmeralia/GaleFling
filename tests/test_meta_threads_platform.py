@@ -186,8 +186,12 @@ def test_post_text_only_success(mock_post, mock_get):
         _ok_resp(id='container1'),  # create container
         _ok_resp(id='post1'),  # publish
     ]
+    # status='FINISHED' is required, not incidental: a text container is not publishable
+    # the instant it is created, so _post_text polls it before publishing. A mock without
+    # a status would poll until the timeout and hang the suite for _POLL_TIMEOUT seconds.
     mock_get.return_value = _ok_resp(
         data=[{'quota_usage': 5, 'config': {'quota_total': 250}}],
+        status='FINISHED',
         permalink='https://www.threads.net/@rin/post/post1',
     )
     p = _make_platform()
@@ -195,6 +199,32 @@ def test_post_text_only_success(mock_post, mock_get):
     assert result.success
     assert result.platform == 'Threads'
     assert result.raw_response == {'id': 'post1'}
+
+
+@patch('src.platforms.meta_threads.requests.get')
+@patch('src.platforms.meta_threads.requests.post')
+def test_post_text_waits_for_container_before_publishing(mock_post, mock_get):
+    """Publishing a text container too early fails live with a misleading error.
+
+    Meta answers a not-yet-settled container with code 24 / "The requested resource does
+    not exist", which reads as a bad container ID rather than a timing problem. Every
+    other post path polls; this one did not, so text posts failed intermittently.
+    """
+    mock_post.side_effect = [_ok_resp(id='container1'), _ok_resp(id='post1')]
+    mock_get.side_effect = [
+        _ok_resp(data=[{'quota_usage': 5, 'config': {'quota_total': 250}}]),  # quota gate
+        _ok_resp(status='IN_PROGRESS'),  # container not settled yet
+        _ok_resp(status='FINISHED'),  # settled
+        _ok_resp(permalink='https://www.threads.net/@rin/post/post1'),
+    ]
+
+    result = _make_platform().post('Hello Threads!')
+
+    assert result.success
+    publish_calls = [c for c in mock_post.call_args_list if 'threads_publish' in c.args[0]]
+    assert len(publish_calls) == 1, 'publish must happen exactly once, after the wait'
+    status_polls = [c for c in mock_get.call_args_list if 'container1' in c.args[0]]
+    assert len(status_polls) == 2, 'must keep polling until the container reports FINISHED'
 
 
 def test_post_auth_missing_returns_error():

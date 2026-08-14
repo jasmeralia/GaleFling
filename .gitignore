@@ -55,6 +55,9 @@ build/version.nsh
 # Functional test credentials
 tests/functional/.env
 
+# Live artifacts a mutating run left on real accounts, pending manual cleanup
+tests/functional/.artifacts.jsonl
+
 # Python caches
 .pytest_cache/
 .ruff_cache/

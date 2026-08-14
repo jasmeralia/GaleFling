@@ -115,7 +115,7 @@ class MetaThreadsPlatform(BasePlatform):
         except requests.ConnectionError:
             return False, 'NET-CONNECTION'
         except Exception as exc:
-            get_logger().error(f'Threads connection test failed: {exc}')
+            get_logger().error(f'Threads connection test failed: {redact_credentials(exc)}')
             return False, 'TH-AUTH-INVALID'
 
     def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
@@ -251,13 +251,22 @@ class MetaThreadsPlatform(BasePlatform):
             get_logger().debug(f'Threads quota: {quota_usage}/{quota_total} posts used today')
             return int(quota_usage) >= int(quota_total)
         except Exception as exc:
-            get_logger().debug(f'Threads quota check failed (skipping quota gate): {exc}')
+            get_logger().debug(
+                f'Threads quota check failed (skipping quota gate): {redact_credentials(exc)}'
+            )
             return False
 
     # ── Post type implementations ─────────────────────────────────────
 
     def _post_text(self, text: str) -> PostResult:
         container_id = self._create_container(media_type='TEXT', text=text)
+        # A text container is not publishable the instant it is created, despite carrying
+        # no media to fetch or transcode.  Publishing too early fails with code 24 /
+        # "The requested resource does not exist", which reads like a bad container ID
+        # rather than a timing problem.  Observed live: IN_PROGRESS on the first poll,
+        # FINISHED ~3s later.  Every other post path already waits; this one did not, so
+        # text posts failed intermittently depending on how fast the container settled.
+        self._wait_for_container(container_id)
         post_id = self._publish_container(container_id)
         post_url = self._get_permalink(post_id)
         get_logger().info(f'Threads text post success: {post_url or post_id}')
@@ -458,7 +467,7 @@ class MetaThreadsPlatform(BasePlatform):
             if resp.status_code == 200:
                 return resp.json().get('permalink')
         except Exception as exc:
-            get_logger().warning(f'Threads permalink fetch failed: {exc}')
+            get_logger().warning(f'Threads permalink fetch failed: {redact_credentials(exc)}')
         return None
 
     @staticmethod

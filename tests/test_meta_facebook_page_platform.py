@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -206,17 +207,64 @@ def test_post_photo_success(mock_post, tmp_path):
 # ── post() — video path ───────────────────────────────────────────────────────
 
 
+@patch('src.platforms.meta_facebook_page.requests.get')
 @patch('src.platforms.meta_facebook_page.requests.post')
-def test_post_video_success(mock_post, tmp_path):
+def test_post_video_success(mock_post, mock_get, tmp_path):
     video = tmp_path / 'clip.mp4'
     video.write_bytes(b'\x00' * 1024)
 
     mock_post.return_value = _ok_resp(id='vid123')
+    mock_get.return_value = _ok_resp(permalink_url='/reel/vid123/')
 
     p = _make_platform()
     result = p.post('video description', media_paths=[video])
     assert result.success
     assert result.raw_response == {'id': 'vid123'}
+    # A video ID has no underscore, so _build_post_url() cannot make a link for it; the
+    # permalink has to come from the video node, and arrives site-relative.
+    assert result.post_url == 'https://www.facebook.com/reel/vid123/'
+    assert result.url_captured
+
+
+@patch('src.platforms.meta_facebook_page.requests.get')
+@patch('src.platforms.meta_facebook_page.requests.post')
+def test_post_video_succeeds_when_permalink_lookup_fails(mock_post, mock_get, tmp_path):
+    """A published video must not be downgraded because the follow-up link lookup failed."""
+    video = tmp_path / 'clip.mp4'
+    video.write_bytes(b'\x00' * 1024)
+
+    mock_post.return_value = _ok_resp(id='vid123')
+    mock_get.side_effect = requests.ConnectionError(
+        'https://graph.facebook.com/?access_token=SECRET'
+    )
+
+    p = _make_platform()
+    result = p.post('video description', media_paths=[video])
+    assert result.success
+    assert result.post_url is None
+    assert not result.url_captured
+
+
+@patch('src.platforms.meta_facebook_page.requests.get')
+@patch('src.platforms.meta_facebook_page.requests.post')
+def test_post_video_permalink_failure_never_logs_the_token(mock_post, mock_get, tmp_path, caplog):
+    """A requests error renders the request URL, and that URL carries access_token."""
+    video = tmp_path / 'clip.mp4'
+    video.write_bytes(b'\x00' * 1024)
+
+    mock_post.return_value = _ok_resp(id='vid123')
+    mock_get.side_effect = requests.ConnectionError(
+        'GET https://graph.facebook.com/vid123?access_token=SUPERSECRET failed'
+    )
+
+    with caplog.at_level(logging.WARNING):
+        _make_platform().post('video description', media_paths=[video])
+
+    # The message is kept and redacted rather than discarded, so the parameter name
+    # survives while its value does not — that is what makes the log still debuggable.
+    assert 'SUPERSECRET' not in caplog.text
+    assert 'access_token=***' in caplog.text
+    assert 'graph.facebook.com' in caplog.text
 
 
 # ── post() — error code mapping ──────────────────────────────────────────────
@@ -354,3 +402,32 @@ def test_validate_unparseable_expires_at_skipped():
     p._page_id = 'pid'
     code = p._validate_pre_post('text', None)
     assert code is None
+
+
+# ── _fetch_video_permalink branches ──────────────────────────────────────────
+
+
+def test_fetch_video_permalink_returns_none_for_empty_id():
+    assert _make_platform()._fetch_video_permalink('') is None
+
+
+@patch('src.platforms.meta_facebook_page.requests.get')
+def test_fetch_video_permalink_returns_none_on_error_status(mock_get):
+    mock_get.return_value = _error_resp(400)
+    assert _make_platform()._fetch_video_permalink('vid123') is None
+
+
+@patch('src.platforms.meta_facebook_page.requests.get')
+def test_fetch_video_permalink_returns_none_when_field_absent(mock_get):
+    """Graph omits permalink_url rather than nulling it when it has none."""
+    mock_get.return_value = _ok_resp(id='vid123')
+    assert _make_platform()._fetch_video_permalink('vid123') is None
+
+
+@patch('src.platforms.meta_facebook_page.requests.get')
+def test_fetch_video_permalink_passes_through_an_absolute_url(mock_get):
+    """Video permalinks arrive site-relative, but an absolute one must not be doubled."""
+    mock_get.return_value = _ok_resp(permalink_url='https://www.facebook.com/reel/vid123/')
+    assert (
+        _make_platform()._fetch_video_permalink('vid123') == 'https://www.facebook.com/reel/vid123/'
+    )

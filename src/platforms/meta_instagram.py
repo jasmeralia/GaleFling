@@ -114,7 +114,7 @@ class MetaInstagramPlatform(BasePlatform):
         except requests.ConnectionError:
             return False, 'NET-CONNECTION'
         except Exception as exc:
-            get_logger().error(f'Instagram connection test failed: {exc}')
+            get_logger().error(f'Instagram connection test failed: {redact_credentials(exc)}')
             return False, 'IG-AUTH-INVALID'
 
     def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
@@ -406,7 +406,7 @@ class MetaInstagramPlatform(BasePlatform):
             if resp.status_code == 200:
                 return resp.json().get('permalink')
         except Exception as exc:
-            get_logger().warning(f'Instagram permalink fetch failed: {exc}')
+            get_logger().warning(f'Instagram permalink fetch failed: {redact_credentials(exc)}')
         return None
 
     @staticmethod

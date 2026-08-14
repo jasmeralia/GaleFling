@@ -13,12 +13,18 @@ Media posts (image, video, carousel) additionally require AWS staging credential
 
 from __future__ import annotations
 
-import contextlib
+import time
 
 import pytest
 import requests
 
 from tests.functional.conftest import mutating_post_text
+from tests.functional.functional_cleanup import (
+    ArtifactDeleteFailedError,
+    assert_neutral_live_text,
+    finish_mutating_artifact,
+    post_tag,
+)
 
 THREADS_API_BASE = 'https://graph.threads.net/v1.0'
 
@@ -40,14 +46,107 @@ def _make_auth(creds: dict, aws_creds: dict | None = None):
     return _Auth()
 
 
-def _delete_post(access_token: str, post_id: str) -> None:
-    """Best-effort deletion of a published Threads post."""
-    with contextlib.suppress(Exception):
-        requests.delete(
+#: Enough to prove the post exists, carries our text, and published the media we sent.
+THREADS_MEDIA_FIELDS = 'id,media_type,text,permalink,children{id,media_type}'
+
+
+def _fetch_post(creds: dict, post_id: str) -> tuple[dict | None, list[str]]:
+    """Read a published Threads post back, returning the media object and its media kinds.
+
+    Retried briefly, and deliberately not distinguishing "missing" from "not yet
+    readable": Graph answers both with 400 / code 100, so the only safe reading of a
+    persistent non-200 is that the post is not there.
+    """
+    for attempt in range(5):
+        resp = requests.get(
             f'{THREADS_API_BASE}/{post_id}',
-            params={'access_token': access_token},
+            params={'fields': THREADS_MEDIA_FIELDS, 'access_token': creds['access_token']},
             timeout=15,
         )
+        if resp.status_code == 200:
+            payload = resp.json()
+            return payload, _published_media_kinds(payload)
+        if attempt < 4:
+            time.sleep(2)
+    return None, []
+
+
+def _published_media_kinds(media_object: dict) -> list[str]:
+    """Return one entry per published media item, in the Threads API's own vocabulary.
+
+    A carousel reports ``CAROUSEL_ALBUM`` at the top level and carries the real per-item
+    types on its ``children`` edge, so counting attachments means reading the children
+    rather than the parent's own ``media_type``.
+    """
+    media_type = media_object.get('media_type')
+    if media_type == 'TEXT_POST':
+        return []
+    if media_type == 'CAROUSEL_ALBUM':
+        children = (media_object.get('children') or {}).get('data') or []
+        return [child.get('media_type') for child in children]
+    return [media_type]
+
+
+def _assert_post_published(
+    creds: dict, post_id: str, text: str, *, media: list[str] | None = None
+) -> dict:
+    """Prove the post exists on Threads carrying our tag and media, and return it.
+
+    ``result.success`` and a returned media ID are the adapter reporting on itself; only
+    reading the object back off Graph settles whether anything was published.
+    """
+    tag = post_tag(text)
+    payload, media_kinds = _fetch_post(creds, post_id)
+
+    assert payload is not None, (
+        f'Threads returned media id {post_id} but Graph will not serve it back — '
+        f'nothing was published under tag {tag}'
+    )
+    assert tag in (payload.get('text') or ''), (
+        f'Threads post {post_id} does not carry tag {tag} — this is not the post we just '
+        f'created: {(payload.get("text") or "")!r}'
+    )
+
+    assert_neutral_live_text('Threads', payload.get('text') or '')
+
+    expected = sorted(media or [])
+    assert sorted(media_kinds) == expected, (
+        f'Threads post {post_id} (tag {tag}) published media {sorted(media_kinds)}, '
+        f'expected {expected}'
+    )
+    return payload
+
+
+def _delete_post(access_token: str, post_id: str) -> None:
+    """Delete a published Threads post.
+
+    Reports the HTTP status only.  The request URL carries ``access_token`` in its query
+    string, so neither the URL nor the response body may reach the log (rule 8).
+
+    There is deliberately no "already gone" mapping. Graph answers a missing object with
+    **400 / code 100**, not 404, and its own message for that code is "does not exist,
+    cannot be loaded due to missing permissions, or does not support this operation" —
+    one status covering three very different causes. Reporting that as "already gone"
+    would disguise a delete broken by a missing scope as a benign outcome, which is the
+    exact failure this reporting exists to surface.
+    """
+    resp = requests.delete(
+        f'{THREADS_API_BASE}/{post_id}',
+        params={'access_token': access_token},
+        timeout=15,
+    )
+    if resp.status_code != 200:
+        raise ArtifactDeleteFailedError(f'HTTP {resp.status_code}')
+
+
+def _finish_post(creds: dict, text: str, post_id: str, url: str | None = None) -> None:
+    """Delete the post, or leave it up and report it, per the run's cleanup policy."""
+    finish_mutating_artifact(
+        'Threads',
+        text,
+        url=url,
+        delete=lambda: _delete_post(creds['access_token'], post_id),
+    )
 
 
 # ── Connection tests ──────────────────────────────────────────────────────────
@@ -151,8 +250,8 @@ class TestMetaThreadsTextPost:
         post_id = result.raw_response.get('id')
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _assert_post_published(meta_threads_credentials, post_id, text)
+        _finish_post(meta_threads_credentials, text, post_id, result.post_url)
 
 
 # ── Image post tests ──────────────────────────────────────────────────────────
@@ -177,11 +276,16 @@ class TestMetaThreadsImagePost:
         post_id = result.raw_response.get('id')
         assert post_id
 
-        if result.post_url:
-            assert 'threads.' in result.post_url and '/post/' in result.post_url
+        # Unconditional: a guarded URL assertion cannot fail when post_url is None,
+        # which is precisely the regression worth catching — the Results dialog then
+        # has no link to offer the user. Facebook Page video posts shipped in exactly
+        # that state, and no test caught it; the artifact reporter did, by printing
+        # 'URL: none reported'.
+        assert result.post_url, 'no post_url returned — Results would have no link'
+        assert 'threads.' in result.post_url and '/post/' in result.post_url
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _assert_post_published(meta_threads_credentials, post_id, caption, media=['IMAGE'])
+        _finish_post(meta_threads_credentials, caption, post_id, result.post_url)
 
     def test_png_image_post(self, meta_threads_credentials, meta_aws_credentials, sample_png):
         """PNG images must also be accepted by the Threads API."""
@@ -196,8 +300,8 @@ class TestMetaThreadsImagePost:
         post_id = result.raw_response.get('id')
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _assert_post_published(meta_threads_credentials, post_id, caption, media=['IMAGE'])
+        _finish_post(meta_threads_credentials, caption, post_id, result.post_url)
 
 
 # ── Video post tests ──────────────────────────────────────────────────────────
@@ -222,8 +326,8 @@ class TestMetaThreadsVideoPost:
         post_id = result.raw_response.get('id')
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _assert_post_published(meta_threads_credentials, post_id, caption, media=['VIDEO'])
+        _finish_post(meta_threads_credentials, caption, post_id, result.post_url)
 
 
 # ── Carousel post tests ───────────────────────────────────────────────────────
@@ -250,8 +354,8 @@ class TestMetaThreadsCarouselPost:
         post_id = result.raw_response.get('id')
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _assert_post_published(meta_threads_credentials, post_id, caption, media=['IMAGE', 'IMAGE'])
+        _finish_post(meta_threads_credentials, caption, post_id, result.post_url)
 
     def test_carousel_image_and_video(
         self,
@@ -275,5 +379,5 @@ class TestMetaThreadsCarouselPost:
         post_id = result.raw_response.get('id')
         assert post_id
 
-        # Cleanup
-        _delete_post(meta_threads_credentials['access_token'], post_id)
+        _assert_post_published(meta_threads_credentials, post_id, caption, media=['IMAGE', 'VIDEO'])
+        _finish_post(meta_threads_credentials, caption, post_id, result.post_url)

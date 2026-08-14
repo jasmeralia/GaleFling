@@ -41,6 +41,34 @@ GaleFling requests the following Threads API scopes during the connect flow:
 | `threads_basic` | Required for all Threads API calls; grants read access to profile |
 | `threads_content_publish` | Required to create and publish posts |
 
+GaleFling does not request `threads_delete`, because the app never deletes a post. The
+**functional test suite does** need it: without that scope, `DELETE /{threads-media-id}`
+answers `HTTP 500 / code 10 — "Application does not have permission for this action"`, so
+mutating test runs cannot clean up after themselves and leave their posts on the account.
+
+The test token is therefore minted separately, with the wider scope, rather than widening
+`_THREADS_SCOPES` in `src/core/meta_oauth.py`:
+
+```bash
+.venv/bin/python tools/oauth/meta_threads_remint.py
+```
+
+It reuses the app's own OAuth machinery, writes the result into `tests/functional/.env`
+without printing it, and proves the scope by publishing a throwaway post and deleting it —
+the only check that works, since Graph returns the same generic code 100 for "missing
+object" as for "no permission". Long-lived tokens last 60 days, so this recurs.
+
+**Enabling the scope in the App Dashboard is not enough on its own.** An OAuth token
+carries the scopes granted at authorization time, so an already-issued token keeps being
+refused until it is re-minted.
+
+> Meta's own docs are inconsistent here: the *Get Access Tokens* page (Mar 2025) omits
+> `threads_delete` from its list of valid authorization scopes, while *Delete Posts*
+> (Jul 2025) requires it. The scope list appears stale. If the authorization window
+> rejects the request with `Invalid Scopes`, that is the likely cause.
+
+See [FUNCTIONAL_TESTING.md](../testing/FUNCTIONAL_TESTING.md#leaving-mutating-artifacts-up-for-inspection).
+
 ## Post Types Supported
 
 | Post Type | Supported |
@@ -90,13 +118,17 @@ binary file uploads directly in the API payload. GaleFling handles this automati
 1. For image and video posts, GaleFling uploads your media to a private S3 staging
    bucket and obtains a temporary public URL.
 2. GaleFling calls the Threads API to create a media container, passing the S3 URL.
-3. For image and video posts, GaleFling polls the container status until processing
-   is complete (typically 10–30 seconds).
+3. GaleFling polls the container status until processing is complete (typically 10–30
+   seconds for media).
 4. GaleFling publishes the container, making the post live on Threads.
 5. The S3 staging object is automatically cleaned up within 7 days by a lifecycle
    policy — no action required on your part.
 
-For text-only posts, steps 1–3 are skipped.
+For text-only posts, steps 1–2 are skipped, but **step 3 still applies**. A text
+container carries no media to fetch or transcode, yet it is still not publishable the
+instant it is created — publishing too early fails with `code 24` / *"The requested
+resource does not exist"*, which looks like a bad container ID rather than a timing
+problem. It settles in a few seconds.
 
 ## Token Renewal
 

@@ -138,6 +138,38 @@ does not implement Meta's `hub.challenge` verification handshake, so Meta
 rejects it with "The callback URL or verify token couldn't be validated." That
 URL belongs in **OAuth redirect URIs** under the business login settings.
 
+## Deleting media is not possible on this API setup
+
+GaleFling uses **Instagram API with Instagram Login** (`graph.instagram.com`), which
+cannot delete media. This is a property of the API setup, not a missing permission or an
+expired token — no scope grants it and no token can be re-minted to gain it.
+
+Meta's [IG Media reference](https://developers.facebook.com/docs/instagram-platform/reference/instagram-media/)
+lists both setups under **Reading** but only one under **Deleting**:
+
+| | Reading | Deleting |
+|---|---|---|
+| Instagram API with Instagram Login (`graph.instagram.com`) | ✓ | — |
+| Instagram API with Facebook Login (`graph.facebook.com`) | ✓ | ✓ |
+| Permissions for delete | — | `instagram_basic`, `instagram_manage_contents` |
+
+Its own wording: *"This api only supports Instagram API with Facebook login only."*
+
+A `DELETE` attempt against a live, readable media object returns
+`HTTP 400 / code 100 / subcode 33 — "Object with ID '…' does not exist, cannot be loaded
+due to missing permissions, or does not support this operation"`. That message covers
+three unrelated causes and names none of them; here it is the third. The object
+demonstrably exists, because the same token reads it back seconds earlier.
+
+**Consequence for testing:** mutating Instagram functional tests cannot clean up after
+themselves. Every run leaves five posts that must be removed by hand in the Instagram app.
+The run reports each one with its tag and permalink and records it in the artifact ledger.
+See [FUNCTIONAL_TESTING.md](../testing/FUNCTIONAL_TESTING.md#leaving-mutating-artifacts-up-for-inspection).
+
+Switching to Instagram API with Facebook Login purely to enable test cleanup would change
+the credentials, the login flow, and the host URL the adapter targets — a materially
+different integration for the whole product. Manual cleanup is the cheaper trade.
+
 ## Troubleshooting
 
 | Problem | Solution |

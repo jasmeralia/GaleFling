@@ -7,6 +7,9 @@ from functools import wraps
 import pytest
 from dotenv import load_dotenv
 
+from tests.functional.functional_cleanup import LEAVE_ARTIFACTS_OPTION
+from tests.functional.functional_cleanup import configure as _configure_artifact_cleanup
+
 
 def _resolve_env_path() -> str:
     """Return the credential file path, honouring an explicit override.
@@ -77,7 +80,11 @@ def mutating_post_tag() -> str:
 
 
 def mutating_post_text(*parts: str) -> str:
-    """Caption/body for a live mutating post — neutral UUID tag, optional extra tokens."""
+    """Caption/body for a live mutating post — neutral UUID tag, optional extra tokens.
+
+    The tag comes first and stays first: ``functional_cleanup.post_tag()`` recovers it
+    from the finished text so a test does not have to carry it in a second variable.
+    """
     return ' '.join((mutating_post_tag(), *parts))
 
 
@@ -316,6 +323,10 @@ def pytest_configure(config):
     global _qapp
     load_dotenv(ENV_PATH)
 
+    # Before the early return below: the artifact reporter needs the config to read its
+    # option and to write past output capture, whatever else this run collects.
+    _configure_artifact_cleanup(config)
+
     from src.core.webview_environment import disable_conditional_passkey_ui
 
     disable_conditional_passkey_ui()
@@ -360,6 +371,15 @@ def pytest_addoption(parser) -> None:
         action='store_true',
         default=False,
         help='Include functional tests for product-disabled platforms (e.g. Snapchat)',
+    )
+    parser.addoption(
+        LEAVE_ARTIFACTS_OPTION,
+        action='store_true',
+        default=False,
+        help=(
+            'Leave API mutating-test posts on the live account instead of deleting them, '
+            'and print the tag and permalink for manual inspection and cleanup'
+        ),
     )
 
 

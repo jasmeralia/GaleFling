@@ -101,7 +101,7 @@ class MetaFacebookPagePlatform(BasePlatform):
         except requests.ConnectionError:
             return False, 'NET-CONNECTION'
         except Exception as exc:
-            get_logger().error(f'Facebook Page connection test failed: {exc}')
+            get_logger().error(f'Facebook Page connection test failed: {redact_credentials(exc)}')
             return False, 'FB-AUTH-INVALID'
 
     def post(self, text: str, media_paths: list[Path] | None = None) -> PostResult:
@@ -314,15 +314,16 @@ class MetaFacebookPagePlatform(BasePlatform):
             )
         self._raise_for_status(resp)
         post_id = resp.json().get('id', '')
-        get_logger().info(f'Facebook Page video post success: {post_id}')
+        post_url = self._fetch_video_permalink(post_id)
+        get_logger().info(f'Facebook Page video post success: {post_url or post_id}')
         return PostResult(
             success=True,
             platform='Facebook Page',
-            post_url=None,
+            post_url=post_url,
             raw_response={'id': post_id},
             account_id=self._account_id,
             profile_name=self._profile_name,
-            url_captured=False,
+            url_captured=post_url is not None,
         )
 
     # ── Helpers ───────────────────────────────────────────────────────
@@ -333,6 +334,41 @@ class MetaFacebookPagePlatform(BasePlatform):
             return None
         page_part, obj_part = post_id.split('_', 1)
         return f'https://www.facebook.com/{page_part}/posts/{obj_part}'
+
+    def _fetch_video_permalink(self, video_id: str) -> str | None:
+        """Return the public URL for an uploaded video, or None if it cannot be resolved.
+
+        A video upload answers with a bare object ID rather than a ``{page_id}_{post_id}``
+        feed post ID, so ``_build_post_url()`` cannot construct a link for it — it requires
+        the underscore. Graph serves the real permalink on the video node instead, and it
+        arrives as a site-relative path (``/reel/<id>/``) rather than an absolute URL.
+
+        Best-effort: a video that published successfully must not be reported as anything
+        less because the follow-up link lookup did not answer.
+        """
+        if not video_id:
+            return None
+        try:
+            resp = requests.get(
+                f'{FB_GRAPH_BASE}/{video_id}',
+                params={'fields': 'permalink_url', 'access_token': self._page_access_token},
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                return None
+            permalink = resp.json().get('permalink_url') or ''
+        except Exception as exc:
+            # redact_credentials: a requests error renders the request URL, which carries
+            # access_token in its query string, and app logs get submitted for support.
+            get_logger().warning(
+                f'Facebook Page video permalink fetch failed: {redact_credentials(exc)}'
+            )
+            return None
+        if not permalink:
+            return None
+        if permalink.startswith('http'):
+            return permalink
+        return f'https://www.facebook.com{permalink}'
 
     @staticmethod
     def _raise_for_status(resp: requests.Response) -> None:

@@ -18,11 +18,15 @@ _debug_mode: bool = False
 _REDACT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # URL query param: access_token=EAA... or access_token_secret=...
     (re.compile(r'(?i)(access_token(?:_secret)?=)[^\s&"\']{6,}'), r'\1***'),
+    # URL query param or form field: client_secret=... / app_secret=...
+    # The Meta OAuth exchanges send these, and the Facebook leg sends them as GET query
+    # params — so a requests error there renders the app secret, not just a user token.
+    (re.compile(r'(?i)((?:client|app)_secret=)[^\s&"\']{6,}'), r'\1***'),
     # JSON field: "access_token": "EAA...", "app_password": "xxx"
     (
         re.compile(
             r'(?i)("(?:access_token|access_token_secret|app_password|api_key|api_secret|'
-            r'page_access_token)":\s*")[^"]{6,}(")'
+            r'page_access_token|client_secret|app_secret)":\s*")[^"]{6,}(")'
         ),
         r'\1***\2',
     ),

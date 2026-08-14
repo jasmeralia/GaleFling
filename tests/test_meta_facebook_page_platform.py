@@ -402,3 +402,32 @@ def test_validate_unparseable_expires_at_skipped():
     p._page_id = 'pid'
     code = p._validate_pre_post('text', None)
     assert code is None
+
+
+# ── _fetch_video_permalink branches ──────────────────────────────────────────
+
+
+def test_fetch_video_permalink_returns_none_for_empty_id():
+    assert _make_platform()._fetch_video_permalink('') is None
+
+
+@patch('src.platforms.meta_facebook_page.requests.get')
+def test_fetch_video_permalink_returns_none_on_error_status(mock_get):
+    mock_get.return_value = _error_resp(400)
+    assert _make_platform()._fetch_video_permalink('vid123') is None
+
+
+@patch('src.platforms.meta_facebook_page.requests.get')
+def test_fetch_video_permalink_returns_none_when_field_absent(mock_get):
+    """Graph omits permalink_url rather than nulling it when it has none."""
+    mock_get.return_value = _ok_resp(id='vid123')
+    assert _make_platform()._fetch_video_permalink('vid123') is None
+
+
+@patch('src.platforms.meta_facebook_page.requests.get')
+def test_fetch_video_permalink_passes_through_an_absolute_url(mock_get):
+    """Video permalinks arrive site-relative, but an absolute one must not be doubled."""
+    mock_get.return_value = _ok_resp(permalink_url='https://www.facebook.com/reel/vid123/')
+    assert (
+        _make_platform()._fetch_video_permalink('vid123') == 'https://www.facebook.com/reel/vid123/'
+    )

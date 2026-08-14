@@ -336,6 +336,7 @@ class _ConnectionTestProgressDialog(QDialog):
 _ABOUT_DEPENDENCIES = (
     ('atproto', 'https://github.com/MarshalX/atproto', 'Bluesky AT Protocol SDK'),
     ('boto3', 'https://aws.amazon.com/sdk-for-python/', 'AWS SDK (S3 media staging)'),
+    ('emoji', 'https://github.com/carpedm20/emoji', 'Emoji data for the picker'),
     ('ffmpeg', 'https://ffmpeg.org/', 'Video processing'),
     ('keyring', 'https://github.com/jaraco/keyring', 'Credential storage'),
     ('Packaging', 'https://packaging.pypa.io/', 'Version parsing'),
@@ -475,6 +476,10 @@ class MainWindow(QMainWindow):
         # Post composer
         self._composer = PostComposer()
         self._composer.set_last_image_dir(self._config.last_image_directory)
+        self._composer.set_recent_emoji(getattr(self._config, 'recent_emoji', []))
+        self._composer.recent_emoji_changed.connect(
+            lambda recent: setattr(self._config, 'recent_emoji', recent)
+        )
         self._composer.media_changed.connect(self._on_media_changed)
         self._composer.preview_requested.connect(self._on_preview_requested)
         self._composer.snapchat_landscape_mode_changed.connect(

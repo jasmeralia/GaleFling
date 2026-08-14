@@ -2,6 +2,7 @@
 
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -11,8 +12,9 @@ from src.utils.constants import MAX_MEDIA_ATTACHMENTS
 
 
 @pytest.fixture
-def composer(qtbot):
+def composer(qtbot, monkeypatch):
     """Create a PostComposer with account platform mapping."""
+    monkeypatch.setattr('src.gui.post_composer.get_logger', MagicMock())
     comp = PostComposer()
     qtbot.addWidget(comp)
     comp.set_account_platform_map(
@@ -117,6 +119,34 @@ class TestCharacterCounters:
         assert 'twitter' in composer._counter_labels
         composer.set_platform_state(selected=[], enabled=['twitter_1'])
         assert 'twitter' not in composer._counter_labels
+
+
+class TestEmojiPicker:
+    def test_emoji_button_inserts_at_cursor(self, composer):
+        composer.set_text('Hello world')
+        cursor = composer._text_edit.textCursor()
+        cursor.setPosition(5)
+        composer._text_edit.setTextCursor(cursor)
+
+        composer._emoji_button._on_popup_emoji_selected('\U0001f600')
+
+        assert composer._text_edit.toPlainText() == 'Hello\U0001f600 world'
+
+    def test_set_recent_emoji_forwards_to_button(self, composer):
+        composer.set_recent_emoji(['\U0001f600', '\U0001f60a'])
+
+        assert composer._emoji_button.get_recent_emoji() == ['\U0001f600', '\U0001f60a']
+
+    def test_selection_emits_updated_recent_emoji(self, composer, qtbot):
+        with qtbot.waitSignal(composer.recent_emoji_changed) as signal:
+            composer._emoji_button._on_popup_emoji_selected('\U0001f600')
+
+        assert signal.args == [['\U0001f600']]
+
+    def test_emoji_insertion_updates_character_counter(self, composer):
+        composer._emoji_button._on_popup_emoji_selected('\U0001f600')
+
+        assert composer._char_count_label.text() == '1 characters'
 
 
 class TestMultiAttachment:

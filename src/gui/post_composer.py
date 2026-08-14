@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.logger import get_logger
+from src.gui.emoji_picker import EmojiPickerButton
 from src.utils.constants import (
     IMAGE_EXTENSIONS,
     MAX_MEDIA_ATTACHMENTS,
@@ -31,6 +33,7 @@ class PostComposer(QWidget):
     # Keep old signal name as alias for backward compatibility in tests/connections
     image_changed = pyqtSignal(object)  # emitted alongside media_changed
     preview_requested = pyqtSignal()
+    recent_emoji_changed = pyqtSignal(list)
     snapchat_landscape_mode_changed = pyqtSignal(str)
     snapchat_multi_image_mode_changed = pyqtSignal(str)
 
@@ -57,6 +60,9 @@ class PostComposer(QWidget):
     def set_last_image_dir(self, path: str) -> None:
         self._last_image_dir = path
 
+    def set_recent_emoji(self, recent: list[str]) -> None:
+        self._emoji_button.set_recent_emoji(recent)
+
     def set_account_platform_map(self, mapping: dict[str, str]) -> None:
         """Set the mapping from account_id to platform_id."""
         self._account_platform_map = mapping
@@ -67,9 +73,16 @@ class PostComposer(QWidget):
         self.setMinimumHeight(420)
 
         # Text label
+        text_label_row = QHBoxLayout()
         self._text_label = QLabel('Post Text:')
         self._text_label.setStyleSheet('font-weight: bold; font-size: 13px; color: palette(text);')
-        layout.addWidget(self._text_label)
+        text_label_row.addWidget(self._text_label)
+        self._emoji_button = EmojiPickerButton()
+        self._emoji_button.clicked.connect(self._on_emoji_picker_opened)
+        self._emoji_button.emoji_selected.connect(self._on_emoji_selected)
+        text_label_row.addWidget(self._emoji_button)
+        text_label_row.addStretch()
+        layout.addLayout(text_label_row)
 
         # Text edit
         self._text_edit = QTextEdit()
@@ -222,6 +235,15 @@ class PostComposer(QWidget):
         text = self._text_edit.toPlainText()
         self.text_changed.emit(text)
         self._update_counters()
+
+    def _on_emoji_picker_opened(self) -> None:
+        get_logger().info('User selected Post Composer > Open Emoji Picker')
+
+    def _on_emoji_selected(self, emoji_char: str) -> None:
+        self._text_edit.insertPlainText(emoji_char)
+        self._text_edit.setFocus()
+        self.recent_emoji_changed.emit(self._emoji_button.get_recent_emoji())
+        get_logger().info('User selected Post Composer > Insert Emoji')
 
     def _update_counters(self) -> None:
         text = self._text_edit.toPlainText()

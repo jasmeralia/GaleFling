@@ -48,3 +48,20 @@ def test_config_manager_reset_to_defaults(tmp_path, monkeypatch):
     saved = json.loads((tmp_path / 'app_config.json').read_text())
     assert saved['theme_mode'] == DEFAULT_CONFIG['theme_mode']
     assert saved['preview_worker_count'] == DEFAULT_CONFIG['preview_worker_count']
+
+
+def test_recent_emoji_default_get_set_and_cap(tmp_path, monkeypatch):
+    monkeypatch.setattr('src.core.config_manager.get_app_data_dir', lambda: tmp_path)
+    manager = ConfigManager()
+
+    assert manager.recent_emoji == []
+
+    recent = [f'emoji-{index}' for index in range(30)]
+    manager.recent_emoji = recent
+
+    assert manager.recent_emoji == recent[:24]
+    saved = json.loads((tmp_path / 'app_config.json').read_text())
+    assert saved['recent_emoji'] == recent[:24]
+
+    manager._config['recent_emoji'] = 'not-a-list'
+    assert manager.recent_emoji == []

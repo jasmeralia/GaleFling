@@ -26,6 +26,7 @@ DEFAULT_CONFIG = {
         'y': 100,
     },
     'last_image_directory': '',
+    'recent_emoji': [],
     'auto_save_draft': True,
     'draft_auto_save_interval_seconds': 30,
     'remote_debug_enabled': False,
@@ -191,6 +192,15 @@ class ConfigManager:
     @last_selected_accounts.setter
     def last_selected_accounts(self, value: list[str]) -> None:
         self.set('last_selected_accounts', value)
+
+    @property
+    def recent_emoji(self) -> list[str]:
+        value = self._config.get('recent_emoji', [])
+        return value if isinstance(value, list) else []
+
+    @recent_emoji.setter
+    def recent_emoji(self, value: list[str]) -> None:
+        self.set('recent_emoji', list(value)[:24])
 
     @property
     def remote_debug_enabled(self) -> bool:

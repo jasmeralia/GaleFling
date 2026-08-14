@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
 import pytest
 from atproto import Client as BskyClient
@@ -202,6 +203,35 @@ class TestBlueskyValidation:
 
         assert not result.success
         assert result.error_code == 'POST-TEXT-TOO-LONG'
+
+    def test_emoji_text_preserved_before_send(self):
+        """The adapter must place emoji in the outgoing record byte-for-byte unchanged."""
+        from src.platforms.bluesky import BlueskyPlatform
+
+        captured = {}
+
+        class _Repo:
+            def create_record(self, data):
+                captured.update(data)
+                return SimpleNamespace(
+                    uri='at://did:example:emoji/app.bsky.feed.post/example',
+                    cid='example-cid',
+                )
+
+        client = SimpleNamespace(
+            me=SimpleNamespace(did='did:example:emoji', handle='emoji.example'),
+            com=SimpleNamespace(atproto=SimpleNamespace(repo=_Repo())),
+        )
+        platform = BlueskyPlatform(_make_auth({}))
+        platform._client = client
+        text = '\U0001f600 \U0001f468\u200d\U0001f469\u200d\U0001f467'
+
+        result = platform.post(text)
+
+        assert result.success
+        outgoing_text = captured['record']['text']
+        assert outgoing_text == text
+        assert outgoing_text.encode('utf-8') == text.encode('utf-8')
 
 
 @pytest.mark.functional

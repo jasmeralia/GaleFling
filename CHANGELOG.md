@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linux packaging:** Release builds now include DEB, RPM, AppImage, and Snap packages for amd64 and arm64.
 
 ### Changed
+- **CI coverage gating:** Codecov now enforces explicit 80% project and patch
+  targets, and the required lint/test job runs independently of release-info
+  resolution so a skipped dependency cannot satisfy the branch-protection gate.
 - **Documented that GaleFling never offers mixed image+video posts:** the composer treats a video as a sole attachment for every platform — **Add Media** is disabled once a video is attached, and a video selected alongside images is skipped. That is a product restriction, not a platform limitation: Instagram, Threads and Fansly all accept mixed posts, and the Instagram and Threads adapters publish one today via `post(media_paths=[image, video])`, which the functional suite covers by calling the adapter directly since the GUI cannot produce such a selection. `max_media_attachments` counts images only and is no longer commented as though "video is always 1" were a platform property. Recorded in `docs/platforms/PLATFORM_SPECS.md` with the per-layer breakdown.
 
 - **Snapchat support disabled:** Snapchat no longer appears in the setup wizard, Settings, or the post composer. Its web app has no upload control — verified against a live authenticated session — and posting there is only possible through an interactive in-page camera, which GaleFling cannot drive without attaching a virtual camera device and capturing in real time. Support is paused rather than removed: the platform code, limits and tests remain, and existing Snapchat sessions are untouched. No other platform is affected. See `docs/platforms/SNAPCHAT.md`.

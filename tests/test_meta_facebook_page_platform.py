@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -206,17 +207,62 @@ def test_post_photo_success(mock_post, tmp_path):
 # ── post() — video path ───────────────────────────────────────────────────────
 
 
+@patch('src.platforms.meta_facebook_page.requests.get')
 @patch('src.platforms.meta_facebook_page.requests.post')
-def test_post_video_success(mock_post, tmp_path):
+def test_post_video_success(mock_post, mock_get, tmp_path):
     video = tmp_path / 'clip.mp4'
     video.write_bytes(b'\x00' * 1024)
 
     mock_post.return_value = _ok_resp(id='vid123')
+    mock_get.return_value = _ok_resp(permalink_url='/reel/vid123/')
 
     p = _make_platform()
     result = p.post('video description', media_paths=[video])
     assert result.success
     assert result.raw_response == {'id': 'vid123'}
+    # A video ID has no underscore, so _build_post_url() cannot make a link for it; the
+    # permalink has to come from the video node, and arrives site-relative.
+    assert result.post_url == 'https://www.facebook.com/reel/vid123/'
+    assert result.url_captured
+
+
+@patch('src.platforms.meta_facebook_page.requests.get')
+@patch('src.platforms.meta_facebook_page.requests.post')
+def test_post_video_succeeds_when_permalink_lookup_fails(mock_post, mock_get, tmp_path):
+    """A published video must not be downgraded because the follow-up link lookup failed."""
+    video = tmp_path / 'clip.mp4'
+    video.write_bytes(b'\x00' * 1024)
+
+    mock_post.return_value = _ok_resp(id='vid123')
+    mock_get.side_effect = requests.ConnectionError(
+        'https://graph.facebook.com/?access_token=SECRET'
+    )
+
+    p = _make_platform()
+    result = p.post('video description', media_paths=[video])
+    assert result.success
+    assert result.post_url is None
+    assert not result.url_captured
+
+
+@patch('src.platforms.meta_facebook_page.requests.get')
+@patch('src.platforms.meta_facebook_page.requests.post')
+def test_post_video_permalink_failure_never_logs_the_token(mock_post, mock_get, tmp_path, caplog):
+    """A requests error renders the request URL, and that URL carries access_token."""
+    video = tmp_path / 'clip.mp4'
+    video.write_bytes(b'\x00' * 1024)
+
+    mock_post.return_value = _ok_resp(id='vid123')
+    mock_get.side_effect = requests.ConnectionError(
+        'GET https://graph.facebook.com/vid123?access_token=SUPERSECRET failed'
+    )
+
+    with caplog.at_level(logging.WARNING):
+        _make_platform().post('video description', media_paths=[video])
+
+    assert 'SUPERSECRET' not in caplog.text
+    assert 'access_token' not in caplog.text
+    assert 'ConnectionError' in caplog.text
 
 
 # ── post() — error code mapping ──────────────────────────────────────────────

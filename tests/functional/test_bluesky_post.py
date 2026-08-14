@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from atproto import Client as BskyClient
 
-from tests.functional.conftest import mutating_post_text
+from tests.functional.conftest import MUTATING_TEST_EMOJI, mutating_post_text
 from tests.functional.functional_cleanup import (
     assert_neutral_live_text,
     finish_mutating_artifact,
@@ -103,6 +103,9 @@ def _assert_post_published(
     assert tag in post_view.record.text, (
         f'Post {uri} does not carry tag {tag} — this is not the post we just created: '
         f'{post_view.record.text!r}'
+    )
+    assert MUTATING_TEST_EMOJI in post_view.record.text, (
+        f'Bluesky did not preserve the emoji in the published text: {post_view.record.text!r}'
     )
 
     assert_neutral_live_text('Bluesky', post_view.record.text)
@@ -242,7 +245,7 @@ class TestBlueskyTextPost:
     def test_text_post(self, bluesky_credentials):
         from src.platforms.bluesky import BlueskyPlatform
 
-        text = mutating_post_text()
+        text = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = BlueskyPlatform(_make_auth(bluesky_credentials))
         result = platform.post(text)
@@ -260,7 +263,7 @@ class TestBlueskyTextPost:
         """URL facets must be detected and published end-to-end."""
         from src.platforms.bluesky import BlueskyPlatform
 
-        text = mutating_post_text('https://example.com')
+        text = mutating_post_text('https://example.com', MUTATING_TEST_EMOJI)
 
         platform = BlueskyPlatform(_make_auth(bluesky_credentials))
         result = platform.post(text)
@@ -289,7 +292,7 @@ class TestBlueskyImagePost:
     def test_single_image_post(self, bluesky_credentials, sample_jpeg):
         from src.platforms.bluesky import BlueskyPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = BlueskyPlatform(_make_auth(bluesky_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg])
@@ -304,7 +307,7 @@ class TestBlueskyImagePost:
     def test_png_image_post(self, bluesky_credentials, sample_png):
         from src.platforms.bluesky import BlueskyPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = BlueskyPlatform(_make_auth(bluesky_credentials))
         result = platform.post(caption, media_paths=[sample_png])
@@ -319,7 +322,7 @@ class TestBlueskyImagePost:
     def test_multiple_images_post(self, bluesky_credentials, sample_jpeg, sample_png):
         from src.platforms.bluesky import BlueskyPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = BlueskyPlatform(_make_auth(bluesky_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
@@ -342,7 +345,7 @@ class TestBlueskyVideoPost:
     def test_video_post(self, bluesky_credentials, sample_video):
         from src.platforms.bluesky import BlueskyPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = BlueskyPlatform(_make_auth(bluesky_credentials))
         result = platform.post(caption, media_paths=[sample_video])

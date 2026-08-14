@@ -25,7 +25,12 @@ import re
 import pytest
 
 from src.platforms.fetlife import FetLifePlatform
-from tests.functional.conftest import fail_or_skip, mutating_post_tag, mutating_post_text
+from tests.functional.conftest import (
+    MUTATING_TEST_EMOJI,
+    fail_or_skip,
+    mutating_post_tag,
+    mutating_post_text,
+)
 from tests.functional.webview_helpers import (
     call_platform,
     close_webview,
@@ -840,7 +845,7 @@ class TestFetLifeTextPost:
             _ensure_session(page, fetlife_credentials)
             wait_ms(3000)
 
-            test_text = mutating_post_text()
+            test_text = mutating_post_text(MUTATING_TEST_EMOJI)
 
             print(f'\n  posting tag {test_text} — delete this if the run fails')
             platform._inject_text(test_text)
@@ -849,6 +854,9 @@ class TestFetLifeTextPost:
             inject_check = _read_status_text(page)
             assert inject_check.get('found') and test_text in inject_check.get('content', ''), (
                 f'Text injection failed: {inject_check}'
+            )
+            assert MUTATING_TEST_EMOJI in inject_check.get('content', ''), (
+                f'FetLife did not preserve the emoji: {inject_check.get("content", "")!r}'
             )
             assert inject_check.get('submitFound'), (
                 f'"{FetLifePlatform.TEXT_SUBMIT_LABEL}" button not found: {inject_check}'
@@ -1104,7 +1112,7 @@ class TestFetLifePicturePost:
             assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
             wait_ms(2000)
 
-            tag = mutating_post_text()
+            tag = mutating_post_text(MUTATING_TEST_EMOJI)
 
             print(f'\n  posting tag {tag} — delete this if the run fails')
             platform._image_path = sample_jpeg
@@ -1121,6 +1129,9 @@ class TestFetLifePicturePost:
             )
             assert tag in (caption.get('caption') or ''), (
                 f'Caption did not stick in the form: {caption}'
+            )
+            assert MUTATING_TEST_EMOJI in (caption.get('caption') or ''), (
+                f'FetLife did not preserve the emoji: {(caption.get("caption") or "")!r}'
             )
 
             consent = call_platform(platform._certify_upload_consent)
@@ -1351,7 +1362,7 @@ class TestFetLifeVideoPost:
             assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
             wait_ms(2000)
 
-            tag = mutating_post_text()
+            tag = mutating_post_text(MUTATING_TEST_EMOJI)
 
             print(f'\n  posting tag {tag} — delete this if the run fails')
             platform._image_path = sample_video
@@ -1366,8 +1377,14 @@ class TestFetLifeVideoPost:
             assert tag in (caption.get('caption') or ''), (
                 f'Description did not stick in the form: {caption}'
             )
+            assert MUTATING_TEST_EMOJI in (caption.get('caption') or ''), (
+                f'FetLife did not preserve the emoji: {(caption.get("caption") or "")!r}'
+            )
             assert caption.get('title'), (
                 f'video[title] is empty — FetLife rejects a titleless upload: {caption}'
+            )
+            assert MUTATING_TEST_EMOJI in caption.get('title'), (
+                f'FetLife did not preserve the emoji: {caption.get("title")!r}'
             )
 
             consent = call_platform(platform._certify_upload_consent)

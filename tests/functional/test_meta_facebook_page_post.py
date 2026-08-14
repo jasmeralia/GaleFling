@@ -12,7 +12,7 @@ import time
 import pytest
 import requests
 
-from tests.functional.conftest import mutating_post_text
+from tests.functional.conftest import MUTATING_TEST_EMOJI, mutating_post_text
 from tests.functional.functional_cleanup import (
     ArtifactDeleteFailedError,
     assert_neutral_live_text,
@@ -117,6 +117,9 @@ def _assert_post_published(
     assert tag in published_text, (
         f'Facebook artifact {artifact_id} does not carry tag {tag} — this is not the post '
         f'we just created: {published_text!r}'
+    )
+    assert MUTATING_TEST_EMOJI in published_text, (
+        f'Facebook Page did not preserve the emoji in the published text: {published_text!r}'
     )
     assert_neutral_live_text('Facebook Page', published_text)
 
@@ -239,7 +242,7 @@ class TestMetaFacebookPageTextPost:
         """Post a text-only update to the Facebook Page and verify success."""
         from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
 
-        text = mutating_post_text()
+        text = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaFacebookPagePlatform(_make_auth(meta_facebook_credentials))
         result = platform.post(text)
@@ -260,7 +263,7 @@ class TestMetaFacebookPagePhotoPost:
         """Upload a single photo to the Facebook Page and verify success."""
         from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaFacebookPagePlatform(_make_auth(meta_facebook_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg])
@@ -277,7 +280,7 @@ class TestMetaFacebookPagePhotoPost:
         """Upload two photos as a multi-photo feed post and verify success."""
         from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaFacebookPagePlatform(_make_auth(meta_facebook_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
@@ -302,7 +305,7 @@ class TestMetaFacebookPageVideoPost:
         """Upload a video to the Facebook Page and verify success."""
         from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
 
-        description = mutating_post_text()
+        description = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaFacebookPagePlatform(_make_auth(meta_facebook_credentials))
         result = platform.post(description, media_paths=[sample_video])

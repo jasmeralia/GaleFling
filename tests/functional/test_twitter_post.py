@@ -7,7 +7,7 @@ import time
 import pytest
 import tweepy
 
-from tests.functional.conftest import mutating_post_text
+from tests.functional.conftest import MUTATING_TEST_EMOJI, mutating_post_text
 from tests.functional.functional_cleanup import (
     ArtifactAlreadyGoneError,
     assert_neutral_live_text,
@@ -94,6 +94,9 @@ def _assert_tweet_published(
     assert tag in tweet.text, (
         f'Tweet {tweet_id} does not carry tag {tag} — this is not the post we just '
         f'created: {tweet.text!r}'
+    )
+    assert MUTATING_TEST_EMOJI in tweet.text, (
+        f'Twitter did not preserve the emoji in the published text: {tweet.text!r}'
     )
 
     assert_neutral_live_text('Twitter', tweet.text)
@@ -209,7 +212,7 @@ class TestTwitterTextPost:
     def test_text_post(self, twitter_credentials):
         from src.platforms.twitter import TwitterPlatform
 
-        text = mutating_post_text()
+        text = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = TwitterPlatform(_make_auth(twitter_credentials))
         result = platform.post(text)
@@ -238,7 +241,7 @@ class TestTwitterImagePost:
     def test_single_image_post(self, twitter_credentials, sample_jpeg):
         from src.platforms.twitter import TwitterPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = TwitterPlatform(_make_auth(twitter_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg])
@@ -253,7 +256,7 @@ class TestTwitterImagePost:
     def test_png_image_post(self, twitter_credentials, sample_png):
         from src.platforms.twitter import TwitterPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = TwitterPlatform(_make_auth(twitter_credentials))
         result = platform.post(caption, media_paths=[sample_png])
@@ -268,7 +271,7 @@ class TestTwitterImagePost:
     def test_multiple_images_post(self, twitter_credentials, sample_jpeg, sample_png):
         from src.platforms.twitter import TwitterPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = TwitterPlatform(_make_auth(twitter_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
@@ -291,7 +294,7 @@ class TestTwitterVideoPost:
     def test_video_post(self, twitter_credentials, sample_video):
         from src.platforms.twitter import TwitterPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = TwitterPlatform(_make_auth(twitter_credentials))
         result = platform.post(caption, media_paths=[sample_video])

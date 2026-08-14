@@ -18,7 +18,7 @@ import time
 import pytest
 import requests
 
-from tests.functional.conftest import mutating_post_text
+from tests.functional.conftest import MUTATING_TEST_EMOJI, mutating_post_text
 from tests.functional.functional_cleanup import (
     ArtifactDeleteFailedError,
     assert_neutral_live_text,
@@ -105,6 +105,9 @@ def _assert_post_published(
     assert tag in (payload.get('text') or ''), (
         f'Threads post {post_id} does not carry tag {tag} — this is not the post we just '
         f'created: {(payload.get("text") or "")!r}'
+    )
+    assert MUTATING_TEST_EMOJI in (payload.get('text') or ''), (
+        f'Threads did not preserve the emoji in the published text: {(payload.get("text") or "")!r}'
     )
 
     assert_neutral_live_text('Threads', payload.get('text') or '')
@@ -240,7 +243,7 @@ class TestMetaThreadsTextPost:
         """Post a text-only thread and verify success."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        text = mutating_post_text()
+        text = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials))
         result = platform.post(text)
@@ -266,7 +269,7 @@ class TestMetaThreadsImagePost:
         """Stage a JPEG to S3, post it to Threads, verify permalink, then delete."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg])
@@ -291,7 +294,7 @@ class TestMetaThreadsImagePost:
         """PNG images must also be accepted by the Threads API."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_png])
@@ -316,7 +319,7 @@ class TestMetaThreadsVideoPost:
         """Stage an MP4 to S3, post it to Threads, verify success, then delete."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_video])
@@ -344,7 +347,7 @@ class TestMetaThreadsCarouselPost:
         """Post a 2-image carousel, verify the carousel is published, then delete."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
@@ -367,7 +370,7 @@ class TestMetaThreadsCarouselPost:
         """Post a mixed image+video carousel, verify publish, then delete."""
         from src.platforms.meta_threads import MetaThreadsPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaThreadsPlatform(_make_auth(meta_threads_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_video])

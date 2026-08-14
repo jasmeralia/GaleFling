@@ -21,7 +21,7 @@ import time
 import pytest
 import requests
 
-from tests.functional.conftest import mutating_post_text
+from tests.functional.conftest import MUTATING_TEST_EMOJI, mutating_post_text
 from tests.functional.functional_cleanup import (
     ArtifactDeleteFailedError,
     assert_neutral_live_text,
@@ -110,6 +110,9 @@ def _assert_media_published(creds: dict, media_id: str, caption: str, *, media: 
     assert tag in published_caption, (
         f'Instagram media {media_id} does not carry tag {tag} — this is not the post we '
         f'just created: {published_caption!r}'
+    )
+    assert MUTATING_TEST_EMOJI in published_caption, (
+        f'Instagram did not preserve the emoji in the published text: {published_caption!r}'
     )
     assert_neutral_live_text('Instagram', published_caption)
 
@@ -259,7 +262,7 @@ class TestInstagramImagePost:
         """Stage a JPEG to S3, post it to Instagram, verify permalink, then delete."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg])
@@ -284,7 +287,7 @@ class TestInstagramImagePost:
         """PNG images must also be accepted by the API."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_png])
@@ -309,7 +312,7 @@ class TestInstagramVideoPost:
         """Stage an MP4 to S3, post it as a Reel, verify success, then delete."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_video])
@@ -337,7 +340,7 @@ class TestInstagramCarouselPost:
         """Post a 2-image carousel, verify the carousel container is published."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_png])
@@ -360,7 +363,7 @@ class TestInstagramCarouselPost:
         """Post a mixed image+video carousel, verify publish, then delete."""
         from src.platforms.meta_instagram import MetaInstagramPlatform
 
-        caption = mutating_post_text()
+        caption = mutating_post_text(MUTATING_TEST_EMOJI)
 
         platform = MetaInstagramPlatform(_make_auth(instagram_credentials, meta_aws_credentials))
         result = platform.post(caption, media_paths=[sample_jpeg, sample_video])

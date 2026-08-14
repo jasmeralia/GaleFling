@@ -218,8 +218,13 @@ class TestTwitterTextPost:
         assert result.platform == 'Twitter'
         tweet_id = result.raw_response.get('id')
         assert tweet_id
-        if result.post_url:
-            assert 'twitter.com/' in result.post_url or 'x.com/' in result.post_url
+        # Unconditional: a guarded URL assertion cannot fail when post_url is None,
+        # which is precisely the regression worth catching — the Results dialog then
+        # has no link to offer the user. Facebook Page video posts shipped in exactly
+        # that state, and no test caught it; the artifact reporter did, by printing
+        # 'URL: none reported'.
+        assert result.post_url, 'no post_url returned — Results would have no link'
+        assert 'twitter.com/' in result.post_url or 'x.com/' in result.post_url
 
         _assert_tweet_published(twitter_credentials, tweet_id, text)
         _finish_tweet(twitter_credentials, text, tweet_id, result.post_url)

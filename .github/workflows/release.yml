@@ -46,7 +46,6 @@ jobs:
 
   lint-and-test:
     name: Lint & Test
-    needs: resolve
     runs-on: ubuntu-latest
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

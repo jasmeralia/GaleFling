@@ -74,6 +74,9 @@ class RedactedCredentials(dict):
     __str__ = __repr__
 
 
+MUTATING_TEST_EMOJI = '\U0001f600'  # 😀 — fixed marker for live-post emoji verification
+
+
 def mutating_post_tag() -> str:
     """Short unique tag embedded in live mutating post text for cleanup lookup."""
     return uuid.uuid4().hex[:8]

@@ -25,7 +25,12 @@ import re
 import pytest
 
 from src.platforms.fetlife import FetLifePlatform
-from tests.functional.conftest import fail_or_skip, mutating_post_tag, mutating_post_text
+from tests.functional.conftest import (
+    MUTATING_TEST_EMOJI,
+    fail_or_skip,
+    mutating_post_tag,
+    mutating_post_text,
+)
 from tests.functional.webview_helpers import (
     call_platform,
     close_webview,
@@ -506,6 +511,14 @@ _CONFIRM_DELETE_CONTROL_JS = """
 def _delete_status_by_tag(view, page, tag: str) -> dict:
     """Delete the feed status carrying *tag* via its own dropdown Delete entry.
 
+    Not currently called by any test. ``TestFetLifeTextPost.test_text_post_creates_a_post``
+    used to call this unconditionally, deleting the status it had just proven existed
+    and leaving no way to opt out and inspect it — unlike every other mutating WebView
+    test in this suite, which leaves its artifact up unconditionally by design (see
+    ``functional_cleanup.py``, ``AGENTS.md`` rule 9). Kept, working and documented, for
+    task #420's planned opt-in deletion pass, which can gate a call to this on whatever
+    switch that task introduces.
+
     **Why this needs real mouse events.** Investigated against a live status on
     2026-08-11: the Delete entry is an ``<a href="#0">`` whose only payload is a ``data``
     attribute that stringifies to ``[object Object]`` — no ``data-method``, no
@@ -826,13 +839,22 @@ class TestFetLifeTextPost:
             close_webview(view, page, platform)
 
     @pytest.mark.mutating
-    def test_text_post_submit_and_delete(self, galefling_data_dir, fetlife_credentials):
-        """Post a status, prove it exists on the feed, then attempt deletion.
+    def test_text_post_creates_a_post(self, galefling_data_dir, fetlife_credentials):
+        """Post a status and prove it exists on the feed.
 
         The post-condition is deliberately the status appearing on the feed, not a URL
         change.  FetLife stays on / returns to the feed either way, so asserting on the
         URL cannot distinguish a published status from a rejected submit — an earlier
         version of this test passed while creating nothing at all.
+
+        Deliberately does not delete what it creates. Every other mutating WebView test
+        in this suite leaves its artifact up unconditionally for manual inspection (see
+        ``functional_cleanup.py`` and ``AGENTS.md`` rule 9); this test used to be the one
+        exception, silently deleting the status it had just proven existed via
+        ``_delete_status_by_tag()``. That made this test's tag unfindable after a run
+        even though every other test's tag stayed put, and gave no way to opt out and
+        inspect it. ``_delete_status_by_tag()`` is retained, unused, for task #420's
+        planned opt-in deletion pass.
         """
         get_or_create_app()
         view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
@@ -840,7 +862,7 @@ class TestFetLifeTextPost:
             _ensure_session(page, fetlife_credentials)
             wait_ms(3000)
 
-            test_text = mutating_post_text()
+            test_text = mutating_post_text(MUTATING_TEST_EMOJI)
 
             print(f'\n  posting tag {test_text} — delete this if the run fails')
             platform._inject_text(test_text)
@@ -849,6 +871,9 @@ class TestFetLifeTextPost:
             inject_check = _read_status_text(page)
             assert inject_check.get('found') and test_text in inject_check.get('content', ''), (
                 f'Text injection failed: {inject_check}'
+            )
+            assert MUTATING_TEST_EMOJI in inject_check.get('content', ''), (
+                f'FetLife did not preserve the emoji: {inject_check.get("content", "")!r}'
             )
             assert inject_check.get('submitFound'), (
                 f'"{FetLifePlatform.TEXT_SUBMIT_LABEL}" button not found: {inject_check}'
@@ -874,17 +899,9 @@ class TestFetLifeTextPost:
             )
 
             print(f'\n  FetLife status posted (tag {test_text})')
-            # Unconditionally the trusted-click path. This used to branch on the URL
-            # matching a permalink and hand off to a JS-click helper, but that branch
-            # could not have worked: a status posts in place, so the URL stays on the
-            # feed and the branch was never taken — and had it been, FetLife's Delete
-            # binds its handler in JavaScript and ignores a synthetic click anyway.
-            delete_outcome = _delete_status_by_tag(view, page, test_text)
-            print(f'  Delete attempt: {delete_outcome}')
-            if not delete_outcome.get('deleted'):
-                print(
-                    f'  CLEANUP PENDING (leave up until any follow-up inspection is done) — status {test_text} is still on the feed'
-                )
+            print(
+                f'  CLEANUP PENDING (leave up until any follow-up inspection is done) — status {test_text} is still on the feed'
+            )
         finally:
             close_webview(view, page, platform)
 
@@ -1104,7 +1121,7 @@ class TestFetLifePicturePost:
             assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
             wait_ms(2000)
 
-            tag = mutating_post_text()
+            tag = mutating_post_text(MUTATING_TEST_EMOJI)
 
             print(f'\n  posting tag {tag} — delete this if the run fails')
             platform._image_path = sample_jpeg
@@ -1121,6 +1138,9 @@ class TestFetLifePicturePost:
             )
             assert tag in (caption.get('caption') or ''), (
                 f'Caption did not stick in the form: {caption}'
+            )
+            assert MUTATING_TEST_EMOJI in (caption.get('caption') or ''), (
+                f'FetLife did not preserve the emoji: {(caption.get("caption") or "")!r}'
             )
 
             consent = call_platform(platform._certify_upload_consent)
@@ -1351,7 +1371,7 @@ class TestFetLifeVideoPost:
             assert ok and '/login' not in final_url.lower(), f'Session lost: {final_url}'
             wait_ms(2000)
 
-            tag = mutating_post_text()
+            tag = mutating_post_text(MUTATING_TEST_EMOJI)
 
             print(f'\n  posting tag {tag} — delete this if the run fails')
             platform._image_path = sample_video
@@ -1366,8 +1386,14 @@ class TestFetLifeVideoPost:
             assert tag in (caption.get('caption') or ''), (
                 f'Description did not stick in the form: {caption}'
             )
+            assert MUTATING_TEST_EMOJI in (caption.get('caption') or ''), (
+                f'FetLife did not preserve the emoji: {(caption.get("caption") or "")!r}'
+            )
             assert caption.get('title'), (
                 f'video[title] is empty — FetLife rejects a titleless upload: {caption}'
+            )
+            assert MUTATING_TEST_EMOJI in caption.get('title'), (
+                f'FetLife did not preserve the emoji: {caption.get("title")!r}'
             )
 
             consent = call_platform(platform._certify_upload_consent)

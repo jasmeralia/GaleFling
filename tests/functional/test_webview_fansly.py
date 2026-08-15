@@ -11,7 +11,12 @@ import json
 import pytest
 
 from src.platforms.fansly import FanslyPlatform
-from tests.functional.conftest import fail_or_skip, mutating_post_tag, mutating_post_text
+from tests.functional.conftest import (
+    MUTATING_TEST_EMOJI,
+    fail_or_skip,
+    mutating_post_tag,
+    mutating_post_text,
+)
 from tests.functional.webview_helpers import (
     call_platform,
     close_webview,
@@ -687,6 +692,32 @@ class TestFanslyTextInjection:
         finally:
             close_webview(view, page, platform)
 
+    def test_emoji_text_injection_round_trip(self, galefling_data_dir, fansly_credentials):
+        """Verify simple and ZWJ emoji survive the shipped text injection path exactly."""
+        get_or_create_app()
+        view, page, platform = create_webview(galefling_data_dir, ACCOUNT_ID)
+        try:
+            _ensure_session(page, fansly_credentials)
+            ok, final_url = load_page(page, COMPOSER_URL, timeout_ms=20000)
+            assert ok, f'Composer load failed: {final_url}'
+            wait_ms(5000)
+
+            test_text = mutating_post_text(
+                '\U0001f600',
+                '\U0001f468\u200d\U0001f469\u200d\U0001f467',
+            )
+            platform._inject_text(test_text)
+            wait_ms(1000)
+
+            result = _read_composer_text(page)
+            assert isinstance(result, dict), f'JS returned: {result}'
+            assert result.get('found'), (
+                f'Composer element not found for {FanslyPlatform.TEXT_SELECTOR!r}: {result}'
+            )
+            assert result.get('value') == test_text, f'Emoji text did not round-trip: {result}'
+        finally:
+            close_webview(view, page, platform)
+
 
 @pytest.mark.functional
 class TestFanslyPost:
@@ -778,7 +809,7 @@ class TestFanslyPost:
             assert ok, f'Composer load failed: {final_url}'
             wait_ms(8000)
 
-            tag = mutating_post_text()
+            tag = mutating_post_text(MUTATING_TEST_EMOJI)
 
             print(f'\n  posting tag {tag} — delete this if the run fails')
             platform._inject_text(tag)
@@ -787,6 +818,9 @@ class TestFanslyPost:
             injected = _read_composer_text(page)
             assert injected.get('found') and tag in injected.get('value', ''), (
                 f'Text injection failed: {injected}'
+            )
+            assert MUTATING_TEST_EMOJI in injected.get('value', ''), (
+                f'Fansly did not preserve the emoji: {injected.get("value", "")!r}'
             )
 
             submit = _click_post_when_enabled(page)
@@ -835,13 +869,16 @@ class TestFanslyPost:
                 f'Require Follow not set: {perms}'
             )
 
-            tag = mutating_post_text()
+            tag = mutating_post_text(MUTATING_TEST_EMOJI)
             print(f'  [3/5] posting tag {tag} — delete this if the run fails', flush=True)
             platform._inject_text(tag)
             wait_ms(2000)
             injected = _read_composer_text(page)
             assert injected.get('found') and tag in injected.get('value', ''), (
                 f'Caption not in composer: {injected}'
+            )
+            assert MUTATING_TEST_EMOJI in injected.get('value', ''), (
+                f'Fansly did not preserve the emoji: {injected.get("value", "")!r}'
             )
 
             print('  [4/5] clicking Post once it is enabled', flush=True)
@@ -906,13 +943,16 @@ class TestFanslyPost:
                 f'Require Follow not set: {perms}'
             )
 
-            tag = mutating_post_text()
+            tag = mutating_post_text(MUTATING_TEST_EMOJI)
             print(f'  [3/5] posting tag {tag} — delete this if the run fails', flush=True)
             platform._inject_text(tag)
             wait_ms(2000)
             injected = _read_composer_text(page)
             assert injected.get('found') and tag in injected.get('value', ''), (
                 f'Caption not in composer: {injected}'
+            )
+            assert MUTATING_TEST_EMOJI in injected.get('value', ''), (
+                f'Fansly did not preserve the emoji: {injected.get("value", "")!r}'
             )
 
             print('  [4/5] clicking Post once it is enabled', flush=True)

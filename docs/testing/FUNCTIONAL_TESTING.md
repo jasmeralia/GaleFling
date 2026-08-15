@@ -813,12 +813,18 @@ route. Existing low-level tests remain useful characterization coverage and are 
 substitute for the `_do_prefill()` entry-point test.
 
 ### FetLife statuses are not auto-deleted — every mutating run leaves one
-`test_text_post_submit_and_delete` posts a real status and **cannot currently remove it**. It reports this rather than claiming success: the run prints `MANUAL CLEANUP NEEDED` with the tag. Delete it from your feed after a mutating run.
+`test_text_post_creates_a_post` posts a real status and does not delete it. It reports
+this rather than claiming success: the run prints `CLEANUP PENDING` with the tag. Delete
+it from your feed after a mutating run.
 
-Why it cannot: FetLife's Delete control is an `<a href="#0">` whose payload is a `data` attribute stringifying to `[object Object]` — no `data-method`, no `data-turbo-confirm`, no delete endpoint, and the status permalink page offers the same control rather than a form. The handler is bound in JavaScript, so a synthetic `.click()` never reaches it. Automating it requires a trusted `QTest.mouseClick` (Phase 6's pattern), opening the "More options" dropdown first.
-
-### FetLife post not auto-deleted
-FetLife redirects to `/posts` after text submission instead of the individual post page. When a permalink is captured, the test attempts UI delete; otherwise search your feed for the UUID tag from the test output.
+This is deliberate, not a limitation: it matches every other mutating WebView test in
+this suite (Fansly, and FetLife's own picture/video tests), which leave what they create
+up unconditionally for manual inspection — see `functional_cleanup.py`'s module
+docstring and `AGENTS.md` rule 9. A working deletion mechanism exists
+(`_delete_status_by_tag()` in `test_webview_fetlife.py`, using a trusted
+`QTest`-style mouse click since FetLife's Delete handler is bound in JavaScript and
+ignores a synthetic `.click()`) but is not called by any test — it is retained for task
+#420's planned opt-in deletion pass, which will decide how and when to invoke it.
 
 ### FetLife picture/video uploads — real, and cleaned up by hand
 Mutating upload tests exist again and create **real** pictures and videos. They were once removed because an earlier helper blindly checked every checkbox on the upload form — including **set as avatar** — and submitted real uploads while debugging.

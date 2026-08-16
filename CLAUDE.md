@@ -56,7 +56,7 @@ See [AGENTS.md](AGENTS.md) for project structure, architecture, and conventions.
 
 ## Quick Reference
 
-- **Platforms:** Bluesky, Instagram, OnlyFans, Fansly, Snapchat, Threads, Twitter
+- **Platforms:** Bluesky, Instagram, Threads, Twitter, FetLife. OnlyFans, Fansly, and Snapchat are paused (`available=False`) — see `docs/platforms/ONLYFANS.md`, `docs/platforms/FANSLY.md`, `docs/platforms/SNAPCHAT.md`.
 - **Target user:** Rin (non-technical content creator)
 - **Developer/operator:** Jas
 

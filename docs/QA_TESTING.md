@@ -18,9 +18,9 @@ Install the release build from the installer (not from source). Use a clean Wind
 - A video file in an unsupported format (e.g. `.mkv` or `.avi`)
 - Five or more image files for attachment-limit testing
 
-Have at least one active account available for each platform type: Twitter, Bluesky, Instagram, Threads, Facebook Page, Snapchat, OnlyFans, Fansly, and FetLife.
+Have at least one active account available for each platform type: Twitter, Bluesky, Instagram, Threads, Facebook Page, and FetLife.
 
-OnlyFans has no in-app login — its login form rejects embedded browsers. Export a session from a normal browser and import it via **Settings > OnlyFans > Import Session from auth.json** before testing. See [platforms/ONLYFANS_SESSION_IMPORT.md](platforms/ONLYFANS_SESSION_IMPORT.md).
+Snapchat, OnlyFans, and Fansly are currently paused (`available=False`) and do not appear in the setup wizard, Settings, or the post composer — skip them in this checklist. See their platform docs for why.
 
 ---
 
@@ -120,10 +120,9 @@ Before signing off on a release, run at least one successful end-to-end post for
 - **Instagram** — single image with caption
 - **Threads** — text-only post, then text + image
 - **Facebook Page** — text + image post
-- **Snapchat** — single static image (auto-converted to MP4), then a direct short video post
-- **OnlyFans** — WebView prefill with text + image, manual submit
-- **Fansly** — WebView prefill with text + image, manual submit
 - **FetLife** — WebView prefill, manual submit
+
+Snapchat, OnlyFans, and Fansly are paused and not reachable in the app — omit them from this matrix.
 
 ---
 

@@ -6,6 +6,12 @@
 **Owner:** Jas
 **Tracks:** GitHub issue #1 (WebView2 migration), `debug_state.md`
 
+> **2026-08-16: OnlyFans and Fansly are now paused** (`available=False`, aggressive
+> automation-detection/banning risk — see `docs/platforms/ONLYFANS.md` /
+> `docs/platforms/FANSLY.md`). Everything below describing their WebView test coverage
+> is historical; both platforms' functional tests are now `disabled_platform` and
+> excluded from routine runs, the same way Snapchat's already were.
+
 ## Purpose
 
 Establish a reproducible loop for debugging WebView defect classes — renderer

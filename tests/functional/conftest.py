@@ -429,7 +429,7 @@ def pytest_collection_modifyitems(config, items) -> None:
     skip = pytest.mark.skip(
         reason=(
             'Platform disabled in the product; pass --run-disabled-platforms to include '
-            '(Snapchat WebView tests are retained for a future virtual-camera spike)'
+            '(Snapchat, OnlyFans and Fansly WebView tests are retained for reference)'
         )
     )
     for item in items:

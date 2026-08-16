@@ -147,7 +147,7 @@ def test_platform_selector_sorts_by_platform_then_profile(qtbot):
     selector.set_accounts(
         [
             AccountConfig(platform_id='twitter', account_id='twitter_1', profile_name='jasmeralia'),
-            AccountConfig(platform_id='fansly', account_id='fansly_1', profile_name=''),
+            AccountConfig(platform_id='fetlife', account_id='fetlife_1', profile_name=''),
             AccountConfig(
                 platform_id='bluesky',
                 account_id='bluesky_alt',
@@ -164,7 +164,7 @@ def test_platform_selector_sorts_by_platform_then_profile(qtbot):
     assert list(selector._checkboxes.keys()) == [
         'bluesky_1',
         'bluesky_alt',
-        'fansly_1',
+        'fetlife_1',
         'twitter_1',
     ]
 

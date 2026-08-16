@@ -214,11 +214,11 @@ def test_settings_dialog_saves_webview_profile_names(qtbot, tmp_path, monkeypatc
     dialog = SettingsDialog(config, auth)
     qtbot.addWidget(dialog)
 
-    dialog._webview_profile_edits['fansly_1'].setText('fanslyuser')
+    dialog._webview_profile_edits['fetlife_1'].setText('fetlifeuser')
 
     dialog._save_and_close()
 
-    assert auth.get_account('fansly_1').profile_name == 'fanslyuser'
+    assert auth.get_account('fetlife_1').profile_name == 'fetlifeuser'
 
 
 def test_settings_dialog_export_builds_correct_data(tmp_path, monkeypatch):
@@ -367,10 +367,10 @@ def test_settings_dialog_has_per_platform_tabs(qtbot, tmp_path, monkeypatch):
     assert 'Bluesky' in tab_names
     assert 'Meta' in tab_names
     assert 'Instagram' not in tab_names  # Instagram is now managed via the Meta tab
-    # Snapchat is unavailable (no web posting surface), so it gets no tab.
+    # Snapchat, OnlyFans, and Fansly are all unavailable (paused), so none gets a tab.
     assert 'Snapchat' not in tab_names
-    assert 'OnlyFans' in tab_names
-    assert 'Fansly' in tab_names
+    assert 'OnlyFans' not in tab_names
+    assert 'Fansly' not in tab_names
     assert 'FetLife' in tab_names
     assert 'Advanced' in tab_names
     assert 'Accounts' not in tab_names
@@ -443,12 +443,13 @@ def test_settings_dialog_webview_tabs_show_login_and_reset_buttons(qtbot, tmp_pa
         for btn in dialog.findChildren(QPushButton)
         if btn.text() == 'Import Session from auth.json...'
     ]
-    # onlyfans/fansly/fetlife have 1 account each; Snapchat is unavailable and
-    # contributes no tab at all.  OnlyFans offers no login button because its
-    # login form rejects embedded browsers; it gets a session-import button.
-    assert len(open_buttons) == 2
-    assert len(reset_buttons) == 3
-    assert len(import_buttons) == 1
+    # FetLife has 1 account and is the only available webview platform; Snapchat,
+    # OnlyFans, and Fansly are all unavailable (paused) and contribute no tab.
+    # OnlyFans would offer no login button even if it did, since its login form
+    # rejects embedded browsers; it would get a session-import button instead.
+    assert len(open_buttons) == 1
+    assert len(reset_buttons) == 1
+    assert len(import_buttons) == 0
 
 
 def test_settings_dialog_open_webview_login_window(qtbot, tmp_path, monkeypatch):
@@ -456,7 +457,7 @@ def test_settings_dialog_open_webview_login_window(qtbot, tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)
     dialog = SettingsDialog(config, auth)
     qtbot.addWidget(dialog)
-    dialog._webview_profile_edits['fansly_1'].setText('fansly-user')
+    dialog._webview_profile_edits['fetlife_1'].setText('fetlife-user')
 
     calls = {}
 

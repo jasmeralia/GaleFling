@@ -32,7 +32,7 @@ from tests.functional.webview_helpers import (
     wait_ms,
 )
 
-ACCOUNT_ID = 'fansly_1'
+ACCOUNT_ID = 'fetlife_1'
 
 # A visible control to click, and a hidden file input mirroring how real composers
 # present theirs (`display:none`, no dimensions, nothing to aim at).

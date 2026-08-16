@@ -1,5 +1,16 @@
 """Functional tests for OnlyFans WebView posting.
 
+OnlyFans support is disabled in the product (`ONLYFANS_SPECS.available = False`),
+paused 2026-08-16 at Rin's request: OnlyFans is aggressive about detecting and
+banning automation, and supports post scheduling — a stronger automation signal
+than a one-off manual post. See `docs/platforms/ONLYFANS.md`.
+
+These tests are retained for reference but are **skipped by default** so they do
+not affect routine functional runs, or exercise automation against the live
+platform while support is paused. To opt in:
+
+    pytest tests/functional/test_webview_onlyfans.py --run-disabled-platforms -v
+
 OnlyFans composer requires click interaction to expand. Session expiry is
 detected via inline login form detection (OnlyFans does not redirect to /login).
 
@@ -23,6 +34,8 @@ from tests.functional.webview_helpers import (
     run_js,
     wait_ms,
 )
+
+pytestmark = [pytest.mark.disabled_platform]
 
 
 def _login_form_present(page) -> bool:

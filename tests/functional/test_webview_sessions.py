@@ -68,6 +68,7 @@ class TestSnapchatSession:
 
 @pytest.mark.functional
 @pytest.mark.non_mutating
+@pytest.mark.disabled_platform
 class TestOnlyFansSession:
     """OnlyFans WebView session validation."""
 
@@ -98,6 +99,7 @@ class TestOnlyFansSession:
 
 @pytest.mark.functional
 @pytest.mark.non_mutating
+@pytest.mark.disabled_platform
 class TestFanslySession:
     """Fansly WebView session validation."""
 

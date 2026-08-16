@@ -170,8 +170,9 @@ Every functional test belongs to exactly one side-effect group:
   including rejection tests whose requests are expected to fail. These tests may
   create, update, or delete real posts.
 - `disabled_platform` marks functional tests for platforms disabled in the product
-  (currently Snapchat). These are **excluded** from `make test-functional*` and VM
-  runs by default. Pass `--run-disabled-platforms` to include them locally.
+  (currently Snapchat, OnlyFans, and Fansly — see their platform docs for why). These
+  are **excluded** from `make test-functional*` and VM runs by default. Pass
+  `--run-disabled-platforms` to include them locally.
 
 Collection fails if a functional test has neither marker or both markers. Run
 `make test-functional-non-mutating` for the side-effect-free suite. Tests that can
@@ -659,6 +660,13 @@ The tables above show what **is** tested. The gaps below map missing functional 
 
 #### WebView platforms
 
+> **OnlyFans and Fansly are disabled** (`available=False`, paused 2026-08-16 at Rin's
+> request — see `docs/platforms/ONLYFANS.md` / `docs/platforms/FANSLY.md`). Their
+> functional tests are `disabled_platform` and excluded from routine runs, same as
+> Snapchat below. The tables in this section describe coverage as it stood before the
+> pause and are kept for reference; treat any "covered" cell for OnlyFans or Fansly as
+> historical, not current default behavior.
+
 | Gap | OnlyFans | Fansly | FetLife |
 |-----|----------|--------|---------|
 | Mutating post submit + delete | — | — | text only |
@@ -679,10 +687,11 @@ excluded from routine runs (`disabled_platform`). Image→video pipeline tests i
 
 **Priority gaps to close next** (tracked in Odoo task #166):
 
-1. **OnlyFans mutating smoke test** — submit a tagged post and verify it exists, mirroring FetLife and Fansly. (Fansly done.)
-2. **FetLife media upload in the post flow** — `_attach_media()`, `_certify_upload_consent()` and `_inject_media_caption()` exist and are covered by mutating tests, but nothing calls them outside tests; wiring them into `_do_prefill()` is task #417 Level B.
-3. **Media processing** — add resize/validation cases for Threads, Facebook Page, OnlyFans, and Fansly specs.
-4. **Second-account slots** — no functional test exercises `twitter_2`, `bluesky_alt`, `meta_instagram_2`, or `meta_threads_2`.
+1. **FetLife media upload in the post flow** — `_attach_media()`, `_certify_upload_consent()` and `_inject_media_caption()` exist and are covered by mutating tests, but nothing calls them outside tests; wiring them into `_do_prefill()` is tracked separately.
+2. **Media processing** — add resize/validation cases for Threads and Facebook Page specs.
+3. **Second-account slots** — no functional test exercises `twitter_2`, `bluesky_alt`, `meta_instagram_2`, or `meta_threads_2`.
+
+(The OnlyFans mutating smoke test and OnlyFans/Fansly media processing items previously here are canceled — both platforms are paused. See Odoo #429, #431, #432.)
 
 ### WebView Platform Session Tests
 

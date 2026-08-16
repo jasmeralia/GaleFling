@@ -2,7 +2,14 @@
 
 ## Status
 
-**Draft — Phase 0 not started.** Supersedes an earlier `ANDROID_PORT.md` plan that framed
+**Draft — Phase 0 not started.** OnlyFans and Fansly are paused in the app as of
+2026-08-16 (`available=False` — aggressive automation-detection/banning risk; see
+`docs/platforms/ONLYFANS.md` / `docs/platforms/FANSLY.md`). Every reference to them
+below as delegated-scheduling targets is now historical: the delegated-scheduling set
+is Instagram and Threads only until either platform is reactivated. The IP-identity
+reasoning that motivated keeping posting on Rin's own machine remains valid regardless.
+
+Supersedes an earlier `ANDROID_PORT.md` plan that framed
 this work as an Android/iOS port of the desktop app. That framing was wrong; see
 [Why this is not a port](#why-this-is-not-a-port). That document has been removed — its
 still-relevant feasibility analysis is preserved in
@@ -123,7 +130,7 @@ Derived:
     |  embedded web server: serves the mobile client + its API   |
     |  schedule queue (SQLite)                                   |
     |  API tier: Twitter, Bluesky, Meta                          |
-    |  WebView tier: OnlyFans, Fansly, FetLife (Qt WebEngine)    |
+    |  WebView tier: FetLife (Qt WebEngine); OnlyFans, Fansly paused |
     |  media pipeline: ffmpeg, Pillow                            |
     |  credentials + platform sessions — never leave this host   |
     +----------------------------------------------------------+
@@ -279,12 +286,13 @@ that can absorb the scheduling themselves. Driving a composer once to set a futu
 the platform's own scheduler is strictly more reliable than holding the schedule locally —
 it survives the desktop being off, rebooting, or losing its network at post time.
 
-Confirmed by Jas, 2026-08-13:
+Confirmed by Jas, 2026-08-13. OnlyFans and Fansly rows below are historical — both are
+paused as of 2026-08-16, so their "Delegate" approach is not being pursued while paused:
 
 | Platform | Native scheduling | Approach |
 |----------|-------------------|----------|
-| OnlyFans | Yes | **Delegate** — drive the composer once, set a future time |
-| Fansly | Yes | **Delegate** — drive the composer once, set a future time |
+| OnlyFans *(paused)* | Yes | Was **Delegate** — drive the composer once, set a future time. Not pursued while paused. |
+| Fansly *(paused)* | Yes | Was **Delegate** — drive the composer once, set a future time. Not pursued while paused. |
 | Instagram | Yes | **Delegate** |
 | Threads | Yes | **Delegate** |
 | Facebook Page | No, directly | **Delegate indirectly** — see below |
@@ -292,10 +300,12 @@ Confirmed by Jas, 2026-08-13:
 | Bluesky | No | Hold locally |
 | Twitter | Not in the v2 API | Hold locally |
 
-The delegated set includes both Cloudflare-protected WebView platforms, which is the
-valuable part: for OnlyFans and Fansly the desktop does not need to be awake at post time
-at all, and the riskiest automation runs once, while someone is around, rather than
-unattended at 2 a.m.
+The originally delegated set included both Cloudflare-protected WebView platforms, which
+was the valuable part: for OnlyFans and Fansly the desktop would not need to be awake at
+post time at all, and the riskiest automation would run once, while someone is around,
+rather than unattended at 2 a.m. That's now moot while both are paused; the active
+delegated set (Instagram, Threads) doesn't carry the same Cloudflare/automation-risk
+profile.
 
 **Facebook — check the Graph API before building the workaround.** Earlier research
 (Odoo #392, 2026-07-31) recorded `POST /{page-id}/feed` with `published=false` and a future
@@ -355,7 +365,7 @@ whether to post it late, or past some staleness threshold to mark it missed and 
 instead. A caption tied to a specific time or event is worse posted three days late than
 not posted at all, so the threshold should probably be short and configurable.
 
-Delegated posts (OnlyFans, Fansly, Instagram, Threads) sidestep this entirely — the
+Delegated posts (Instagram, Threads; OnlyFans and Fansly while paused) sidestep this entirely — the
 platform fires them whether or not the desktop was up — and are reconciled on the next
 session by checking whether the platform actually published.
 
@@ -461,7 +471,7 @@ outright. Neither is required to satisfy R1 and R2.
 | # | Deliverable | Owner | Pass criteria |
 |---|-------------|-------|---------------|
 | 0.1 | Confirm Rin's sleep + autologon settings | Jas | Written into this doc |
-| 0.2 | Delegated scheduling spike | Agent + operator | Existing automation sets a *future* post on Fansly **or** OnlyFans; operator confirms it fires |
+| 0.2 | Delegated scheduling spike | Agent + operator | Existing automation sets a *future* post on Instagram **or** Threads; operator confirms it fires. (Originally scoped to Fansly/OnlyFans — both paused as of 2026-08-16, see Status above; re-scope back to them if reactivated.) |
 | 0.3 | Facebook: direct Graph API scheduling | Agent | Determine whether `published=false` + `scheduled_publish_time` still works on `/{page-id}/feed`. Resolves a contradiction between #392 and the 2026-08-13 review, and decides whether 0.3b is needed at all |
 | 0.3b | Facebook-via-Instagram crosspost *(only if 0.3 fails)* | Agent + operator | A *scheduled* Instagram post reaches the linked Facebook Page; coupling constraints documented |
 | 0.4 | mDNS + media upload from Rin's iPhone | Agent + operator | `galefling.local` resolves from her phone through the Dream Machine; a photo and a short video reach a local endpoint from a home-screen web app over plain HTTP |

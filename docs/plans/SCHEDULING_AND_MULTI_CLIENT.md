@@ -286,16 +286,29 @@ that can absorb the scheduling themselves. Driving a composer once to set a futu
 the platform's own scheduler is strictly more reliable than holding the schedule locally —
 it survives the desktop being off, rebooting, or losing its network at post time.
 
-Confirmed by Jas, 2026-08-13. OnlyFans and Fansly rows below are historical — both are
-paused as of 2026-08-16, so their "Delegate" approach is not being pursued while paused:
+Confirmed by Jas, 2026-08-13 — **at the product level only.** "Native scheduling: Yes"
+below means the platform's own app/website lets a human schedule a post; it does **not**
+mean the API GaleFling would actually call was checked for the same capability. Those are
+different questions, and the Facebook row further down is the proof this gap is real: the
+2026-07-31 research (#392) and the 2026-08-13 review reached opposite conclusions, and the
+likely explanation is that one of them looked at the UI and the other at the Graph API.
+**Instagram and Threads carry the identical unverified gap** — GaleFling's automation for
+both is API-only (`graph_api`, no WebView composer to drive), so "Instagram/Threads support
+scheduling" is only actionable if their Graph API endpoints accept a `scheduled_publish_time`-
+equivalent parameter, which has not been checked. Resolve this for Instagram and Threads
+before Phase 0.2, the same way Facebook's row already calls out resolving it there. OnlyFans
+and Fansly are the one case where this particular gap doesn't apply the same way — their
+delegation model was UI-automation (drive the composer, not an API call), so a product-level
+"Yes" was the relevant question for them — but see the note below the table; both are now
+paused for an unrelated reason regardless.
 
 | Platform | Native scheduling | Approach |
 |----------|-------------------|----------|
 | OnlyFans *(paused)* | Yes | Was **Delegate** — drive the composer once, set a future time. Not pursued while paused. |
 | Fansly *(paused)* | Yes | Was **Delegate** — drive the composer once, set a future time. Not pursued while paused. |
-| Instagram | Yes | **Delegate** |
-| Threads | Yes | **Delegate** |
-| Facebook Page | No, directly | **Delegate indirectly** — see below |
+| Instagram | Yes (product-level only — **Graph API support unverified**) | **Delegate**, pending API verification |
+| Threads | Yes (product-level only — **Graph API support unverified**) | **Delegate**, pending API verification |
+| Facebook Page | No, directly (product vs. API conflict — see below, **unresolved**) | **Delegate indirectly** — see below |
 | FetLife | No | Hold locally |
 | Bluesky | No | Hold locally |
 | Twitter | Not in the v2 API | Hold locally |

@@ -195,6 +195,16 @@ ONLYFANS_SPECS = PlatformSpecs(
     # embedded browser regardless of credentials.  Sessions must be imported.
     supports_embedded_login=False,
     supports_session_import=True,
+    # Disabled 2026-08-16 at Rin's request: OnlyFans and Fansly are both
+    # aggressive about detecting and banning automation, and support post
+    # scheduling (a stronger automation signal than a one-off manual post)
+    # would only increase that exposure. See docs/platforms/ONLYFANS.md.
+    available=False,
+    unavailable_reason=(
+        "OnlyFans support is paused at the account owner's request, given "
+        "the platform's aggressive automation detection. No other platform "
+        'is affected.'
+    ),
 )
 
 FANSLY_SPECS = PlatformSpecs(
@@ -218,6 +228,16 @@ FANSLY_SPECS = PlatformSpecs(
     max_video_dimensions=(3840, 2160),
     max_video_file_size_mb=5120.0,
     max_media_attachments=4,
+    # Disabled 2026-08-16 at Rin's request: OnlyFans and Fansly are both
+    # aggressive about detecting and banning automation, and support post
+    # scheduling (a stronger automation signal than a one-off manual post)
+    # would only increase that exposure. See docs/platforms/FANSLY.md.
+    available=False,
+    unavailable_reason=(
+        "Fansly support is paused at the account owner's request, given "
+        "the platform's aggressive automation detection. No other platform "
+        'is affected.'
+    ),
 )
 
 FETLIFE_SPECS = PlatformSpecs(

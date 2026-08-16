@@ -19,7 +19,7 @@ import pytest
 
 from src.platforms import base_webview
 from src.platforms.base_webview import BaseWebViewPlatform
-from src.platforms.fansly import FanslyPlatform
+from src.platforms.fetlife import FetLifePlatform
 
 
 class _ImmediateTimer:
@@ -59,7 +59,7 @@ def _immediate_timers(monkeypatch):
 
 
 def _platform(replies=None):
-    platform = FanslyPlatform(account_id='fansly_1')
+    platform = FetLifePlatform(account_id='fetlife_1')
     page = _Page(replies)
     platform._view = _View(page)
     return platform, page
@@ -171,7 +171,7 @@ def test_activation_rejects_a_picker_that_reported_open_but_never_fired(monkeypa
 
 
 def test_trusted_click_without_a_view_reports_rather_than_raising():
-    platform = FanslyPlatform(account_id='fansly_1')
+    platform = FetLifePlatform(account_id='fetlife_1')
     platform._view = None
     seen: list[dict] = []
     platform.trusted_click('#anything', callback=seen.append)
@@ -179,7 +179,7 @@ def test_trusted_click_without_a_view_reports_rather_than_raising():
 
 
 def test_trusted_click_without_a_page_reports_rather_than_raising():
-    platform = FanslyPlatform(account_id='fansly_1')
+    platform = FetLifePlatform(account_id='fetlife_1')
     platform._view = _View(None)
     seen: list[dict] = []
     platform.trusted_click('#anything', callback=seen.append)
@@ -199,27 +199,30 @@ def test_trusted_click_reports_a_disabled_control_distinctly():
 
 
 def test_send_trusted_click_is_inert_without_a_view():
-    platform = FanslyPlatform(account_id='fansly_1')
+    platform = FetLifePlatform(account_id='fetlife_1')
     platform._view = None
     platform._send_trusted_click(1, 2)
 
 
 def test_open_media_picker_is_inert_without_a_view():
-    platform = FanslyPlatform(account_id='fansly_1')
+    platform = FetLifePlatform(account_id='fetlife_1')
     platform._view = None
     platform.open_media_picker(Path('/tmp/photo.jpg'))
 
 
 def test_inject_text_reports_a_missing_view_or_selector():
-    platform = FanslyPlatform(account_id='fansly_1')
+    platform = FetLifePlatform(account_id='fetlife_1')
     platform._view = None
     seen: list[dict] = []
     platform._inject_text('hello', callback=seen.append)
-    assert seen == [{'injected': False, 'reason': 'no webview or text selector'}]
+    # FetLifePlatform overrides _inject_text() (its media/text composers are
+    # separate, unlike the shared base implementation), so its "no view" message
+    # differs from BaseWebViewPlatform's generic 'no webview or text selector'.
+    assert seen == [{'injected': False, 'reason': 'no WebView'}]
 
 
 def test_inject_text_reports_a_missing_page():
-    platform = FanslyPlatform(account_id='fansly_1')
+    platform = FetLifePlatform(account_id='fetlife_1')
     platform._view = _View(None)
     seen: list[dict] = []
     platform._inject_text('hello', callback=seen.append)

@@ -12,8 +12,8 @@ Quick reference for all platform limits and capabilities. For credential setup a
 | Threads | [THREADS.md](THREADS.md) | API |
 | Facebook | [FACEBOOK.md](FACEBOOK.md) | API |
 | Snapchat | [SNAPCHAT.md](SNAPCHAT.md) | WebView — **disabled**, see below |
-| OnlyFans | [ONLYFANS.md](ONLYFANS.md) | WebView |
-| Fansly | [FANSLY.md](FANSLY.md) | WebView |
+| OnlyFans | [ONLYFANS.md](ONLYFANS.md) | WebView — **disabled**, see below |
+| Fansly | [FANSLY.md](FANSLY.md) | WebView — **disabled**, see below |
 | FetLife | [FETLIFE.md](FETLIFE.md) | WebView |
 
 ## Source of Truth
@@ -21,6 +21,8 @@ Quick reference for all platform limits and capabilities. For credential setup a
 Platform limits and capabilities are defined in `src/utils/constants.py` (`PlatformSpecs` + `PLATFORM_SPECS_MAP`). The tables below are derived from that file.
 
 > **Snapchat is disabled** (`available=False`) and does not appear in the setup wizard, Settings, or the post composer. Its web app offers no upload control — posting there requires an interactive in-page camera GaleFling cannot drive. Its limits remain listed below for reference and are unchanged. See [SNAPCHAT.md](SNAPCHAT.md).
+>
+> **OnlyFans and Fansly are disabled** (`available=False`) and do not appear in the setup wizard, Settings, or the post composer. Unlike Snapchat, this isn't a capability gap — both work technically. They're paused at Rin's request (2026-08-16) because both platforms are aggressive about detecting and banning automation, and both support post scheduling, a stronger automation signal than a one-off manual post. Their limits remain listed below for reference and are unchanged. See [ONLYFANS.md](ONLYFANS.md) and [FANSLY.md](FANSLY.md).
 
 ## Account Limits
 

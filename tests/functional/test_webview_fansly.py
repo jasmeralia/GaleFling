@@ -1,5 +1,17 @@
 """Functional tests for Fansly WebView posting.
 
+Fansly support is disabled in the product (`FANSLY_SPECS.available = False`),
+paused 2026-08-16 at Rin's request: Fansly is aggressive about detecting and
+banning automation, and supports post scheduling — a stronger automation signal
+than a one-off manual post. See `docs/platforms/FANSLY.md`.
+
+These tests are retained for reference — the composer/upload-flow mechanics they
+exercise are hard-won and verified working — but are **skipped by default** so
+they do not affect routine functional runs, or exercise automation against the
+live platform while support is paused. To opt in:
+
+    pytest tests/functional/test_webview_fansly.py --run-disabled-platforms -v
+
 Tests text injection into the Fansly composer.
 
 Requires GALEFLING_DATA_DIR and FANSLY_EMAIL / FANSLY_PASSWORD in .env.
@@ -29,6 +41,8 @@ from tests.functional.webview_helpers import (
     trusted_click_at,
     wait_ms,
 )
+
+pytestmark = [pytest.mark.disabled_platform]
 
 ACCOUNT_ID = 'fansly_1'
 COMPOSER_URL = FanslyPlatform.COMPOSER_URL

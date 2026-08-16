@@ -1,5 +1,10 @@
 # OnlyFans Session Import
 
+> **OnlyFans support is currently disabled** (paused 2026-08-16 at Rin's request; see
+> [ONLYFANS.md](ONLYFANS.md) for why). This procedure is kept for reference — the import
+> mechanism itself is unaffected and still works — but the OnlyFans tab is not shown in
+> the app while support is paused.
+
 OnlyFans login no longer works reliably inside GaleFling because reCAPTCHA Enterprise rejects
 authentication from the embedded Qt WebEngine browser. Instead, log in with a normal browser,
 export the authenticated session to an `auth.json` file, and import that file into GaleFling.

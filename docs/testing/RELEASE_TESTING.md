@@ -17,11 +17,9 @@ Validate that a real user can install, configure, post, update, recover from err
   - Twitter (1-2 accounts)
   - Bluesky (1-2 accounts)
   - Instagram (1-2 accounts)
-  - Snapchat (WebView login)
-  - OnlyFans (session imported from a browser — in-app login is not available;
-    see `docs/platforms/ONLYFANS_SESSION_IMPORT.md`)
-  - Fansly (WebView login)
   - FetLife (WebView login)
+  - Snapchat, OnlyFans, and Fansly are paused (`available=False`) and not reachable in
+    the app — skip them; see their platform docs for why.
 
 ## Test Data Pack
 
@@ -43,7 +41,7 @@ Prepare files for repeatable tests:
 - No data-loss regressions (draft, settings, session persistence).
 - All critical posting paths function for at least one account per platform type:
   - API platforms: Twitter, Bluesky, Instagram
-  - WebView platforms: Snapchat, OnlyFans/Fansly/FetLife
+  - WebView platforms: FetLife (Snapchat, OnlyFans, and Fansly are paused — see their platform docs)
 - Log submission works and contains actionable metadata.
 - Installer and update flows complete without requiring manual file surgery.
 
@@ -96,9 +94,8 @@ Use this as a pass/fail checklist in each pre-release cycle.
 - Verify static image is auto-converted when possible and platform stays enabled.
 - Attach `animated.gif` and verify unsupported platforms are restricted.
 - Attach unsupported video format and verify relevant restrictions.
-- Snapchat specific:
-  - Single static image attached: verify Snapchat remains usable and conversion to MP4 occurs.
-  - Multiple images attached: verify Snapchat is disabled by attachment-count restriction.
+- Snapchat is paused (`available=False`) and not reachable in the app — its
+  format-restriction behavior can't be exercised through this checklist.
 
 ### 7) Preview and Processing
 
@@ -173,10 +170,9 @@ For stable promotion, run at least one successful post scenario per platform:
 - Twitter: text-only and text+media
 - Bluesky: text-only and text+media
 - Instagram: media post with caption
-- Snapchat: single image conversion path and one direct video post
-- OnlyFans: WebView prefill and manual submit
-- Fansly: WebView prefill and manual submit
 - FetLife: WebView prefill and manual submit
+
+Snapchat, OnlyFans, and Fansly are paused and not reachable in the app — omit them from this matrix.
 
 ## Sign-off Template
 

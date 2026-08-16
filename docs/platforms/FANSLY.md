@@ -1,5 +1,24 @@
 # Fansly Setup Guide
 
+> ## ⚠ Fansly support is disabled
+>
+> **Fansly is not currently available in GaleFling.** It does not appear in the setup
+> wizard, in Settings, or as a post target. Nothing else is affected.
+>
+> **Why.** Paused 2026-08-16 at Rin's request. Fansly and OnlyFans are both aggressive
+> about detecting and banning automation, and both support scheduled posts — a stronger
+> automation signal than a one-off manual post — which would only increase that
+> exposure. This is a risk decision, not a technical failure: everything documented
+> below (login, composer, media upload flow) is verified working.
+>
+> **Status.** Paused rather than removed. The platform code, specs, and existing
+> logged-in sessions are untouched; the functional tests are skipped (not run) rather
+> than kept live, since continuing to exercise the platform automation carries exactly
+> the automation-detection risk this pause is meant to avoid. The hard-won composer and
+> upload-flow details below (Angular checkboxes, the disabled-class `Post` button trap,
+> the greeting-modal overlay) are kept in full — they're the reference this would build
+> on if support is ever resumed.
+
 GaleFling posts to Fansly via an embedded WebView at `fansly.com`. Fansly is protected by Cloudflare, which uses CloudFront-signed cookies alongside the primary session cookie.
 
 ## Account Type

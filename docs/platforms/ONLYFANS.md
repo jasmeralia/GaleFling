@@ -1,5 +1,50 @@
 # OnlyFans Setup Guide
 
+> ## ⚠ OnlyFans support is disabled
+>
+> **OnlyFans is not currently available in GaleFling.** It does not appear in the setup
+> wizard, in Settings, or as a post target. Nothing else is affected.
+>
+> **Why.** Paused 2026-08-16 at Rin's request. OnlyFans and Fansly are both aggressive
+> about detecting and banning automation, and both support scheduled posts — a stronger
+> automation signal than a one-off manual post — which would only increase that
+> exposure. This is a risk decision, not a technical failure: unlike Snapchat, the
+> session-import-and-post mechanism described below does actually work.
+>
+> **What was investigated.** GaleFling never offered embedded login for OnlyFans —
+> its login form is gated by a bot check that rejects embedded browsers (see below) —
+> so posting worked only via manual `auth.json` session import. A 2026-08 investigation
+> explored whether that manual step could be automated by driving OnlyFans' login form
+> with GaleFling's `trusted_click()` primitive (a synthesized `QMouseEvent`, added since
+> the original login-removal decision). Findings:
+>
+> - **Works on Windows.** The exact same Qt WebEngine automation succeeded 3/3, zero
+>   Cloudflare Turnstile challenges triggered.
+> - **Fails on Linux**, both on bare-metal typhoon and in a throwaway VM with no GPU
+>   passthrough (3/3 failures each) — Turnstile never completes, so the password step
+>   is never reached. A real, human-driven Chrome browser succeeds on the same Linux
+>   machine and network, which isolates the cause to Qt WebEngine's own behavior on
+>   Linux specifically, not the OS, network, or automation-vs-human input in general.
+> - **A fingerprint sweep found no simple spoofable cause.** Ruled out: Chromium
+>   storage/privacy-sandbox flags, full `window.chrome`/plugin/mimetype spoofing,
+>   presenting as Chrome-on-Windows via UA, `navigator.webdriver` (false on both
+>   platforms), and WebGL/GPU fingerprint (bare metal reports a fully normal GPU
+>   string via ANGLE and still fails). Re-enabling several Chromium features Qt
+>   WebEngine disables by default that real Chrome leaves on (`WebPayments`, `WebUSB`,
+>   `WebOTP`, `BackgroundFetch`, `InstalledApp`) also made no difference; one
+>   (`WebAuthenticationConditionalUI`) could not be re-enabled via command-line flags
+>   at all, suggesting it's hardcoded rather than a simple default.
+> - A **browser-extension architecture** (drive the user's real, already-logged-in
+>   Chrome/Edge instead of Qt WebEngine) was scoped as the structural fix, since it
+>   sidesteps the fingerprint problem entirely by using a real browser. That work is
+>   now moot given OnlyFans support itself is paused; see the closed Odoo tasks
+>   referenced in `CHANGELOG.md` if this is ever revisited.
+>
+> **Status.** Paused rather than removed. The platform code, specs, and existing
+> imported sessions are untouched; the functional tests are skipped (not run) rather
+> than kept live, since continuing to exercise the platform automation carries exactly
+> the automation-detection risk this pause is meant to avoid.
+
 GaleFling posts to OnlyFans via an embedded WebView at `onlyfans.com`. OnlyFans is protected by Cloudflare, which adds latency to page loads and session detection.
 
 ## Account Type

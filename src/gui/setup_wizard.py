@@ -1048,7 +1048,7 @@ class WebViewLoginDialog(QDialog):
 class SetupWizard(QWizard):
     """First-run setup wizard."""
 
-    def __init__(self, auth_manager: AuthManager, theme_mode: str = 'system', parent=None):
+    def __init__(self, auth_manager: AuthManager, parent=None):
         super().__init__(parent)
         logger = get_logger()
         logger.info('Setup wizard init starting')
@@ -1059,7 +1059,6 @@ class SetupWizard(QWizard):
             | Qt.WindowType.WindowMaximizeButtonHint
         )
         self.setMinimumSize(600, 500)
-        self._theme_mode = theme_mode
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setAutoFillBackground(True)
 

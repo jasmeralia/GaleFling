@@ -56,7 +56,6 @@ class DummyConfig:
         self.draft_interval = 30
         self.auto_check_updates = False
         self.allow_prerelease_updates = True
-        self.theme_mode = 'dark'
         self.window_geometry = {'x': 0, 'y': 0, 'width': 800, 'height': 600}
         self.log_upload_endpoint = 'https://example.invalid'
         self.log_upload_enabled = True
@@ -93,7 +92,7 @@ def test_update_dialog_labels_beta(qtbot, monkeypatch):
     monkeypatch.setattr(
         main_window,
         'apply_theme',
-        lambda _app, dialog, mode: apply_calls.append((dialog, mode)),
+        lambda _app, dialog: apply_calls.append(dialog),
     )
 
     class DummyDialog:
@@ -112,7 +111,7 @@ def test_update_dialog_labels_beta(qtbot, monkeypatch):
 
     window._manual_update_check()
     assert captured['label'] == 'beta'
-    assert any(mode == 'dark' for _dialog, mode in apply_calls)
+    assert apply_calls
 
 
 def test_update_dialog_labels_stable(qtbot, monkeypatch):
@@ -130,6 +129,7 @@ def test_update_dialog_labels_stable(qtbot, monkeypatch):
     )
 
     monkeypatch.setattr(main_window, 'check_for_updates', lambda *_args, **_kwargs: update)
+    monkeypatch.setattr(main_window, 'apply_theme', lambda *_args: None)
 
     class DummyDialog:
         Accepted = 1

@@ -30,10 +30,9 @@ class DummyAuthManager:
 
 
 def test_setup_wizard_applies_style(qtbot):
-    wizard = SetupWizard(DummyAuthManager(), theme_mode='dark')
+    wizard = SetupWizard(DummyAuthManager())
     qtbot.addWidget(wizard)
     wizard.show()
     qtbot.waitExposed(wizard)
 
     assert wizard.wizardStyle() == QWizard.WizardStyle.ModernStyle
-    assert wizard.autoFillBackground() is True

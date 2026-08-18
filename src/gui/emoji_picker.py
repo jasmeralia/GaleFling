@@ -1,24 +1,27 @@
 """Searchable emoji picker widgets for the post composer."""
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import NamedTuple
 
 from emoji import EMOJI_DATA  # type: ignore[import-not-found, import-untyped]
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QKeyEvent, QKeySequence, QShortcut, QShowEvent
+from PyQt6.QtCore import QPoint, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QIcon, QKeyEvent, QKeySequence, QShortcut, QShowEvent
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QFrame,
+    QHBoxLayout,
     QLineEdit,
     QListView,
     QListWidget,
     QListWidgetItem,
-    QTabBar,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from src.resources.emoji_categories import EMOJI_CATEGORIES
+from src.utils import tokens
 
 CATEGORY_NAMES = (
     'Recent',
@@ -33,10 +36,49 @@ CATEGORY_NAMES = (
     'Flags',
 )
 
+_UI_ICONS_DIR = Path(__file__).resolve().parent.parent / 'resources' / 'icons' / 'ui'
+
+_CATEGORY_ICONS: dict[str, str] = {
+    'Recent': 'history.svg',
+    'Smileys & Emotion': 'mood.svg',
+    'People & Body': 'waving_hand.svg',
+    'Animals & Nature': 'pets.svg',
+    'Food & Drink': 'restaurant.svg',
+    'Travel & Places': 'flight.svg',
+    'Activities': 'insights.svg',
+    'Objects': 'category.svg',
+    'Symbols': 'emoji_symbols.svg',
+    'Flags': 'flag.svg',
+}
+
+_RAIL_BUTTON_QSS = f"""
+QToolButton {{
+    background-color: {tokens.SURFACE};
+    border: 1px solid {tokens.BORDER};
+    border-radius: 4px;
+    padding: 4px;
+}}
+QToolButton:hover {{
+    border-color: {tokens.ACCENT};
+}}
+QToolButton:checked {{
+    background-color: {tokens.SURFACE_RAISED};
+    border-color: {tokens.ACCENT};
+}}
+QToolButton:disabled {{
+    background-color: {tokens.SURFACE};
+    border-color: {tokens.BORDER};
+}}
+"""
+
 _SKIN_TONES = set(range(0x1F3FB, 0x1F400))
 _HAIR_COMPONENTS = set(range(0x1F9B0, 0x1F9B4))
 _GENDER_SIGNS = {0x2640, 0x2642}
 _REGIONAL_INDICATORS = set(range(0x1F1E6, 0x1F200))
+
+
+def _icon(name: str) -> QIcon:
+    return QIcon(str(_UI_ICONS_DIR / name))
 
 
 class _EmojiEntry(NamedTuple):
@@ -61,6 +103,8 @@ class EmojiPickerPopup(QFrame):
         self._recent_emoji = list(recent_emoji)
         self._entries = self._build_entries(emoji_data)
         self._entries_by_glyph = {entry.glyph: entry for entry in self._entries}
+        self._category_buttons: dict[str, QToolButton] = {}
+        self._current_category = ''
 
         self.setFixedSize(360, 420)
         self._init_ui()
@@ -75,15 +119,33 @@ class EmojiPickerPopup(QFrame):
         self._search_box.textChanged.connect(self._on_search_changed)
         layout.addWidget(self._search_box)
 
-        self._category_tabs = QTabBar()
-        self._category_tabs.setExpanding(False)
-        self._category_tabs.setUsesScrollButtons(True)
+        content = QHBoxLayout()
+        content.setSpacing(4)
+
+        rail_layout = QVBoxLayout()
+        rail_layout.setContentsMargins(0, 0, 0, 0)
+        rail_layout.setSpacing(2)
+
+        category_group = QButtonGroup(self)
+        category_group.setExclusive(True)
+
         for category in CATEGORY_NAMES:
-            self._category_tabs.addTab(category)
-        default_category = 'Recent' if self._recent_emoji else 'Smileys & Emotion'
-        self._category_tabs.setCurrentIndex(CATEGORY_NAMES.index(default_category))
-        self._category_tabs.currentChanged.connect(self._on_category_changed)
-        layout.addWidget(self._category_tabs)
+            button = QToolButton()
+            button.setIcon(_icon(_CATEGORY_ICONS[category]))
+            button.setIconSize(QSize(20, 20))
+            button.setCheckable(True)
+            button.setFixedSize(32, 32)
+            button.setToolTip(category)
+            button.setStyleSheet(_RAIL_BUTTON_QSS)
+            button.clicked.connect(
+                lambda _checked, cat=category: self._on_category_clicked(cat),
+            )
+            category_group.addButton(button)
+            self._category_buttons[category] = button
+            rail_layout.addWidget(button)
+
+        rail_layout.addStretch()
+        content.addLayout(rail_layout)
 
         self._emoji_list = QListWidget()
         self._emoji_list.setViewMode(QListView.ViewMode.IconMode)
@@ -93,12 +155,15 @@ class EmojiPickerPopup(QFrame):
         self._emoji_list.setUniformItemSizes(True)
         self._emoji_list.setSpacing(2)
         self._emoji_list.itemClicked.connect(self._on_item_clicked)
-        layout.addWidget(self._emoji_list)
+        content.addWidget(self._emoji_list, stretch=1)
+
+        layout.addLayout(content, stretch=1)
 
         self._escape_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         self._escape_shortcut.activated.connect(self.close)
 
-        self._show_category(default_category)
+        default_category = 'Recent' if self._recent_emoji else 'Smileys & Emotion'
+        self._set_active_category(default_category)
 
     @staticmethod
     def _build_entries(
@@ -145,6 +210,11 @@ class EmojiPickerPopup(QFrame):
             return False
         return not (len(glyph) == 1 and codepoints & _REGIONAL_INDICATORS)
 
+    def _set_active_category(self, category: str) -> None:
+        self._current_category = category
+        self._category_buttons[category].setChecked(True)
+        self._show_category(category)
+
     def _show_entries(self, entries: list[_EmojiEntry]) -> None:
         self._emoji_list.clear()
         font = self._emoji_list.font()
@@ -168,16 +238,18 @@ class EmojiPickerPopup(QFrame):
             entries = [entry for entry in self._entries if entry.category == category]
         self._show_entries(entries)
 
-    def _on_category_changed(self, index: int) -> None:
+    def _on_category_clicked(self, category: str) -> None:
         if self._search_box.text():
             return
-        self._show_category(CATEGORY_NAMES[index])
+        self._current_category = category
+        self._show_category(category)
 
     def _on_search_changed(self, text: str) -> None:
         query = text.strip().casefold()
-        self._category_tabs.setEnabled(not query)
+        for button in self._category_buttons.values():
+            button.setEnabled(not query)
         if not query:
-            self._show_category(CATEGORY_NAMES[self._category_tabs.currentIndex()])
+            self._show_category(self._current_category)
             return
         matches = [
             entry
@@ -212,7 +284,8 @@ class EmojiPickerButton(QToolButton):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setText('\U0001f60a')
+        self.setIcon(_icon('mood.svg'))
+        self.setIconSize(QSize(20, 20))
         self._recent_emoji: list[str] = []
         self._popup: EmojiPickerPopup | None = None
         self.clicked.connect(self._show_popup)

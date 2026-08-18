@@ -2,7 +2,7 @@
 
 from emoji import EMOJI_DATA
 
-from src.gui.emoji_picker import CATEGORY_NAMES, EmojiPickerButton, EmojiPickerPopup
+from src.gui.emoji_picker import EmojiPickerButton, EmojiPickerPopup
 
 
 def _make_popup(qtbot, recent: list[str] | None = None) -> EmojiPickerPopup:
@@ -15,12 +15,15 @@ def _displayed_glyphs(popup: EmojiPickerPopup) -> list[str]:
     return [popup._emoji_list.item(index).text() for index in range(popup._emoji_list.count())]
 
 
+def _category_rail_enabled(popup: EmojiPickerPopup) -> bool:
+    return all(button.isEnabled() for button in popup._category_buttons.values())
+
+
 def test_popup_builds_with_default_category(qtbot):
     popup = _make_popup(qtbot)
 
-    assert popup._category_tabs.tabText(popup._category_tabs.currentIndex()) == (
-        'Smileys & Emotion'
-    )
+    assert popup._current_category == 'Smileys & Emotion'
+    assert popup._category_buttons['Smileys & Emotion'].isChecked()
     assert popup._emoji_list.count() > 0
 
 
@@ -34,12 +37,12 @@ def test_search_filters_and_clear_restores_category(qtbot):
     assert filtered
     assert len(filtered) < len(original)
     assert all('grinning' in popup._emoji_list.item(i).toolTip() for i in range(len(filtered)))
-    assert not popup._category_tabs.isEnabled()
+    assert not _category_rail_enabled(popup)
 
     popup._search_box.clear()
 
     assert _displayed_glyphs(popup) == original
-    assert popup._category_tabs.isEnabled()
+    assert _category_rail_enabled(popup)
 
 
 def test_selecting_item_emits_expected_glyph(qtbot):
@@ -66,7 +69,7 @@ def test_category_switching_changes_items(qtbot):
     popup = _make_popup(qtbot)
     smileys = set(_displayed_glyphs(popup))
 
-    popup._category_tabs.setCurrentIndex(CATEGORY_NAMES.index('Animals & Nature'))
+    popup._set_active_category('Animals & Nature')
 
     animals = set(_displayed_glyphs(popup))
     assert animals

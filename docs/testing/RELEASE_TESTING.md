@@ -153,7 +153,6 @@ Use this as a pass/fail checklist in each pre-release cycle.
 ### 14) UI/UX Stability and Regression Sweep
 
 - Resize main window and verify layout stability.
-- Verify dark/light/system theme switching.
 - Verify no clipped labels or hidden controls at common window sizes.
 - Confirm menu actions still function:
   - Settings > Open Settings

@@ -339,6 +339,11 @@ _ABOUT_DEPENDENCIES = (
     ('emoji', 'https://github.com/carpedm20/emoji', 'Emoji data for the picker'),
     ('ffmpeg', 'https://ffmpeg.org/', 'Video processing'),
     ('keyring', 'https://github.com/jaraco/keyring', 'Credential storage'),
+    (
+        'Material Symbols',
+        'https://github.com/google/material-design-icons',
+        'UI iconography (Apache License 2.0)',
+    ),
     ('Packaging', 'https://packaging.pypa.io/', 'Version parsing'),
     ('Pillow', 'https://python-pillow.org/', 'Image processing'),
     ('PyQt6', 'https://www.riverbankcomputing.com/software/pyqt/', 'GUI framework'),
@@ -348,6 +353,11 @@ _ABOUT_DEPENDENCIES = (
         'Embedded browser',
     ),
     ('Requests', 'https://requests.readthedocs.io/', 'HTTP client'),
+    (
+        'Simple Icons',
+        'https://github.com/simple-icons/simple-icons',
+        'Brand iconography (CC0 1.0)',
+    ),
     ('Tweepy', 'https://www.tweepy.org/', 'Twitter API client'),
 )
 

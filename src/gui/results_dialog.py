@@ -210,7 +210,7 @@ class ResultsDialog(QDialog):
         badge = QLabel()
         badge.setPixmap(_build_result_badge(result, success=success))
         badge.setFixedSize(36, 36)
-        row_layout.addWidget(badge)
+        row_layout.addWidget(badge, alignment=Qt.AlignmentFlag.AlignTop)
 
     def _add_success_row(self, layout: QVBoxLayout, result: PostResult):
         row_layout = QHBoxLayout()

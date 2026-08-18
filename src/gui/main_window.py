@@ -471,7 +471,7 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self):
         self.setWindowTitle(f'{APP_NAME} v{APP_VERSION}')
-        self.setMinimumSize(960, 760)
+        self.setMinimumSize(960, 960)
 
         # Menu bar
         self._create_menu_bar()

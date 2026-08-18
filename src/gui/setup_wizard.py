@@ -5,17 +5,21 @@ import json
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, QUrl
-from PyQt6.QtGui import QDesktopServices, QPalette
+from PyQt6.QtGui import QColor, QDesktopServices, QIcon, QPainter, QPalette, QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLayoutItem,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
     QWizard,
@@ -32,7 +36,171 @@ from src.platforms.fetlife import FetLifePlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
 from src.platforms.twitter import TwitterPlatform
+from src.utils import tokens
 from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
+
+_CHECK_SVG_PATH = (
+    Path(__file__).resolve().parent.parent / 'resources' / 'icons' / 'ui' / 'check.svg'
+)
+
+_WEBVIEW_PLATFORM_DEFS: list[tuple[str, str, str]] = [
+    ('snapchat', 'Snapchat', 'snapchat_1'),
+    ('onlyfans', 'OnlyFans', 'onlyfans_1'),
+    ('fansly', 'Fansly', 'fansly_1'),
+    ('fetlife', 'FetLife', 'fetlife_1'),
+]
+
+_FIXED_WIZARD_STEP_LABELS: list[str] = [
+    'Welcome',
+    'Credentials',
+    'Twitter',
+    'Bluesky',
+    'Instagram',
+    'Meta',
+]
+
+
+def _available_webview_platform_defs() -> list[tuple[str, str, str]]:
+    """Return WebView platform tuples using the same availability filter as SetupWizard."""
+    available: list[tuple[str, str, str]] = []
+    for platform_id, platform_name, account_id in _WEBVIEW_PLATFORM_DEFS:
+        wizard_specs = PLATFORM_SPECS_MAP.get(platform_id)
+        if wizard_specs is not None and not wizard_specs.available:
+            continue
+        available.append((platform_id, platform_name, account_id))
+    return available
+
+
+def _load_check_pixmap(size: int = 16) -> QPixmap | None:
+    """Load the done-step check icon, tinted SUCCESS, with graceful fallback."""
+    if not _CHECK_SVG_PATH.is_file():
+        return None
+    icon = QIcon(str(_CHECK_SVG_PATH))
+    if icon.isNull():
+        return None
+    base = icon.pixmap(size, size)
+    if base.isNull():
+        return None
+    tinted = QPixmap(base.size())
+    tinted.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(tinted)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+    painter.drawPixmap(0, 0, base)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    painter.fillRect(tinted.rect(), QColor(tokens.SUCCESS))
+    painter.end()
+    return tinted
+
+
+class _StepRailItem(QWidget):
+    """One step indicator (dot/check) with a short label."""
+
+    def __init__(self, label: str, check_pixmap: QPixmap | None, parent=None):
+        super().__init__(parent)
+        self._check_pixmap = check_pixmap
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self._indicator = QLabel()
+        self._indicator.setFixedSize(20, 20)
+        self._indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._indicator, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        self._label = QLabel(label)
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._label.setWordWrap(True)
+        self._label.setMaximumWidth(72)
+        layout.addWidget(self._label, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+    def apply_state(self, state: str) -> None:
+        if state == 'done':
+            if self._check_pixmap is not None and not self._check_pixmap.isNull():
+                self._indicator.setText('')
+                self._indicator.setPixmap(self._check_pixmap)
+                self._indicator.setStyleSheet('background: transparent; border: none;')
+            else:
+                self._indicator.setPixmap(QPixmap())
+                self._indicator.setText('\u2713')
+                self._indicator.setStyleSheet(
+                    f'color: {tokens.SUCCESS}; font-size: 14px; font-weight: bold; '
+                    'background: transparent; border: none;'
+                )
+            self._label.setStyleSheet(
+                f'color: {tokens.SUCCESS}; font-size: 10px; font-weight: 600;'
+            )
+        elif state == 'current':
+            self._indicator.setPixmap(QPixmap())
+            self._indicator.setText('')
+            self._indicator.setStyleSheet(
+                f'background-color: {tokens.ACCENT}; border: 2px solid {tokens.ACCENT}; '
+                'border-radius: 10px;'
+            )
+            self._label.setStyleSheet(f'color: {tokens.ACCENT}; font-size: 10px; font-weight: 600;')
+        else:
+            self._indicator.setPixmap(QPixmap())
+            self._indicator.setText('')
+            self._indicator.setStyleSheet(
+                f'background-color: {tokens.SURFACE_RAISED}; border: 2px solid {tokens.BORDER}; '
+                'border-radius: 10px;'
+            )
+            self._label.setStyleSheet(f'color: {tokens.TEXT_MUTED}; font-size: 10px;')
+
+
+class _StepRail(QWidget):
+    """Horizontal progress rail showing setup wizard steps."""
+
+    def __init__(self, steps: list[tuple[str, int]], parent=None):
+        super().__init__(parent)
+        self._steps = steps
+        self._current_page_id = steps[0][1] if steps else -1
+        self._visited_page_ids: set[int] = set()
+        self._check_pixmap = _load_check_pixmap()
+        self._step_items: list[_StepRailItem] = []
+        self._connectors: list[QFrame] = []
+
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(16, 8, 16, 4)
+        outer.setSpacing(0)
+
+        for index, (label, _page_id) in enumerate(steps):
+            if index > 0:
+                connector = QFrame()
+                connector.setFixedHeight(2)
+                connector.setSizePolicy(
+                    QSizePolicy.Policy.Expanding,
+                    QSizePolicy.Policy.Fixed,
+                )
+                self._connectors.append(connector)
+                outer.addWidget(connector, stretch=1)
+
+            item = _StepRailItem(label, self._check_pixmap, self)
+            self._step_items.append(item)
+            outer.addWidget(item, stretch=0)
+
+        self.setFixedHeight(56)
+        self.set_progress(self._current_page_id, self._visited_page_ids)
+
+    def set_progress(self, current_page_id: int, visited_page_ids: set[int]) -> None:
+        self._current_page_id = current_page_id
+        self._visited_page_ids = set(visited_page_ids)
+        current_index = self._index_for_page_id(current_page_id)
+        for index, item in enumerate(self._step_items):
+            if index < current_index:
+                item.apply_state('done')
+            elif index == current_index:
+                item.apply_state('current')
+            else:
+                item.apply_state('pending')
+        for index, connector in enumerate(self._connectors):
+            line_color = tokens.ACCENT if index < current_index else tokens.BORDER
+            connector.setStyleSheet(f'background-color: {line_color}; border: none;')
+
+    def _index_for_page_id(self, page_id: int) -> int:
+        for index, (_label, step_page_id) in enumerate(self._steps):
+            if step_page_id == page_id:
+                return index
+        return 0
 
 
 class WelcomePage(QWizardPage):
@@ -1058,29 +1226,28 @@ class SetupWizard(QWizard):
             | Qt.WindowType.WindowMinimizeButtonHint
             | Qt.WindowType.WindowMaximizeButtonHint
         )
-        self.setMinimumSize(600, 500)
+        self.setMinimumSize(600, 550)
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setAutoFillBackground(True)
 
         logger.info('Setup wizard adding pages')
-        self.addPage(WelcomePage())
-        self.addPage(CredentialImportPage(auth_manager))
-        self.addPage(TwitterSetupPage(auth_manager))
-        self.addPage(BlueskySetupPage(auth_manager))
-        self.addPage(InstagramSetupPage(auth_manager))
-        self.addPage(MetaApiSetupPage(auth_manager))
+        steps: list[tuple[str, int]] = []
 
-        # WebView platforms
-        for platform_id, platform_name, account_id in [
-            ('snapchat', 'Snapchat', 'snapchat_1'),
-            ('onlyfans', 'OnlyFans', 'onlyfans_1'),
-            ('fansly', 'Fansly', 'fansly_1'),
-            ('fetlife', 'FetLife', 'fetlife_1'),
-        ]:
-            wizard_specs = PLATFORM_SPECS_MAP.get(platform_id)
-            if wizard_specs is not None and not wizard_specs.available:
-                continue
-            self.addPage(
+        page_id = self.addPage(WelcomePage())
+        steps.append((_FIXED_WIZARD_STEP_LABELS[0], page_id))
+        page_id = self.addPage(CredentialImportPage(auth_manager))
+        steps.append((_FIXED_WIZARD_STEP_LABELS[1], page_id))
+        page_id = self.addPage(TwitterSetupPage(auth_manager))
+        steps.append((_FIXED_WIZARD_STEP_LABELS[2], page_id))
+        page_id = self.addPage(BlueskySetupPage(auth_manager))
+        steps.append((_FIXED_WIZARD_STEP_LABELS[3], page_id))
+        page_id = self.addPage(InstagramSetupPage(auth_manager))
+        steps.append((_FIXED_WIZARD_STEP_LABELS[4], page_id))
+        page_id = self.addPage(MetaApiSetupPage(auth_manager))
+        steps.append((_FIXED_WIZARD_STEP_LABELS[5], page_id))
+
+        for platform_id, platform_name, account_id in _available_webview_platform_defs():
+            page_id = self.addPage(
                 WebViewPlatformSetupPage(
                     auth_manager,
                     platform_id,
@@ -1088,6 +1255,61 @@ class SetupWizard(QWizard):
                     account_id,
                 )
             )
+            steps.append((platform_name, page_id))
+
+        self._visited_page_ids: set[int] = set()
+        self._step_rail = _StepRail(steps, parent=self)
+        self._install_step_rail_above_pages(self._step_rail)
+
+        initial_id = self.currentId()
+        self._visited_page_ids.add(initial_id)
+        self._step_rail.set_progress(initial_id, self._visited_page_ids)
+        self.currentIdChanged.connect(self._on_wizard_current_id_changed)
 
         self.setButtonText(QWizard.WizardButton.FinishButton, 'Finish')
         logger.info('Setup wizard init complete')
+
+    def _install_step_rail_above_pages(self, step_rail: QWidget) -> None:
+        """Insert the progress rail directly above the wizard page stack."""
+        for grid in self.findChildren(QGridLayout):
+            page_frame_row: int | None = None
+            for index in range(grid.count()):
+                layout_item = grid.itemAt(index)
+                if layout_item is None:
+                    continue
+                widget = layout_item.widget()
+                if widget and isinstance(widget, QFrame) and widget.findChildren(QWizardPage):
+                    page_frame_row = grid.getItemPosition(index)[0]
+                    break
+            if page_frame_row is None:
+                continue
+
+            items_to_shift: list[tuple[int, int, int, int, QLayoutItem]] = []
+            for index in range(grid.count()):
+                layout_item = grid.itemAt(index)
+                if layout_item is None:
+                    continue
+                row, column, row_span, column_span = grid.getItemPosition(index)
+                if row >= page_frame_row:
+                    items_to_shift.append((row, column, row_span, column_span, layout_item))
+
+            for row, column, row_span, column_span, item in sorted(
+                items_to_shift,
+                key=lambda entry: entry[0],
+                reverse=True,
+            ):
+                grid.removeItem(item)
+                widget = item.widget()
+                layout = item.layout()
+                if widget is not None:
+                    grid.addWidget(widget, row + 1, column, row_span, column_span)
+                elif layout is not None:
+                    grid.addLayout(layout, row + 1, column, row_span, column_span)
+
+            span_columns = max(grid.columnCount(), 1)
+            grid.addWidget(step_rail, page_frame_row, 0, 1, span_columns)
+            return
+
+    def _on_wizard_current_id_changed(self, page_id: int) -> None:
+        self._visited_page_ids.add(page_id)
+        self._step_rail.set_progress(page_id, self._visited_page_ids)

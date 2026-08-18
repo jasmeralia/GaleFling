@@ -78,8 +78,8 @@ def test_platform_selector_unavailable_styled_italic(qtbot):
     selector.set_platform_enabled('twitter_1', False)
     selector.set_platform_enabled('bluesky_1', True)
 
-    assert 'italic' in selector._checkboxes['twitter_1'].styleSheet()
-    assert 'italic' not in selector._checkboxes['bluesky_1'].styleSheet()
+    assert 'italic' in selector._rows['twitter_1'].name_label.styleSheet()
+    assert 'italic' not in selector._rows['bluesky_1'].name_label.styleSheet()
 
 
 def test_post_composer_counters_and_attach_button(qtbot):

@@ -86,3 +86,7 @@ tests/functional/creds_import.json
 # Ignoring the directory also keeps a harness that handles live credentials, drives real
 # logins, and writes real session profiles from being committed by accident.
 /tools/spikes/
+
+# Before/after screenshots + slideshow video for the task #447 UI redesign. Kept on disk
+# for the Odoo task record, never committed.
+/tmp/redesign-447/

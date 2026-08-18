@@ -99,13 +99,13 @@ def test_post_composer_counters_and_attach_button(qtbot):
     assert not composer._choose_btn.isEnabled()
     assert not composer._preview_btn.isEnabled()
     # No counters visible when nothing selected
-    assert len(composer._counter_labels) == 0
+    assert len(composer._counter_widgets) == 0
 
     composer.set_platform_state(['twitter_1'], ['twitter_1', 'bluesky_1'])
     assert composer._choose_btn.isEnabled()
     assert not composer._preview_btn.isEnabled()
     # Twitter counter should be visible
-    assert 'twitter' in composer._counter_labels
+    assert 'twitter' in composer._counter_widgets
 
 
 def test_theme_label_styles_follow_palette(qtbot):

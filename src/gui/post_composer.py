@@ -1,9 +1,10 @@
 """Text input widget with character counter and media selection."""
 
+from collections.abc import Callable
 from pathlib import Path
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QPalette
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPalette, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -11,18 +12,227 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from src.core.logger import get_logger
 from src.gui.emoji_picker import EmojiPickerButton
+from src.utils import tokens
 from src.utils.constants import (
     IMAGE_EXTENSIONS,
     MAX_MEDIA_ATTACHMENTS,
     PLATFORM_SPECS_MAP,
     VIDEO_EXTENSIONS,
 )
+
+_UI_ICONS_DIR = Path(__file__).resolve().parent.parent / 'resources' / 'icons' / 'ui'
+_MEDIA_CHIP_SIZE = 74
+_COUNTER_RING_SIZE = 20
+
+
+def _icon(name: str) -> QIcon:
+    return QIcon(str(_UI_ICONS_DIR / name))
+
+
+def _pil_to_pixmap(img) -> QPixmap:
+    if img.mode != 'RGBA':
+        img = img.convert('RGBA')
+    data = img.tobytes('raw', 'RGBA')
+    qimg = QImage(
+        data,
+        img.width,
+        img.height,
+        img.width * 4,
+        QImage.Format.Format_RGBA8888,
+    )
+    return QPixmap.fromImage(qimg.copy())
+
+
+def _load_chip_pixmap(path: Path) -> QPixmap | None:
+    suffix = path.suffix.lower()
+    if suffix not in IMAGE_EXTENSIONS:
+        return None
+    try:
+        from PIL import Image
+
+        with Image.open(path) as img:
+            img.thumbnail((_MEDIA_CHIP_SIZE, _MEDIA_CHIP_SIZE))
+            return _pil_to_pixmap(img)
+    except Exception:
+        return None
+
+
+class _CounterRing(QWidget):
+    """Compact circular progress indicator for platform character limits."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(_COUNTER_RING_SIZE, _COUNTER_RING_SIZE)
+        self._current = 0
+        self._maximum = 1
+        self._over_limit = False
+
+    def set_values(self, current: int, maximum: int, over_limit: bool) -> None:
+        self._current = current
+        self._maximum = max(maximum, 1)
+        self._over_limit = over_limit
+        self.update()
+
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rect = self.rect().adjusted(2, 2, -2, -2)
+        start_angle = 90 * 16
+        full_span = -360 * 16
+
+        track_pen = QPen(QColor(tokens.BORDER))
+        track_pen.setWidth(2)
+        painter.setPen(track_pen)
+        painter.drawArc(rect, start_angle, full_span)
+
+        ratio = min(self._current / self._maximum, 1.0)
+        if ratio > 0:
+            fill_color = tokens.DANGER if self._over_limit else tokens.SUCCESS
+            fill_pen = QPen(QColor(fill_color))
+            fill_pen.setWidth(2)
+            painter.setPen(fill_pen)
+            painter.drawArc(rect, start_angle, int(full_span * ratio))
+
+        painter.end()
+
+
+class _CounterWidget(QWidget):
+    """Per-platform character counter: ring progress plus numeric label."""
+
+    def __init__(self, platform_name: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._platform_name = platform_name
+        self._current_length = 0
+        self._max_length = 0
+        self._is_over_limit = False
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setSpacing(4)
+
+        self._ring = _CounterRing()
+        layout.addWidget(self._ring)
+
+        text_col = QVBoxLayout()
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(0)
+
+        self._name_label = QLabel(platform_name)
+        self._name_label.setStyleSheet(f'color: {tokens.TEXT_MUTED}; font-size: 10px;')
+
+        self._count_label = QLabel()
+        self._count_label.setStyleSheet(
+            f'color: {tokens.TEXT}; font-size: 11px; font-weight: bold;'
+        )
+
+        text_col.addWidget(self._name_label)
+        text_col.addWidget(self._count_label)
+        layout.addLayout(text_col)
+
+        self.setToolTip(f'{platform_name} character limit')
+
+    @property
+    def current_length(self) -> int:
+        return self._current_length
+
+    @property
+    def max_length(self) -> int:
+        return self._max_length
+
+    @property
+    def is_over_limit(self) -> bool:
+        return self._is_over_limit
+
+    def update_count(self, current: int, maximum: int) -> None:
+        self._current_length = current
+        self._max_length = maximum
+        self._is_over_limit = current > maximum
+        self._count_label.setText(f'{current}/{maximum}')
+        self._ring.set_values(current, maximum, self._is_over_limit)
+
+
+class _MediaChip(QWidget):
+    """Square thumbnail chip for one media attachment."""
+
+    def __init__(
+        self,
+        path: Path,
+        index: int,
+        on_remove: Callable[[int], None],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._path = path
+        self._index = index
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 4, 0)
+        layout.setSpacing(2)
+
+        is_video = path.suffix.lower() in VIDEO_EXTENSIONS
+        badge_text = 'VID' if is_video else 'IMG'
+
+        thumb = QWidget()
+        thumb.setFixedSize(_MEDIA_CHIP_SIZE, _MEDIA_CHIP_SIZE)
+        thumb.setStyleSheet(
+            f'background-color: {tokens.SURFACE_RAISED}; border: 1px solid {tokens.BORDER};'
+        )
+
+        thumb_label = QLabel(thumb)
+        thumb_label.setGeometry(0, 0, _MEDIA_CHIP_SIZE, _MEDIA_CHIP_SIZE)
+        thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        pixmap = None if is_video else _load_chip_pixmap(path)
+        if pixmap is not None and not pixmap.isNull():
+            thumb_label.setPixmap(
+                pixmap.scaled(
+                    _MEDIA_CHIP_SIZE,
+                    _MEDIA_CHIP_SIZE,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+
+        badge = QLabel(badge_text, thumb)
+        badge.setStyleSheet(
+            f'background-color: {tokens.SURFACE_INSET}; color: {tokens.TEXT_MUTED}; '
+            'font-size: 9px; padding: 1px 3px;'
+        )
+        badge.adjustSize()
+        badge.move(2, 2)
+
+        remove_btn = QToolButton(thumb)
+        remove_btn.setIcon(_icon('close.svg'))
+        remove_btn.setIconSize(QSize(12, 12))
+        remove_btn.setFixedSize(18, 18)
+        remove_btn.setToolTip('Remove this attachment')
+        remove_btn.setStyleSheet(
+            f'background-color: {tokens.SURFACE_INSET}; border: none; border-radius: 2px;'
+        )
+        remove_btn.move(_MEDIA_CHIP_SIZE - 20, 2)
+        remove_btn.clicked.connect(lambda _checked, idx=index: on_remove(idx))
+
+        layout.addWidget(thumb)
+
+        name_label = QLabel()
+        name_label.setFixedWidth(_MEDIA_CHIP_SIZE)
+        elided = name_label.fontMetrics().elidedText(
+            path.name,
+            Qt.TextElideMode.ElideMiddle,
+            _MEDIA_CHIP_SIZE,
+        )
+        name_label.setText(elided)
+        name_label.setStyleSheet(f'color: {tokens.TEXT_MUTED}; font-size: 10px;')
+        name_label.setToolTip(path.name)
+        layout.addWidget(name_label)
 
 
 class PostComposer(QWidget):
@@ -45,7 +255,7 @@ class PostComposer(QWidget):
         self._enabled_platforms: set[str] = set()
         # Maps account_id -> platform_id for counter grouping
         self._account_platform_map: dict[str, str] = {}
-        self._counter_labels: dict[str, QLabel] = {}
+        self._counter_widgets: dict[str, _CounterWidget] = {}
         self._media_item_rows: list[QWidget] = []
         self._format_restriction_notice: QLabel | None = None
         self._count_restriction_notice: QLabel | None = None
@@ -102,7 +312,7 @@ class PostComposer(QWidget):
         # Snapchat text warning (hidden by default)
         self._text_warning = QLabel()
         self._text_warning.setStyleSheet(
-            'color: #FF9800; font-size: 12px; font-style: italic; padding: 2px 0;'
+            f'color: {tokens.WARNING}; font-size: 12px; font-style: italic; padding: 2px 0;'
         )
         self._text_warning.setWordWrap(True)
         self._text_warning.setVisible(False)
@@ -139,10 +349,10 @@ class PostComposer(QWidget):
         media_list_col = QVBoxLayout()
         media_list_col.setContentsMargins(0, 0, 0, 0)
         media_list_col.setSpacing(2)
-        # Container for media item rows
-        self._media_list_layout = QVBoxLayout()
+        # Container for media thumbnail chips
+        self._media_list_layout = QHBoxLayout()
         self._media_list_layout.setContentsMargins(0, 0, 0, 0)
-        self._media_list_layout.setSpacing(2)
+        self._media_list_layout.setSpacing(6)
         media_list_col.addLayout(self._media_list_layout)
 
         # Placeholder label
@@ -156,7 +366,7 @@ class PostComposer(QWidget):
         notice_col.setSpacing(2)
         self._format_restriction_notice = QLabel()
         self._format_restriction_notice.setStyleSheet(
-            'color: #FF9800; font-size: 12px; font-style: italic; padding: 2px 0;'
+            f'color: {tokens.WARNING}; font-size: 12px; font-style: italic; padding: 2px 0;'
         )
         self._format_restriction_notice.setWordWrap(True)
         self._format_restriction_notice.setVisible(False)
@@ -164,7 +374,7 @@ class PostComposer(QWidget):
 
         self._count_restriction_notice = QLabel()
         self._count_restriction_notice.setStyleSheet(
-            'color: #FF9800; font-size: 12px; font-style: italic; padding: 2px 0;'
+            f'color: {tokens.WARNING}; font-size: 12px; font-style: italic; padding: 2px 0;'
         )
         self._count_restriction_notice.setWordWrap(True)
         self._count_restriction_notice.setVisible(False)
@@ -294,27 +504,22 @@ class PostComposer(QWidget):
             self._text_warning.setVisible(False)
 
         # Remove counters for inactive platforms
-        for pid in list(self._counter_labels.keys()):
+        for pid in list(self._counter_widgets.keys()):
             if pid not in active_platforms:
-                label = self._counter_labels.pop(pid)
-                self._counter_layout.removeWidget(label)
-                label.deleteLater()
+                widget = self._counter_widgets.pop(pid)
+                self._counter_layout.removeWidget(widget)
+                widget.deleteLater()
 
         # Add/update counters for active platforms
         for platform_id, (platform_name, max_len) in sorted(active_platforms.items()):
-            ok = length <= max_len
-            symbol = '\u2713' if ok else '\u26a0'
-            color = '#4CAF50' if ok else '#F44336'
-
-            if platform_id not in self._counter_labels:
-                lbl = QLabel()
-                self._counter_labels[platform_id] = lbl
+            if platform_id not in self._counter_widgets:
+                counter = _CounterWidget(platform_name)
+                self._counter_widgets[platform_id] = counter
                 # Insert before the stretch
-                self._counter_layout.insertWidget(self._counter_layout.count() - 1, lbl)
+                self._counter_layout.insertWidget(self._counter_layout.count() - 1, counter)
 
-            lbl = self._counter_labels[platform_id]
-            lbl.setText(f'{symbol} {platform_name}: {length}/{max_len}')
-            lbl.setStyleSheet(f'color: {color}; font-weight: bold;')
+            counter = self._counter_widgets[platform_id]
+            counter.update_count(length, max_len)
 
     def _choose_media(self):
         start_dir = self._last_image_dir or ''
@@ -396,8 +601,8 @@ class PostComposer(QWidget):
         self.image_changed.emit(self._media_paths[0] if self._media_paths else None)
 
     def _refresh_media_list(self):
-        """Rebuild the list of media item rows."""
-        # Remove existing rows
+        """Rebuild the list of media thumbnail chips."""
+        # Remove existing chips
         for row in self._media_item_rows:
             self._media_list_layout.removeWidget(row)
             row.deleteLater()
@@ -406,24 +611,9 @@ class PostComposer(QWidget):
         self._placeholder_label.setVisible(not self._media_paths)
 
         for i, path in enumerate(self._media_paths):
-            row = QWidget()
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(4, 1, 4, 1)
-
-            name_label = QLabel(path.name)
-            name_label.setStyleSheet('padding: 2px;')
-            row_layout.addWidget(name_label)
-
-            remove_btn = QPushButton('\u2715')
-            remove_btn.setFixedSize(22, 22)
-            remove_btn.setToolTip('Remove this attachment')
-            remove_btn.setStyleSheet('font-size: 12px; padding: 0px;')
-            remove_btn.clicked.connect(lambda _checked, idx=i: self._remove_media(idx))
-            row_layout.addWidget(remove_btn)
-
-            row_layout.addStretch()
-            self._media_list_layout.addWidget(row)
-            self._media_item_rows.append(row)
+            chip = _MediaChip(path, i, self._remove_media)
+            self._media_list_layout.addWidget(chip)
+            self._media_item_rows.append(chip)
 
     def get_text(self) -> str:
         return self._text_edit.toPlainText()

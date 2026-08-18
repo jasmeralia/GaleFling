@@ -12,10 +12,8 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
-    QLayoutItem,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -1259,57 +1257,34 @@ class SetupWizard(QWizard):
 
         self._visited_page_ids: set[int] = set()
         self._step_rail = _StepRail(steps, parent=self)
-        self._install_step_rail_above_pages(self._step_rail)
 
         initial_id = self.currentId()
         self._visited_page_ids.add(initial_id)
+        self._install_step_rail_on_page(initial_id)
         self._step_rail.set_progress(initial_id, self._visited_page_ids)
         self.currentIdChanged.connect(self._on_wizard_current_id_changed)
 
         self.setButtonText(QWizard.WizardButton.FinishButton, 'Finish')
         logger.info('Setup wizard init complete')
 
-    def _install_step_rail_above_pages(self, step_rail: QWidget) -> None:
-        """Insert the progress rail directly above the wizard page stack."""
-        for grid in self.findChildren(QGridLayout):
-            page_frame_row: int | None = None
-            for index in range(grid.count()):
-                layout_item = grid.itemAt(index)
-                if layout_item is None:
-                    continue
-                widget = layout_item.widget()
-                if widget and isinstance(widget, QFrame) and widget.findChildren(QWizardPage):
-                    page_frame_row = grid.getItemPosition(index)[0]
-                    break
-            if page_frame_row is None:
-                continue
+    def _install_step_rail_on_page(self, page_id: int) -> None:
+        """Reparent the shared progress rail into the current page's own layout.
 
-            items_to_shift: list[tuple[int, int, int, int, QLayoutItem]] = []
-            for index in range(grid.count()):
-                layout_item = grid.itemAt(index)
-                if layout_item is None:
-                    continue
-                row, column, row_span, column_span = grid.getItemPosition(index)
-                if row >= page_frame_row:
-                    items_to_shift.append((row, column, row_span, column_span, layout_item))
-
-            for row, column, row_span, column_span, item in sorted(
-                items_to_shift,
-                key=lambda entry: entry[0],
-                reverse=True,
-            ):
-                grid.removeItem(item)
-                widget = item.widget()
-                layout = item.layout()
-                if widget is not None:
-                    grid.addWidget(widget, row + 1, column, row_span, column_span)
-                elif layout is not None:
-                    grid.addLayout(layout, row + 1, column, row_span, column_span)
-
-            span_columns = max(grid.columnCount(), 1)
-            grid.addWidget(step_rail, page_frame_row, 0, 1, span_columns)
+        QWizardPage layouts are public API (every page here builds its own
+        QVBoxLayout as the first line of __init__); inserting a widget into a
+        different layout reparents it automatically. This avoids introspecting
+        QWizard's internal chrome layout, whose structure isn't public API and
+        varies enough between Qt builds that a fixed-cell assumption breaks
+        silently (confirmed: it produced a squashed, overlapping rail).
+        """
+        page = self.page(page_id)
+        page_layout = page.layout() if page is not None else None
+        if not isinstance(page_layout, QVBoxLayout):
             return
+        if page_layout.indexOf(self._step_rail) != 0:
+            page_layout.insertWidget(0, self._step_rail)
 
     def _on_wizard_current_id_changed(self, page_id: int) -> None:
         self._visited_page_ids.add(page_id)
+        self._install_step_rail_on_page(page_id)
         self._step_rail.set_progress(page_id, self._visited_page_ids)

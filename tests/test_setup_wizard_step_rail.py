@@ -25,6 +25,33 @@ def test_step_rail_matches_registered_pages(qtbot):
     assert len(rail_labels) == len(wizard.pageIds())
 
 
+def test_step_rail_is_reparented_into_the_current_page_and_full_width(qtbot):
+    """Regression test: the rail was once squashed into a ~100x56 cell because
+    it relied on introspecting QWizard's internal (non-public) chrome layout,
+    which produced a visually broken, overlapping rail on this Qt build even
+    though every purely-internal-state assertion still passed. Assert real
+    geometry, not just _step_rail's own tracked state.
+    """
+    wizard = SetupWizard(DummyAuthManager())
+    qtbot.addWidget(wizard)
+    wizard.show()
+    qtbot.waitExposed(wizard)
+
+    first_id = wizard.currentId()
+    first_page = wizard.page(first_id)
+    assert first_page is not None
+    assert first_page.layout().indexOf(wizard._step_rail) == 0
+    assert wizard._step_rail.width() > 200
+
+    wizard.next()
+    qtbot.waitUntil(lambda: wizard.currentId() != first_id)
+
+    second_page = wizard.page(wizard.currentId())
+    assert second_page is not None
+    assert second_page.layout().indexOf(wizard._step_rail) == 0
+    assert wizard._step_rail.width() > 200
+
+
 def test_step_rail_updates_on_current_id_changed(qtbot):
     wizard = SetupWizard(DummyAuthManager())
     qtbot.addWidget(wizard)

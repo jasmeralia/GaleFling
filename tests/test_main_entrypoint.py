@@ -330,7 +330,6 @@ def test_qt_message_handler_logs_and_writes_fatal_marker(monkeypatch: pytest.Mon
 def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
     class DummyConfig:
         debug_mode = True
-        theme_mode = 'system'
         webview_compatibility_mode = False
         remote_debug_enabled = False
         remote_debug_port = 9222
@@ -404,6 +403,8 @@ def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
     assert window.shown is True
     assert window.restored is True
     assert window.checked is True
+    assert [len(call) for call in calls['theme_calls']] == [1, 2]
+    assert calls['theme_calls'][1][1] is window
 
 
 def test_apply_webview_compatibility_flags_enabled(monkeypatch: pytest.MonkeyPatch):

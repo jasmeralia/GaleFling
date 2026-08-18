@@ -104,7 +104,6 @@ class DummyConfig:
         self.draft_interval = 30
         self.auto_check_updates = False
         self.allow_prerelease_updates = False
-        self.theme_mode = 'system'
         self.window_geometry = {'x': 0, 'y': 0, 'width': 800, 'height': 600}
         self.snapchat_landscape_mode = 'crop'
         self.snapchat_multi_image_mode = 'first'
@@ -246,7 +245,7 @@ def test_manual_update_check_no_updates_applies_theme(qtbot, monkeypatch):
     monkeypatch.setattr('src.gui.main_window.check_for_updates', lambda *_a, **_k: None)
     monkeypatch.setattr(
         'src.gui.main_window.apply_theme',
-        lambda _app, dialog, mode: apply_calls.append((dialog, mode)),
+        lambda _app, dialog: apply_calls.append(dialog),
     )
     monkeypatch.setattr(
         'src.gui.main_window.QMessageBox',
@@ -279,7 +278,7 @@ def test_manual_update_check_no_updates_applies_theme(qtbot, monkeypatch):
 
     window._manual_update_check()
 
-    assert any(mode == window._config.theme_mode for _dialog, mode in apply_calls)
+    assert apply_calls
 
 
 def test_startup_update_check_accepts_dialog_without_attribute_error(qtbot, monkeypatch):
@@ -1007,7 +1006,7 @@ def test_show_message_box_applies_theme(qtbot, monkeypatch):
 
     monkeypatch.setattr(
         'src.gui.main_window.apply_theme',
-        lambda _app, dialog, mode: apply_calls.append((dialog, mode)),
+        lambda _app, dialog: apply_calls.append(dialog),
     )
     monkeypatch.setattr(
         'src.gui.main_window.QMessageBox',
@@ -1427,23 +1426,6 @@ def test_snapchat_multi_image_mode_persists_from_composer(qtbot):
     window._composer.set_snapchat_multi_image_mode('slideshow')
 
     assert config.snapchat_multi_image_mode == 'slideshow'
-
-
-def test_set_theme_mode_updates_config_without_qapplication(qtbot, monkeypatch):
-    apply_calls = []
-    monkeypatch.setattr('src.gui.main_window.QApplication.instance', lambda: None)
-    monkeypatch.setattr(
-        'src.gui.main_window.apply_theme',
-        lambda *_args, **_kwargs: apply_calls.append(True),
-    )
-
-    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
-    qtbot.addWidget(window)
-
-    window._set_theme_mode('dark')
-
-    assert window._config.theme_mode == 'dark'
-    assert apply_calls == []
 
 
 def test_check_first_run_schedules_setup_for_empty_accounts(qtbot, monkeypatch):

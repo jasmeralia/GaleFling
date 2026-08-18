@@ -61,7 +61,6 @@ class _AuthStub:
 
 class _ConfigStub:
     def __init__(self):
-        self.theme_mode = 'system'
         self.last_selected_platforms = ['twitter']
         self.last_image_directory = ''
         self.auto_save_draft = False

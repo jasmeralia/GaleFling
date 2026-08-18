@@ -3,6 +3,7 @@
 import pytest
 
 from src.gui.platform_selector import PlatformSelector
+from src.utils import tokens
 from src.utils.constants import AccountConfig
 
 
@@ -68,9 +69,9 @@ class TestFormatRestriction:
     def test_restricted_platforms_styled_grey(self, selector):
         """Restricted platforms should be styled grey/italic."""
         selector.set_format_restriction({'bluesky_1'}, GIF_NOTICE)
-        cb = selector._checkboxes['bluesky_1']
-        assert '#888888' in cb.styleSheet()
-        assert 'italic' in cb.styleSheet()
+        name_label = selector._rows['bluesky_1'].name_label
+        assert tokens.TEXT_MUTED in name_label.styleSheet()
+        assert 'italic' in name_label.styleSheet()
 
     def test_empty_restriction_is_noop(self, selector):
         """Passing an empty set should not change selection."""

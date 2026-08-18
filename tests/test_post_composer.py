@@ -99,26 +99,28 @@ class TestCharacterCounters:
     def test_shows_counter_for_twitter(self, composer):
         """Twitter counter should appear when Twitter selected."""
         composer.set_platform_state(selected=['twitter_1'], enabled=['twitter_1'])
-        assert 'twitter' in composer._counter_labels
+        assert 'twitter' in composer._counter_widgets
 
     def test_counter_updates_on_text_change(self, composer):
         """Counter text updates when text changes."""
         composer.set_platform_state(selected=['twitter_1'], enabled=['twitter_1'])
         composer.set_text('Hello')
-        lbl = composer._counter_labels['twitter']
-        assert '5/280' in lbl.text()
+        counter = composer._counter_widgets['twitter']
+        assert counter.current_length == 5
+        assert counter.max_length == 280
+        assert counter.is_over_limit is False
 
     def test_no_counter_for_snapchat(self, composer):
         """Snapchat has no text limit, so no counter."""
         composer.set_platform_state(selected=['snapchat_1'], enabled=['snapchat_1'])
-        assert 'snapchat' not in composer._counter_labels
+        assert 'snapchat' not in composer._counter_widgets
 
     def test_counter_removed_when_deselected(self, composer):
         """Counter removed when platform is deselected."""
         composer.set_platform_state(selected=['twitter_1'], enabled=['twitter_1'])
-        assert 'twitter' in composer._counter_labels
+        assert 'twitter' in composer._counter_widgets
         composer.set_platform_state(selected=[], enabled=['twitter_1'])
-        assert 'twitter' not in composer._counter_labels
+        assert 'twitter' not in composer._counter_widgets
 
 
 class TestEmojiPicker:

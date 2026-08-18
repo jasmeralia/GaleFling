@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import QSize, Qt, QUrl
+from PyQt6.QtGui import QColor, QDesktopServices, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -19,11 +19,13 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
-    QTabWidget,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -37,8 +39,9 @@ from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
 from src.platforms.meta_instagram import MetaInstagramPlatform
 from src.platforms.meta_threads import MetaThreadsPlatform
 from src.platforms.twitter import TwitterPlatform
+from src.utils import tokens
 from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
-from src.utils.helpers import get_app_data_dir
+from src.utils.helpers import get_app_data_dir, get_resource_path
 
 
 def _mask_credential(value: str, visible_chars: int = 4) -> str:
@@ -51,7 +54,7 @@ def _mask_credential(value: str, visible_chars: int = 4) -> str:
 
 
 class SettingsDialog(QDialog):
-    """Application settings with tabs for general, per-platform accounts, and debug."""
+    """Application settings grouped into app and account sections."""
 
     @staticmethod
     def _get_webview_cookie_domain_map() -> dict[str, list[str]]:
@@ -87,28 +90,70 @@ class SettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        tabs = QTabWidget()
+        content_layout = QHBoxLayout()
+        self._settings_sidebar = QListWidget()
+        self._settings_sidebar.setFixedWidth(172)
+        self._settings_sidebar.setIconSize(QSize(20, 20))
+        self._settings_sidebar.setSpacing(2)
+        self._settings_sidebar.setStyleSheet(
+            f"""
+            QListWidget {{
+                background-color: {tokens.SURFACE_INSET};
+                border: 1px solid {tokens.BORDER};
+                border-radius: 6px;
+                outline: none;
+                padding: 6px 4px;
+            }}
+            QListWidget::item {{
+                border-radius: 4px;
+                padding: 7px 8px;
+            }}
+            QListWidget::item:selected {{
+                background-color: {tokens.SURFACE_RAISED};
+                color: {tokens.TEXT};
+            }}
+            QListWidget::item:hover:enabled {{
+                background-color: {tokens.SURFACE};
+            }}
+            """
+        )
+        self._settings_stack = QStackedWidget()
+        self._settings_sidebar.currentItemChanged.connect(self._show_settings_page)
 
-        # General tab
+        content_layout.addWidget(self._settings_sidebar)
+        content_layout.addWidget(self._settings_stack, 1)
+
+        self._add_sidebar_group('App')
+
+        # App sections
         general_tab = self._create_general_tab()
-        tabs.addTab(general_tab, 'General')
+        self._add_sidebar_page('General', 'icons/ui/settings.svg', general_tab)
 
-        # Per-platform account tabs
-        self._create_twitter_tab(tabs)
-        self._create_bluesky_tab(tabs)
-        self._create_meta_tab(tabs)
+        advanced_tab = self._create_advanced_tab()
+        self._add_sidebar_page('Advanced', 'icons/ui/tune.svg', advanced_tab)
+
+        # Per-platform account sections
+        self._add_sidebar_group('Accounts')
+        self._add_sidebar_page('Twitter', 'icons/brands/twitter.svg', self._create_twitter_tab())
+        self._add_sidebar_page('Bluesky', 'icons/brands/bluesky.svg', self._create_bluesky_tab())
+        self._add_sidebar_page('Meta', 'icons/brands/instagram.svg', self._create_meta_tab())
 
         self._webview_profile_edits: dict[str, QLineEdit] = {}
         for platform_id, specs in PLATFORM_SPECS_MAP.items():
             if specs.api_type != 'webview' or not specs.available:
                 continue
-            self._create_webview_platform_tab(tabs, platform_id, specs)
+            brand_icon = self._sidebar_resource_path(f'icons/brands/{platform_id}.svg')
+            icon_resource = (
+                f'icons/brands/{platform_id}.svg' if brand_icon.exists() else 'icons/ui/public.svg'
+            )
+            self._add_sidebar_page(
+                specs.platform_name,
+                icon_resource,
+                self._create_webview_platform_tab(platform_id, specs),
+            )
 
-        # Advanced tab
-        advanced_tab = self._create_advanced_tab()
-        tabs.addTab(advanced_tab, 'Advanced')
-
-        layout.addWidget(tabs)
+        self._settings_sidebar.setCurrentRow(1)
+        layout.addLayout(content_layout, 1)
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -123,6 +168,47 @@ class SettingsDialog(QDialog):
         btn_layout.addWidget(cancel_btn)
 
         layout.addLayout(btn_layout)
+
+    @staticmethod
+    def _sidebar_resource_path(resource_name: str) -> Path:
+        resource_path = get_resource_path(resource_name)
+        if resource_path.exists():
+            return resource_path
+        return Path(__file__).resolve().parent.parent / 'resources' / resource_name
+
+    @classmethod
+    def _sidebar_icon(cls, resource_name: str) -> QIcon:
+        pixmap = QPixmap(str(cls._sidebar_resource_path(resource_name)))
+        painter = QPainter(pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(pixmap.rect(), QColor(tokens.TEXT_MUTED))
+        painter.end()
+        return QIcon(pixmap)
+
+    def _add_sidebar_group(self, label: str) -> None:
+        item = QListWidgetItem(label)
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        item.setForeground(QColor(tokens.TEXT_MUTED))
+        font = item.font()
+        font.setBold(True)
+        item.setFont(font)
+        item.setSizeHint(QSize(0, 28))
+        self._settings_sidebar.addItem(item)
+
+    def _add_sidebar_page(self, label: str, icon_resource: str, page: QWidget) -> None:
+        page_index = self._settings_stack.addWidget(page)
+        item = QListWidgetItem(self._sidebar_icon(icon_resource), label)
+        item.setData(Qt.ItemDataRole.UserRole, page_index)
+        self._settings_sidebar.addItem(item)
+
+    def _show_settings_page(
+        self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
+    ) -> None:
+        if current is None:
+            return
+        page_index = current.data(Qt.ItemDataRole.UserRole)
+        if isinstance(page_index, int):
+            self._settings_stack.setCurrentIndex(page_index)
 
     def _create_general_tab(self) -> QWidget:
         widget = QWidget()
@@ -150,7 +236,7 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return widget
 
-    def _create_twitter_tab(self, tabs: QTabWidget):
+    def _create_twitter_tab(self) -> QScrollArea:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
 
@@ -244,9 +330,9 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
         scroll.setWidget(widget)
-        tabs.addTab(scroll, 'Twitter')
+        return scroll
 
-    def _create_bluesky_tab(self, tabs: QTabWidget):
+    def _create_bluesky_tab(self) -> QScrollArea:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
 
@@ -295,7 +381,7 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
         scroll.setWidget(widget)
-        tabs.addTab(scroll, 'Bluesky')
+        return scroll
 
     # Meta provider config: (provider_id, display_name, max_accounts, account_ids)
     _META_PROVIDERS: list[tuple[str, str, int, list[str]]] = [
@@ -309,7 +395,7 @@ class SettingsDialog(QDialog):
         ('meta_facebook_page', 'Facebook Page'),
     ]
 
-    def _create_meta_tab(self, tabs: QTabWidget) -> None:
+    def _create_meta_tab(self) -> QScrollArea:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
 
@@ -384,8 +470,8 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
         scroll.setWidget(widget)
-        tabs.addTab(scroll, 'Meta')
         self._refresh_meta_status()
+        return scroll
 
     def _clear_meta_app_credentials(self, provider: str, display_name: str) -> None:
         reply = QMessageBox.question(
@@ -668,7 +754,7 @@ class SettingsDialog(QDialog):
         else:
             QMessageBox.warning(self, 'S3 Connection Failed', f'S3 connection test failed:\n{msg}')
 
-    def _create_webview_platform_tab(self, tabs: QTabWidget, platform_id: str, specs):
+    def _create_webview_platform_tab(self, platform_id: str, specs) -> QScrollArea:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
 
@@ -743,7 +829,7 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
         scroll.setWidget(widget)
-        tabs.addTab(scroll, specs.platform_name)
+        return scroll
 
     def _create_advanced_tab(self) -> QScrollArea:
         scroll = QScrollArea()

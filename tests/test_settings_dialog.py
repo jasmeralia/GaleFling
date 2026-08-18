@@ -349,31 +349,28 @@ def test_settings_dialog_twitter_status_not_authorized(qtbot, tmp_path, monkeypa
     assert 'Not authorized' in status.text()
 
 
-def test_settings_dialog_has_per_platform_tabs(qtbot, tmp_path, monkeypatch):
-    """Settings dialog should have separate tabs for each platform."""
+def test_settings_dialog_has_grouped_sidebar_sections(qtbot, tmp_path, monkeypatch):
+    """Settings dialog should group app and platform sections in its sidebar."""
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)
 
     dialog = SettingsDialog(config, auth)
     qtbot.addWidget(dialog)
 
-    from PyQt6.QtWidgets import QTabWidget
+    sidebar_names = [
+        dialog._settings_sidebar.item(i).text() for i in range(dialog._settings_sidebar.count())
+    ]
 
-    tabs = dialog.findChild(QTabWidget)
-    tab_names = [tabs.tabText(i) for i in range(tabs.count())]
-
-    assert 'General' in tab_names
-    assert 'Twitter' in tab_names
-    assert 'Bluesky' in tab_names
-    assert 'Meta' in tab_names
-    assert 'Instagram' not in tab_names  # Instagram is now managed via the Meta tab
-    # Snapchat, OnlyFans, and Fansly are all unavailable (paused), so none gets a tab.
-    assert 'Snapchat' not in tab_names
-    assert 'OnlyFans' not in tab_names
-    assert 'Fansly' not in tab_names
-    assert 'FetLife' in tab_names
-    assert 'Advanced' in tab_names
-    assert 'Accounts' not in tab_names
+    assert sidebar_names[:3] == ['App', 'General', 'Advanced']
+    assert sidebar_names[3:7] == ['Accounts', 'Twitter', 'Bluesky', 'Meta']
+    assert 'Instagram' not in sidebar_names  # Instagram is now managed via the Meta section
+    # Snapchat, OnlyFans, and Fansly are all unavailable (paused), so none gets a section.
+    assert 'Snapchat' not in sidebar_names
+    assert 'OnlyFans' not in sidebar_names
+    assert 'Fansly' not in sidebar_names
+    assert sidebar_names[7:] == ['FetLife']
+    for row in (1, 2, 4, 5, 6, 7):
+        assert not dialog._settings_sidebar.item(row).icon().isNull()
 
 
 def test_settings_dialog_builds_webview_cookie_export_data(qtbot, tmp_path, monkeypatch):
@@ -424,7 +421,9 @@ def test_settings_dialog_export_webview_cookies_no_db_shows_notice(qtbot, tmp_pa
     assert calls
 
 
-def test_settings_dialog_webview_tabs_show_login_and_reset_buttons(qtbot, tmp_path, monkeypatch):
+def test_settings_dialog_webview_sections_show_login_and_reset_buttons(
+    qtbot, tmp_path, monkeypatch
+):
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)
     dialog = SettingsDialog(config, auth)
@@ -444,7 +443,7 @@ def test_settings_dialog_webview_tabs_show_login_and_reset_buttons(qtbot, tmp_pa
         if btn.text() == 'Import Session from auth.json...'
     ]
     # FetLife has 1 account and is the only available webview platform; Snapchat,
-    # OnlyFans, and Fansly are all unavailable (paused) and contribute no tab.
+    # OnlyFans, and Fansly are all unavailable (paused) and contribute no section.
     # OnlyFans would offer no login button even if it did, since its login form
     # rejects embedded browsers; it would get a session-import button instead.
     assert len(open_buttons) == 1
@@ -482,23 +481,34 @@ def test_settings_dialog_open_webview_login_window(qtbot, tmp_path, monkeypatch)
     assert calls['account_id'] == 'snapchat_1'
 
 
-def test_settings_dialog_meta_tab_exists(qtbot, tmp_path, monkeypatch):
-    """Settings dialog must include a Meta tab."""
+def test_settings_dialog_meta_sidebar_section_exists(qtbot, tmp_path, monkeypatch):
+    """Settings dialog must include a Meta sidebar section."""
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)
 
     dialog = SettingsDialog(config, auth)
     qtbot.addWidget(dialog)
 
-    from PyQt6.QtWidgets import QTabWidget
+    sidebar_names = [
+        dialog._settings_sidebar.item(i).text() for i in range(dialog._settings_sidebar.count())
+    ]
+    assert 'Meta' in sidebar_names
 
-    tabs = dialog.findChild(QTabWidget)
-    tab_names = [tabs.tabText(i) for i in range(tabs.count())]
-    assert 'Meta' in tab_names
+    from PyQt6.QtWidgets import QScrollArea
+
+    meta_item = next(
+        dialog._settings_sidebar.item(i)
+        for i in range(dialog._settings_sidebar.count())
+        if dialog._settings_sidebar.item(i).text() == 'Meta'
+    )
+    dialog._settings_sidebar.setCurrentItem(meta_item)
+    current_page = dialog._settings_stack.currentWidget()
+    assert isinstance(current_page, QScrollArea)
+    assert current_page.widget() is dialog._meta_tab_widget
 
 
-def test_settings_dialog_meta_tab_renders_threads_section(qtbot, tmp_path, monkeypatch):
-    """Meta tab must render a Threads provider section."""
+def test_settings_dialog_meta_section_renders_threads_section(qtbot, tmp_path, monkeypatch):
+    """Meta settings must render a Threads provider section."""
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)
 
@@ -509,11 +519,11 @@ def test_settings_dialog_meta_tab_renders_threads_section(qtbot, tmp_path, monke
 
     labels = dialog.findChildren(QLabel)
     label_texts = [lbl.text() for lbl in labels]
-    assert any('Threads' in t for t in label_texts), 'Meta tab should contain a Threads label'
+    assert any('Threads' in t for t in label_texts), 'Meta section should contain a Threads label'
 
 
-def test_settings_dialog_meta_tab_renders_facebook_page_section(qtbot, tmp_path, monkeypatch):
-    """Meta tab must render a Facebook Page provider section."""
+def test_settings_dialog_meta_section_renders_facebook_page_section(qtbot, tmp_path, monkeypatch):
+    """Meta settings must render a Facebook Page provider section."""
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)
 
@@ -525,7 +535,7 @@ def test_settings_dialog_meta_tab_renders_facebook_page_section(qtbot, tmp_path,
     labels = dialog.findChildren(QLabel)
     label_texts = [lbl.text() for lbl in labels]
     assert any('Facebook' in t for t in label_texts), (
-        'Meta tab should contain a Facebook Page label'
+        'Meta section should contain a Facebook Page label'
     )
 
 

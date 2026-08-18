@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.platforms.base_webview import BaseWebViewPlatform
+from src.utils import tokens
 from src.utils.constants import PostResult
 
 
@@ -35,21 +36,21 @@ class _StatusRow(QWidget):
 
     def set_success(self, message: str = 'Posted!'):
         self._icon.setText('\u2714')  # checkmark
-        self._icon.setStyleSheet('color: #4CAF50; font-size: 16px;')
+        self._icon.setStyleSheet(f'color: {tokens.SUCCESS}; font-size: 16px;')
         self._status.setText(message)
-        self._status.setStyleSheet('font-size: 13px; color: #4CAF50;')
+        self._status.setStyleSheet(f'font-size: 13px; color: {tokens.SUCCESS};')
 
     def set_failure(self, message: str = 'Failed'):
         self._icon.setText('\u274c')  # cross
-        self._icon.setStyleSheet('color: #F44336; font-size: 16px;')
+        self._icon.setStyleSheet(f'color: {tokens.DANGER}; font-size: 16px;')
         self._status.setText(message)
-        self._status.setStyleSheet('font-size: 13px; color: #F44336;')
+        self._status.setStyleSheet(f'font-size: 13px; color: {tokens.DANGER};')
 
     def set_pending(self, message: str = 'Posting...'):
         self._icon.setText('\u23f3')  # hourglass
-        self._icon.setStyleSheet('color: #FF9800; font-size: 16px;')
+        self._icon.setStyleSheet(f'color: {tokens.WARNING}; font-size: 16px;')
         self._status.setText(message)
-        self._status.setStyleSheet('font-size: 13px; color: #FF9800;')
+        self._status.setStyleSheet(f'font-size: 13px; color: {tokens.WARNING};')
 
 
 class WebViewPanel(QDialog):

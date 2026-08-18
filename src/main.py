@@ -119,7 +119,7 @@ def main():
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(APP_ORG)
     _apply_app_icon(app)
-    apply_theme(app, None, config.theme_mode)
+    apply_theme(app)
     _abort_if_elevated()
 
     # Initialize auth
@@ -128,7 +128,7 @@ def main():
     # Create and show main window
     window = MainWindow(config, auth_manager)
     window.show()
-    apply_theme(app, window, config.theme_mode)
+    apply_theme(app, window)
 
     # Post-show actions
     window.restore_draft()

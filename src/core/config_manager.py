@@ -12,7 +12,6 @@ DEFAULT_CONFIG = {
     'debug_mode': False,
     'auto_check_updates': True,
     'allow_prerelease_updates': False,
-    'theme_mode': 'system',
     'webview_compatibility_mode': False,
     'snapchat_landscape_mode': 'crop',
     'snapchat_multi_image_mode': 'first',
@@ -125,14 +124,6 @@ class ConfigManager:
     @allow_prerelease_updates.setter
     def allow_prerelease_updates(self, value: bool) -> None:
         self.set('allow_prerelease_updates', value)
-
-    @property
-    def theme_mode(self) -> str:
-        return self._config.get('theme_mode', 'system')
-
-    @theme_mode.setter
-    def theme_mode(self, value: str) -> None:
-        self.set('theme_mode', value)
 
     @property
     def webview_compatibility_mode(self) -> bool:

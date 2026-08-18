@@ -11,7 +11,7 @@ from pathlib import Path
 
 import requests
 from PyQt6.QtCore import QProcess, Qt, QThread, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup, QDesktopServices, QPixmap
+from PyQt6.QtGui import QAction, QDesktopServices, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -67,7 +67,7 @@ from src.utils.constants import (
     PostResult,
 )
 from src.utils.helpers import get_app_data_dir, get_drafts_dir, get_logs_dir, get_resource_path
-from src.utils.theme import apply_theme, resolve_theme_mode
+from src.utils.theme import apply_theme
 
 
 class PostWorker(QThread):
@@ -339,6 +339,11 @@ _ABOUT_DEPENDENCIES = (
     ('emoji', 'https://github.com/carpedm20/emoji', 'Emoji data for the picker'),
     ('ffmpeg', 'https://ffmpeg.org/', 'Video processing'),
     ('keyring', 'https://github.com/jaraco/keyring', 'Credential storage'),
+    (
+        'Material Symbols',
+        'https://github.com/google/material-design-icons',
+        'UI iconography (Apache License 2.0)',
+    ),
     ('Packaging', 'https://packaging.pypa.io/', 'Version parsing'),
     ('Pillow', 'https://python-pillow.org/', 'Image processing'),
     ('PyQt6', 'https://www.riverbankcomputing.com/software/pyqt/', 'GUI framework'),
@@ -348,6 +353,11 @@ _ABOUT_DEPENDENCIES = (
         'Embedded browser',
     ),
     ('Requests', 'https://requests.readthedocs.io/', 'HTTP client'),
+    (
+        'Simple Icons',
+        'https://github.com/simple-icons/simple-icons',
+        'Brand iconography (CC0 1.0)',
+    ),
     ('Tweepy', 'https://www.tweepy.org/', 'Twitter API client'),
 )
 
@@ -461,7 +471,7 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self):
         self.setWindowTitle(f'{APP_NAME} v{APP_VERSION}')
-        self.setMinimumSize(960, 760)
+        self.setMinimumSize(960, 960)
 
         # Menu bar
         self._create_menu_bar()
@@ -579,40 +589,6 @@ class MainWindow(QMainWindow):
         )
         settings_menu.addAction(reset_config)
 
-        # View menu
-        view_menu = menu_bar.addMenu('View')
-        theme_group = QActionGroup(self)
-        theme_group.setExclusive(True)
-
-        self._system_theme_action = QAction('System Default', self, checkable=True)
-        self._system_theme_action.triggered.connect(
-            log_and_call('View > System Default', lambda: self._set_theme_mode('system'))
-        )
-        theme_group.addAction(self._system_theme_action)
-        view_menu.addAction(self._system_theme_action)
-
-        self._light_mode_action = QAction('Light Mode', self, checkable=True)
-        self._light_mode_action.triggered.connect(
-            log_and_call('View > Light Mode', lambda: self._set_theme_mode('light'))
-        )
-        theme_group.addAction(self._light_mode_action)
-        view_menu.addAction(self._light_mode_action)
-
-        self._dark_mode_action = QAction('Dark Mode', self, checkable=True)
-        self._dark_mode_action.triggered.connect(
-            log_and_call('View > Dark Mode', lambda: self._set_theme_mode('dark'))
-        )
-        theme_group.addAction(self._dark_mode_action)
-        view_menu.addAction(self._dark_mode_action)
-
-        resolved_theme = resolve_theme_mode(self._config.theme_mode)
-        if self._config.theme_mode == 'system':
-            self._system_theme_action.setChecked(True)
-        elif resolved_theme == 'dark':
-            self._dark_mode_action.setChecked(True)
-        else:
-            self._light_mode_action.setChecked(True)
-
         # Help menu
         help_menu = menu_bar.addMenu('Help')
 
@@ -640,20 +616,12 @@ class MainWindow(QMainWindow):
         send_logs.triggered.connect(log_and_call('Help > Send Logs to Jas', self._send_logs))
         help_menu.addAction(send_logs)
 
-    def _set_theme_mode(self, mode: str):
-        self._config.theme_mode = mode
-        from typing import cast
-
-        app = cast(QApplication | None, QApplication.instance())
-        if app is not None:
-            apply_theme(app, self, mode)
-
     def _apply_dialog_theme(self, dialog: QDialog):
         from typing import cast
 
         app = cast(QApplication | None, QApplication.instance())
         if app is not None:
-            apply_theme(app, dialog, self._config.theme_mode)
+            apply_theme(app, dialog)
 
     def _restore_geometry(self):
         geo = self._config.window_geometry
@@ -685,11 +653,8 @@ class MainWindow(QMainWindow):
     def _show_setup_wizard_impl(self):
         try:
             self._append_fatal_marker('Launching setup wizard')
-            get_logger().info(
-                'Launching setup wizard',
-                extra={'theme_mode': self._config.theme_mode},
-            )
-            wizard = SetupWizard(self._auth_manager, self._config.theme_mode, None)
+            get_logger().info('Launching setup wizard')
+            wizard = SetupWizard(self._auth_manager, None)
             self._append_fatal_marker('Setup wizard created')
             get_logger().info('Setup wizard created')
             self._apply_dialog_theme(wizard)

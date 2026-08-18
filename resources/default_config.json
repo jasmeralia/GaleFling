@@ -3,7 +3,6 @@
     "debug_mode": false,
     "auto_check_updates": true,
     "allow_prerelease_updates": false,
-    "theme_mode": "system",
     "snapchat_landscape_mode": "crop",
     "snapchat_multi_image_mode": "first",
     "preview_worker_count": 2,

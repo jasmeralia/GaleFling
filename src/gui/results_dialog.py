@@ -1,6 +1,11 @@
 """Post results dialog with clickable links and copy buttons."""
 
+import re
+from pathlib import Path
+
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -12,7 +17,136 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.error_handler import format_error_details
-from src.utils.constants import PostResult
+from src.utils import tokens
+from src.utils.constants import PLATFORM_SPECS_MAP, PostResult
+
+_ICONS_DIR = Path(__file__).resolve().parent.parent / 'resources' / 'icons'
+
+_PLATFORM_ALIASES = {
+    'twitter': 'twitter',
+    'bluesky': 'bluesky',
+    'snapchat': 'snapchat',
+    'onlyfans': 'onlyfans',
+    'fansly': 'fansly',
+    'fetlife': 'fetlife',
+    'threads': 'meta_threads',
+    'instagram': 'meta_instagram',
+    'facebook page': 'meta_facebook_page',
+}
+
+_BRAND_ICON_FILES = {
+    'twitter': 'twitter.svg',
+    'bluesky': 'bluesky.svg',
+    'meta_threads': 'threads.svg',
+    'meta_instagram': 'instagram.svg',
+    'meta_facebook_page': 'facebook.svg',
+}
+
+
+def _normalize_platform_display(platform_display: str) -> str:
+    return re.sub(r'\s*\(.*\)$', '', platform_display).strip().lower()
+
+
+def _resolve_platform_key(platform_display: str) -> str | None:
+    return _PLATFORM_ALIASES.get(_normalize_platform_display(platform_display))
+
+
+def _render_svg_colored(svg_path: Path, size: int, color: QColor) -> QPixmap:
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    renderer = QSvgRenderer(str(svg_path))
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    renderer.render(painter)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    painter.fillRect(pixmap.rect(), color)
+    painter.end()
+    return pixmap
+
+
+def _build_result_badge(result: PostResult, *, success: bool) -> QPixmap:
+    spec_key = _resolve_platform_key(result.platform)
+    spec = PLATFORM_SPECS_MAP.get(spec_key) if spec_key else None
+
+    pixmap = QPixmap(36, 36)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    base_color = QColor(spec.platform_color) if spec else QColor(tokens.BORDER)
+    base_center_x = 18
+    base_center_y = 18
+    base_diameter = 32
+    base_radius = base_diameter // 2
+    painter.setBrush(base_color)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawEllipse(
+        base_center_x - base_radius,
+        base_center_y - base_radius,
+        base_diameter,
+        base_diameter,
+    )
+
+    if spec_key and spec_key in _BRAND_ICON_FILES:
+        icon_path = _ICONS_DIR / 'brands' / _BRAND_ICON_FILES[spec_key]
+        icon_size = 18
+        icon_pixmap = _render_svg_colored(icon_path, icon_size, QColor(tokens.TEXT))
+        icon_offset = (base_diameter - icon_size) // 2
+        painter.drawPixmap(
+            base_center_x - base_radius + icon_offset,
+            base_center_y - base_radius + icon_offset,
+            icon_pixmap,
+        )
+    else:
+        if spec:
+            monogram = spec.platform_name[0]
+        else:
+            stripped = re.sub(r'\s*\(.*\)$', '', result.platform).strip()
+            monogram = stripped[0] if stripped else '?'
+        font = QFont()
+        font.setBold(True)
+        font.setPixelSize(14)
+        painter.setFont(font)
+        painter.setPen(QColor(tokens.TEXT))
+        painter.drawText(
+            base_center_x - base_radius,
+            base_center_y - base_radius,
+            base_diameter,
+            base_diameter,
+            int(Qt.AlignmentFlag.AlignCenter),
+            monogram.upper(),
+        )
+
+    status_diameter = 14
+    status_radius = status_diameter // 2
+    status_center_x = base_center_x + base_radius - status_radius
+    status_center_y = base_center_y + base_radius - status_radius
+    status_color = QColor(tokens.SUCCESS if success else tokens.DANGER)
+    painter.setBrush(status_color)
+    painter.drawEllipse(
+        status_center_x - status_radius,
+        status_center_y - status_radius,
+        status_diameter,
+        status_diameter,
+    )
+
+    status_icon_name = 'check.svg' if success else 'warning.svg'
+    status_icon_size = 9
+    status_icon = _render_svg_colored(
+        _ICONS_DIR / 'ui' / status_icon_name,
+        status_icon_size,
+        QColor(tokens.TEXT),
+    )
+    status_icon_offset = (status_diameter - status_icon_size) // 2
+    painter.drawPixmap(
+        status_center_x - status_radius + status_icon_offset,
+        status_center_y - status_radius + status_icon_offset,
+        status_icon,
+    )
+
+    painter.end()
+    return pixmap
 
 
 class ResultsDialog(QDialog):
@@ -72,49 +206,67 @@ class ResultsDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
+    def _add_badge(self, row_layout: QHBoxLayout, result: PostResult, *, success: bool) -> None:
+        badge = QLabel()
+        badge.setPixmap(_build_result_badge(result, success=success))
+        badge.setFixedSize(36, 36)
+        row_layout.addWidget(badge, alignment=Qt.AlignmentFlag.AlignTop)
+
     def _add_success_row(self, layout: QVBoxLayout, result: PostResult):
-        # Show different messages for WebView confirm-click vs API results
+        row_layout = QHBoxLayout()
+        self._add_badge(row_layout, result, success=True)
+
+        content_layout = QVBoxLayout()
+
         if result.user_confirmed and not result.url_captured:
             header = QLabel(
-                f'<span style="color: #4CAF50; font-size: 14px;">'
-                f'\u2713 {result.platform} - Posted (link unavailable)</span>'
+                f'<span style="color: {tokens.SUCCESS}; font-size: 14px;">'
+                f'{result.platform} - Posted (link unavailable)</span>'
             )
         else:
             header = QLabel(
-                f'<span style="color: #4CAF50; font-size: 14px;">'
-                f'\u2713 {result.platform} - Posted successfully!</span>'
+                f'<span style="color: {tokens.SUCCESS}; font-size: 14px;">'
+                f'{result.platform} - Posted successfully!</span>'
             )
-        layout.addWidget(header)
+        content_layout.addWidget(header)
 
         if result.post_url:
             link = QLabel(f'<a href="{result.post_url}">{result.post_url}</a>')
             link.setOpenExternalLinks(True)
             link.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
-            layout.addWidget(link)
+            content_layout.addWidget(link)
 
             copy_btn = QPushButton('Copy Link')
             copy_btn.setMaximumWidth(100)
             post_url = result.post_url
             copy_btn.clicked.connect(lambda _, url=post_url: self._copy_text(url))
-            layout.addWidget(copy_btn)
+            content_layout.addWidget(copy_btn)
+
+        row_layout.addLayout(content_layout, 1)
+        layout.addLayout(row_layout)
 
     def _add_failure_row(self, layout: QVBoxLayout, result: PostResult):
+        row_layout = QHBoxLayout()
+        self._add_badge(row_layout, result, success=False)
+
+        content_layout = QVBoxLayout()
+
         header = QLabel(
-            f'<span style="color: #F44336; font-size: 14px;">'
-            f'\u274c {result.platform} - Failed to post</span>'
+            f'<span style="color: {tokens.DANGER}; font-size: 14px;">'
+            f'{result.platform} - Failed to post</span>'
         )
-        layout.addWidget(header)
+        content_layout.addWidget(header)
 
         msg = QLabel(result.error_message or 'Unknown error')
         msg.setWordWrap(True)
-        layout.addWidget(msg)
+        content_layout.addWidget(msg)
 
         if result.error_code:
             code_label = QLabel(f'<b>Error Code:</b> {result.error_code}')
-            layout.addWidget(code_label)
+            content_layout.addWidget(code_label)
 
         time_label = QLabel(f'<b>Time:</b> {result.timestamp}')
-        layout.addWidget(time_label)
+        content_layout.addWidget(time_label)
 
         btn_row = QHBoxLayout()
 
@@ -127,7 +279,10 @@ class ResultsDialog(QDialog):
         btn_row.addWidget(settings_btn)
 
         btn_row.addStretch()
-        layout.addLayout(btn_row)
+        content_layout.addLayout(btn_row)
+
+        row_layout.addLayout(content_layout, 1)
+        layout.addLayout(row_layout)
 
     def _copy_text(self, text: str | None):
         if not text:

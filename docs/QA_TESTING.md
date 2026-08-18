@@ -100,7 +100,7 @@ From Help > Check for Updates, confirm the "up to date" path shows a clean messa
 
 ## 13. UI and Layout Stability
 
-Resize the main window to a narrow width and a tall height and confirm no controls are clipped or hidden. If the app supports theme switching (dark/light/system), toggle each mode and verify the UI renders correctly. Confirm every item in the menu bar triggers the expected action:
+Resize the main window to a narrow width and a tall height and confirm no controls are clipped or hidden. Confirm every item in the menu bar triggers the expected action:
 
 - Settings > Open Settings
 - Settings > Run Setup Wizard

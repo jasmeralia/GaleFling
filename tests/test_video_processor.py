@@ -1,6 +1,7 @@
 """Tests for video processing."""
 
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -347,6 +348,28 @@ class TestExtractThumbnail:
         bad = tmp_path / 'bad.mp4'
         bad.write_bytes(b'not a video')
         assert extract_thumbnail(bad) is None
+
+    def test_cleans_up_temp_file_when_subprocess_raises(self, small_mp4, monkeypatch):
+        """A raised exception after the temp file is created must not leak it —
+        only a non-zero returncode was cleaned up before this test existed."""
+        created: list[Path] = []
+        real_named_temp_file = tempfile.NamedTemporaryFile
+
+        def tracking_named_temp_file(*args, **kwargs):
+            handle = real_named_temp_file(*args, **kwargs)
+            created.append(Path(handle.name))
+            return handle
+
+        monkeypatch.setattr(
+            'src.core.video_processor.tempfile.NamedTemporaryFile', tracking_named_temp_file
+        )
+        monkeypatch.setattr(
+            'src.core.video_processor._run_subprocess',
+            lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError('ffmpeg exploded')),
+        )
+
+        assert extract_thumbnail(small_mp4) is None
+        assert created and not created[0].exists()
 
 
 class TestConvertImageToVideo:

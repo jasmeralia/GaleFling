@@ -362,14 +362,22 @@ def test_settings_dialog_has_grouped_sidebar_sections(qtbot, tmp_path, monkeypat
     ]
 
     assert sidebar_names[:3] == ['App', 'General', 'Advanced']
-    assert sidebar_names[3:7] == ['Accounts', 'Twitter', 'Bluesky', 'Meta']
-    assert 'Instagram' not in sidebar_names  # Instagram is now managed via the Meta section
+    assert sidebar_names[3:9] == [
+        'Accounts',
+        'Twitter',
+        'Bluesky',
+        'Facebook Page',
+        'Instagram',
+        'Threads',
+    ]
+    assert 'Meta' not in sidebar_names  # split into its own per-platform pages
+    assert sidebar_names.count('Instagram') == 1  # not duplicated by the webview-platform loop
     # Snapchat, OnlyFans, and Fansly are all unavailable (paused), so none gets a section.
     assert 'Snapchat' not in sidebar_names
     assert 'OnlyFans' not in sidebar_names
     assert 'Fansly' not in sidebar_names
-    assert sidebar_names[7:] == ['FetLife']
-    for row in (1, 2, 4, 5, 6, 7):
+    assert sidebar_names[9:] == ['FetLife']
+    for row in (1, 2, 4, 5, 6, 7, 8, 9):
         assert not dialog._settings_sidebar.item(row).icon().isNull()
 
 
@@ -481,30 +489,35 @@ def test_settings_dialog_open_webview_login_window(qtbot, tmp_path, monkeypatch)
     assert calls['account_id'] == 'snapchat_1'
 
 
-def test_settings_dialog_meta_sidebar_section_exists(qtbot, tmp_path, monkeypatch):
-    """Settings dialog must include a Meta sidebar section."""
+def test_settings_dialog_meta_sidebar_sections_exist(qtbot, tmp_path, monkeypatch):
+    """Settings dialog must include separate Facebook Page, Instagram, and Threads pages."""
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)
 
     dialog = SettingsDialog(config, auth)
     qtbot.addWidget(dialog)
 
+    from PyQt6.QtWidgets import QGroupBox, QScrollArea
+
     sidebar_names = [
         dialog._settings_sidebar.item(i).text() for i in range(dialog._settings_sidebar.count())
     ]
-    assert 'Meta' in sidebar_names
+    for provider, display_name in (
+        ('meta_facebook_page', 'Facebook Page'),
+        ('meta_instagram', 'Instagram'),
+        ('meta_threads', 'Threads'),
+    ):
+        assert display_name in sidebar_names
 
-    from PyQt6.QtWidgets import QScrollArea
-
-    meta_item = next(
-        dialog._settings_sidebar.item(i)
-        for i in range(dialog._settings_sidebar.count())
-        if dialog._settings_sidebar.item(i).text() == 'Meta'
-    )
-    dialog._settings_sidebar.setCurrentItem(meta_item)
-    current_page = dialog._settings_stack.currentWidget()
-    assert isinstance(current_page, QScrollArea)
-    assert current_page.widget() is dialog._meta_tab_widget
+        page_item = next(
+            dialog._settings_sidebar.item(i)
+            for i in range(dialog._settings_sidebar.count())
+            if dialog._settings_sidebar.item(i).text() == display_name
+        )
+        dialog._settings_sidebar.setCurrentItem(page_item)
+        current_page = dialog._settings_stack.currentWidget()
+        assert isinstance(current_page, QScrollArea)
+        assert dialog._meta_provider_groups[provider] in current_page.findChildren(QGroupBox)
 
 
 def test_settings_dialog_meta_section_renders_threads_section(qtbot, tmp_path, monkeypatch):
@@ -537,6 +550,25 @@ def test_settings_dialog_meta_section_renders_facebook_page_section(qtbot, tmp_p
     assert any('Facebook' in t for t in label_texts), (
         'Meta section should contain a Facebook Page label'
     )
+
+
+def test_settings_dialog_meta_relay_uri_synced_across_pages_and_saved(qtbot, tmp_path, monkeypatch):
+    """Editing the shared OAuth relay URI on one Meta page updates the others too."""
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    edits = dialog._meta_oauth_redirect_uri_edits
+    assert set(edits) == {'meta_facebook_page', 'meta_instagram', 'meta_threads'}
+
+    edits['meta_instagram'].setText('https://example.test/oauth/callback')
+    for provider, edit in edits.items():
+        assert edit.text() == 'https://example.test/oauth/callback', provider
+
+    dialog._save_and_close()
+    assert auth.get_meta_oauth_redirect_uri() == 'https://example.test/oauth/callback'
 
 
 def test_settings_dialog_meta_app_credentials_load_and_save(qtbot, tmp_path, monkeypatch):

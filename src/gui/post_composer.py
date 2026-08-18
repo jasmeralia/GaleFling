@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPalette, QPen, QPixmap
+from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.logger import get_logger
 from src.gui.emoji_picker import EmojiPickerButton
+from src.gui.icon_utils import tinted_icon
 from src.utils import tokens
 from src.utils.constants import (
     IMAGE_EXTENSIONS,
@@ -33,7 +34,7 @@ _COUNTER_RING_SIZE = 20
 
 
 def _icon(name: str) -> QIcon:
-    return QIcon(str(_UI_ICONS_DIR / name))
+    return tinted_icon(_UI_ICONS_DIR / name, tokens.TEXT_SECONDARY)
 
 
 def _pil_to_pixmap(img) -> QPixmap:
@@ -126,7 +127,9 @@ class _CounterWidget(QWidget):
         text_col.setSpacing(0)
 
         self._name_label = QLabel(platform_name)
-        self._name_label.setStyleSheet(f'color: {tokens.TEXT_MUTED}; font-size: 10px;')
+        self._name_label.setStyleSheet(
+            f'color: {tokens.TEXT_SECONDARY}; font-size: 11px; font-weight: 600;'
+        )
 
         self._count_label = QLabel()
         self._count_label.setStyleSheet(
@@ -230,7 +233,7 @@ class _MediaChip(QWidget):
             _MEDIA_CHIP_SIZE,
         )
         name_label.setText(elided)
-        name_label.setStyleSheet(f'color: {tokens.TEXT_MUTED}; font-size: 10px;')
+        name_label.setStyleSheet(f'color: {tokens.TEXT_SECONDARY}; font-size: 10px;')
         name_label.setToolTip(path.name)
         layout.addWidget(name_label)
 
@@ -287,20 +290,27 @@ class PostComposer(QWidget):
         self._text_label = QLabel('Post Text:')
         self._text_label.setStyleSheet('font-weight: bold; font-size: 13px; color: palette(text);')
         text_label_row.addWidget(self._text_label)
-        self._emoji_button = EmojiPickerButton()
-        self._emoji_button.clicked.connect(self._on_emoji_picker_opened)
-        self._emoji_button.emoji_selected.connect(self._on_emoji_selected)
-        text_label_row.addWidget(self._emoji_button)
         text_label_row.addStretch()
         layout.addLayout(text_label_row)
 
         # Text edit
         self._text_edit = QTextEdit()
         self._text_edit.setPlaceholderText("What's on your mind?")
+        self._text_edit.setStyleSheet('font-size: 15pt;')
         self._text_edit.setMinimumHeight(120)
         self._text_edit.setMaximumHeight(200)
         self._text_edit.textChanged.connect(self._on_text_changed)
         layout.addWidget(self._text_edit)
+
+        # Emoji picker — anchored below and to the right of the text box
+        emoji_row = QHBoxLayout()
+        emoji_row.addStretch()
+        self._emoji_button = EmojiPickerButton()
+        self._emoji_button.setToolTip('Insert emoji')
+        self._emoji_button.clicked.connect(self._on_emoji_picker_opened)
+        self._emoji_button.emoji_selected.connect(self._on_emoji_selected)
+        emoji_row.addWidget(self._emoji_button)
+        layout.addLayout(emoji_row)
 
         # Character counters — dynamic row
         self._counter_layout = QHBoxLayout()
@@ -327,15 +337,18 @@ class PostComposer(QWidget):
 
         img_row = QHBoxLayout()
         self._choose_btn = QPushButton('Add Media...')
+        self._choose_btn.setToolTip('Attach images or a video to this post')
         self._choose_btn.clicked.connect(self._choose_media)
         img_row.addWidget(self._choose_btn)
 
         self._preview_btn = QPushButton('Preview Media')
+        self._preview_btn.setToolTip('Preview how the attached media will look on each platform')
         self._preview_btn.setEnabled(False)
         self._preview_btn.clicked.connect(self.preview_requested.emit)
         img_row.addWidget(self._preview_btn)
 
         self._clear_btn = QPushButton('Clear All')
+        self._clear_btn.setToolTip('Remove all attached media')
         self._clear_btn.clicked.connect(self._clear_all_media)
         self._clear_btn.setEnabled(False)
         img_row.addWidget(self._clear_btn)
@@ -386,6 +399,9 @@ class PostComposer(QWidget):
         snapchat_multi_layout.setSpacing(6)
         snapchat_multi_layout.addWidget(QLabel('Snapchat multi-image handling:'))
         self._snapchat_multi_image_combo = QComboBox()
+        self._snapchat_multi_image_combo.setToolTip(
+            'Snapchat accepts only one image per post — choose how to handle multiple'
+        )
         self._snapchat_multi_image_combo.addItem('Use first image only', 'first')
         self._snapchat_multi_image_combo.addItem('Create slideshow video', 'slideshow')
         self._snapchat_multi_image_combo.currentIndexChanged.connect(
@@ -402,6 +418,9 @@ class PostComposer(QWidget):
         snapchat_mode_layout.setSpacing(6)
         snapchat_mode_layout.addWidget(QLabel('Snapchat landscape handling:'))
         self._snapchat_landscape_combo = QComboBox()
+        self._snapchat_landscape_combo.setToolTip(
+            'Snapchat expects vertical media — choose how to handle a landscape attachment'
+        )
         self._snapchat_landscape_combo.addItem('Crop to vertical', 'crop')
         self._snapchat_landscape_combo.addItem('Rotate to vertical', 'rotate')
         self._snapchat_landscape_combo.currentIndexChanged.connect(
@@ -420,8 +439,7 @@ class PostComposer(QWidget):
         self._update_counters()
 
     def _set_placeholder_style(self) -> None:
-        muted = self.palette().color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text).name()
-        self._placeholder_label.setStyleSheet(f'color: {muted}; padding: 4px;')
+        self._placeholder_label.setStyleSheet(f'color: {tokens.TEXT_SECONDARY}; padding: 4px;')
 
     def set_platform_state(self, selected: list[str], enabled: list[str]) -> None:
         self._selected_platforms = set(selected)

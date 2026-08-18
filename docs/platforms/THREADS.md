@@ -21,8 +21,8 @@ Before connecting a Threads account, you must have:
 
 ## Connecting an Account
 
-1. Open GaleFling and go to **Settings > Meta**.
-2. Under the **Threads** section, click **Connect** next to the account slot you want
+1. Open GaleFling and go to **Settings > Threads**.
+2. Under **Connected Accounts**, click **Connect** next to the account slot you want
    to fill (Account 1 or Account 2).
 3. GaleFling opens a browser window pointing to the Threads authorization page.
 4. Log in to Threads (if not already logged in) and tap **Allow** to grant GaleFling
@@ -159,9 +159,9 @@ a `TH-RATE-LIMIT` error.
 |---|---|
 | `Invalid platform app` on the authorization screen | The configured `app_id` is the app's top-level App ID. Use the **Threads App ID** from App settings > Basic. See [META_APPS.md](META_APPS.md#the-app-id-asymmetry). |
 | `Insufficient developer role` on the authorization screen | The Threads account has no accepted **Threads Tester** role on the app. A pending invitation is not enough — accept it at Threads > Account Settings > Website permissions > Invites. See [META_APPS.md](META_APPS.md#tester-roles-while-apps-are-in-development). |
-| Connect button is disabled | Enter app credentials in **Settings > Meta > App Credentials**, or import them via **Settings > Advanced > Import Credentials**. |
+| Connect button is disabled | Enter app credentials in **Settings > Threads > App Credentials**, or import them via **Settings > Advanced > Import Credentials**. |
 | "Re-authorize" prompt on a private profile | Your 60-day token has expired. Click **Re-authorize** and complete the connect flow again. This is expected for private Threads profiles. |
-| `TH-AUTH-EXPIRED` error when posting | Your token has expired. Go to **Settings > Meta** and reconnect the affected Threads account. |
+| `TH-AUTH-EXPIRED` error when posting | Your token has expired. Go to **Settings > Threads** and reconnect the affected account. |
 | `TH-AUTH-INVALID` error when posting | Your token may have been revoked (e.g. after a password change). Disconnect and reconnect the account. |
 | `TH-RATE-LIMIT` error when posting | You have hit the 250-posts-per-24-hours limit for this profile. Wait before posting again. |
 | `TH-POST-FAILED` error | The Threads API returned an unexpected error. Check that your media meets the format and size requirements above. |

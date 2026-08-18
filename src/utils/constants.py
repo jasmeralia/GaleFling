@@ -121,22 +121,6 @@ BLUESKY_SPECS = PlatformSpecs(
     max_media_attachments=4,
 )
 
-INSTAGRAM_SPECS = PlatformSpecs(
-    platform_name='Instagram',
-    max_image_dimensions=(1440, 1440),
-    max_file_size_mb=8.0,
-    supported_formats=['JPEG', 'PNG'],
-    max_text_length=2200,
-    platform_color='#E1306C',
-    api_type='graph_api',
-    auth_method='oauth2',
-    max_accounts=2,
-    supported_video_formats=['MP4'],
-    max_video_dimensions=(1920, 1080),
-    max_video_file_size_mb=100.0,
-    max_video_duration_seconds=60,
-)
-
 SNAPCHAT_SPECS = PlatformSpecs(
     platform_name='Snapchat',
     max_image_dimensions=(1080, 1920),
@@ -262,7 +246,7 @@ FETLIFE_SPECS = PlatformSpecs(
 )
 
 META_THREADS_API_SPECS = PlatformSpecs(
-    platform_name='Threads (API)',
+    platform_name='Threads',
     max_image_dimensions=(1440, 1440),
     max_file_size_mb=8.0,
     supported_formats=['JPEG', 'PNG'],
@@ -279,7 +263,7 @@ META_THREADS_API_SPECS = PlatformSpecs(
 )
 
 META_INSTAGRAM_API_SPECS = PlatformSpecs(
-    platform_name='Instagram (API)',
+    platform_name='Instagram',
     max_image_dimensions=(1440, 1440),
     max_file_size_mb=8.0,
     supported_formats=['JPEG', 'PNG'],

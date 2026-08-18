@@ -175,7 +175,7 @@ different integration for the whole product. Manual cleanup is the cheaper trade
 | Problem | Solution |
 |---|---|
 | `Invalid platform app` on the authorization screen | The `client_id` is the top-level Meta App ID. Use the **Instagram app ID** shown at the top of App Dashboard > Instagram > API setup with Instagram login — it is a different number from the app's top-level ID. See [META_APPS.md](META_APPS.md#the-app-id-asymmetry). |
-| Connect button is disabled | Enter app credentials in **Settings > Meta > App Credentials**, or import them via **Settings > Advanced > Import Credentials**. |
+| Connect button is disabled | Enter app credentials in **Settings > Instagram > App Credentials**, or import them via **Settings > Advanced > Import Credentials**. |
 | `Insufficient developer role` on the authorization screen | The Instagram account has no accepted **Instagram Tester** role on the app. A pending invitation is not enough — accept it at Instagram > Settings and privacy > Apps and websites > Tester invites. See [META_APPS.md](META_APPS.md#tester-roles-while-apps-are-in-development). |
 | "The callback URL or verify token couldn't be validated" | Something that is not a webhook endpoint was entered as the webhook Callback URL. See [Webhooks](#webhooks-not-required) — the step can be skipped entirely. |
 | `IG-AUTH-INVALID` | Token is wrong or lacks required permissions. Regenerate with correct scopes. |

@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.gui.icon_utils import tinted_icon
 from src.resources.emoji_categories import EMOJI_CATEGORIES
 from src.utils import tokens
 
@@ -78,7 +79,7 @@ _REGIONAL_INDICATORS = set(range(0x1F1E6, 0x1F200))
 
 
 def _icon(name: str) -> QIcon:
-    return QIcon(str(_UI_ICONS_DIR / name))
+    return tinted_icon(_UI_ICONS_DIR / name, tokens.TEXT_SECONDARY)
 
 
 class _EmojiEntry(NamedTuple):
@@ -312,7 +313,10 @@ class EmojiPickerButton(QToolButton):
         popup = EmojiPickerPopup(self._recent_emoji, EMOJI_DATA, self)
         popup.emoji_selected.connect(self._on_popup_emoji_selected)
         self._popup = popup
-        popup.move(self.mapToGlobal(QPoint(0, self.height())))
+        # Anchor the popup's right edge to the button's right edge, so it
+        # opens leftward instead of running off the window's right side.
+        anchor = self.mapToGlobal(QPoint(self.width(), self.height()))
+        popup.move(anchor.x() - popup.width(), anchor.y())
         popup.show()
 
     def _on_popup_emoji_selected(self, glyph: str) -> None:

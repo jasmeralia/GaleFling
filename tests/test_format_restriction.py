@@ -53,18 +53,19 @@ class TestFormatRestriction:
         cb = selector._checkboxes['bluesky_1']
         assert 'format' in cb.toolTip().lower()
 
-    def test_unrestricted_platforms_no_tooltip(self, selector):
-        """Unrestricted platforms should have no tooltip."""
+    def test_unrestricted_platforms_have_generic_tooltip(self, selector):
+        """Unrestricted platforms should have a normal toggle tooltip, not a restriction notice."""
         selector.set_format_restriction({'bluesky_1'}, GIF_NOTICE)
         cb = selector._checkboxes['twitter_1']
-        assert cb.toolTip() == ''
+        assert 'format' not in cb.toolTip().lower()
+        assert cb.toolTip() != ''
 
-    def test_clearing_restriction_clears_tooltip(self, selector):
-        """Clearing restriction should remove the tooltip."""
+    def test_clearing_restriction_clears_restriction_tooltip(self, selector):
+        """Clearing restriction should remove the restriction-specific tooltip wording."""
         selector.set_format_restriction({'bluesky_1'}, GIF_NOTICE)
         selector.set_format_restriction(set())
         cb = selector._checkboxes['bluesky_1']
-        assert cb.toolTip() == ''
+        assert 'format' not in cb.toolTip().lower()
 
     def test_restricted_platforms_styled_grey(self, selector):
         """Restricted platforms should be styled grey/italic."""

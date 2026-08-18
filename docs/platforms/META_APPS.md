@@ -39,9 +39,9 @@ top-level pair and a use-case-scoped pair. **Use the use-case-scoped pair.**
 Facebook is the exception that uses the top-level ID.
 
 Supplying a top-level App ID where a use-case-scoped one is required produces
-`Invalid platform app` at the authorization window. Enter the values in
-**Settings > Meta > App Credentials**, or import them all at once via
-**Settings > Advanced > Import Credentials**:
+`Invalid platform app` at the authorization window. Enter the values in each
+platform's own **Settings > Threads/Instagram/Facebook Page > App Credentials**
+page, or import them all at once via **Settings > Advanced > Import Credentials**:
 
 ```json
 {

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, QUrl
-from PyQt6.QtGui import QColor, QDesktopServices, QIcon, QPainter, QPalette, QPixmap
+from PyQt6.QtGui import QDesktopServices, QPalette, QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 from src.core.auth_manager import AuthManager
 from src.core.credential_importer import import_credentials
 from src.core.logger import get_logger
+from src.gui.icon_utils import tinted_pixmap
 from src.platforms.base_webview import BaseWebViewPlatform
 from src.platforms.bluesky import BlueskyPlatform
 from src.platforms.fansly import FanslyPlatform
@@ -71,23 +72,7 @@ def _available_webview_platform_defs() -> list[tuple[str, str, str]]:
 
 def _load_check_pixmap(size: int = 16) -> QPixmap | None:
     """Load the done-step check icon, tinted SUCCESS, with graceful fallback."""
-    if not _CHECK_SVG_PATH.is_file():
-        return None
-    icon = QIcon(str(_CHECK_SVG_PATH))
-    if icon.isNull():
-        return None
-    base = icon.pixmap(size, size)
-    if base.isNull():
-        return None
-    tinted = QPixmap(base.size())
-    tinted.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(tinted)
-    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-    painter.drawPixmap(0, 0, base)
-    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-    painter.fillRect(tinted.rect(), QColor(tokens.SUCCESS))
-    painter.end()
-    return tinted
+    return tinted_pixmap(_CHECK_SVG_PATH, tokens.SUCCESS, size)
 
 
 class _StepRailItem(QWidget):

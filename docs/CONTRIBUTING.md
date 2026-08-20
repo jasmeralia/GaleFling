@@ -56,6 +56,18 @@ make installer
 
 If a `master` push does not include a fresh version, GitHub Actions automatically commits the next patch version before tagging and building.
 
+## README Screenshots
+
+`docs/images/` holds the screenshots embedded in `README.md`. They're generated
+by `tools/screenshots/generate_readme_screenshots.py`, which drives the real
+GUI code offscreen against a throwaway, isolated config directory seeded with
+fake account handles — no real credentials or usernames are ever touched or
+displayed. Re-run it after UI changes that should be reflected in the README:
+
+```bash
+.venv/bin/python tools/screenshots/generate_readme_screenshots.py
+```
+
 ## Project Structure
 
 ```

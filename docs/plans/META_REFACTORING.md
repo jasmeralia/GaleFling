@@ -761,11 +761,16 @@ The following integration points must be updated before this plan is considered 
 - [ ] Ensure both route through the API (Tier 1) posting path, not WebView
 
 **Setup wizard (`src/gui/setup_wizard.py`):**
-- [ ] Add a Meta credentials import page (links to advanced settings JSON import or
-      provides inline credential entry) covering all three Meta providers
-- [ ] Add account connect steps for `meta_threads` (up to 2 accounts) and
-      `meta_facebook_page` (1 account) — mirrors the existing `InstagramSetupPage` pattern
-- [ ] Remove the legacy WebView Threads setup pages (`threads_1`, `threads_2`)
+- [x] Add a Meta credentials import page (links to advanced settings JSON import or
+      provides inline credential entry) covering all three Meta providers —
+      `CredentialImportPage`
+- [x] Add account connect steps for `meta_threads` (up to 2 accounts), `meta_instagram`
+      (up to 2 accounts), and `meta_facebook_page` (1 account) — all three now go
+      through the single `MetaApiSetupPage` OAuth connect flow. The original manual
+      access-token-entry `InstagramSetupPage` (a holdover from before the Instagram
+      OAuth connect flow existed) has been removed; Instagram uses the same
+      Connect-button flow as Threads and Facebook.
+- [x] Remove the legacy WebView Threads setup pages (`threads_1`, `threads_2`)
 
 **Settings dialog (`src/gui/settings_dialog.py`):**
 - [ ] Verify the Meta tab correctly reflects connected/disconnected state for

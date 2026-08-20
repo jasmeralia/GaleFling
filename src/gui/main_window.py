@@ -58,6 +58,7 @@ from src.platforms.meta_threads import MetaThreadsPlatform
 from src.platforms.onlyfans import OnlyFansPlatform
 from src.platforms.snapchat import SnapchatPlatform
 from src.platforms.twitter import TwitterPlatform
+from src.utils import tokens
 from src.utils.constants import (
     APP_NAME,
     APP_VERSION,
@@ -523,15 +524,20 @@ class MainWindow(QMainWindow):
         btn_layout.addStretch()
 
         primary_button_style = (
-            'QPushButton { background-color: #4CAF50; color: white; '
+            f'QPushButton {{ background-color: {tokens.SUCCESS}; color: {tokens.CANVAS}; '
             'font-weight: bold; font-size: 14px; padding: 8px 24px; '
-            'border-radius: 4px; }'
-            'QPushButton:hover { background-color: #45a049; }'
-            'QPushButton:disabled { background-color: #ccc; color: #888; }'
+            'border-radius: 4px; border: none; }'
+            f'QPushButton:hover {{ background-color: {tokens.darken(tokens.SUCCESS, 0.85)}; }}'
+            f'QPushButton:pressed {{ background-color: {tokens.darken(tokens.SUCCESS, 0.7)}; }}'
+            f'QPushButton:disabled {{ background-color: {tokens.SURFACE_RAISED}; '
+            f'color: {tokens.TEXT_MUTED}; }}'
         )
 
         self._test_btn = QPushButton('Test Connections')
         self._test_btn.setStyleSheet(primary_button_style)
+        self._test_btn.setToolTip(
+            'Verify each enabled account can authenticate, without posting anything'
+        )
         self._test_btn.clicked.connect(self._test_connections)
         btn_layout.addWidget(self._test_btn)
 
@@ -539,6 +545,7 @@ class MainWindow(QMainWindow):
 
         self._post_btn = QPushButton('Post Now')
         self._post_btn.setStyleSheet(primary_button_style)
+        self._post_btn.setToolTip('Publish this post to every enabled platform')
         self._post_btn.clicked.connect(self._do_post)
         btn_layout.addWidget(self._post_btn)
 

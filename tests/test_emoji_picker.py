@@ -1,6 +1,7 @@
 """Tests for the searchable emoji picker widgets."""
 
 from emoji import EMOJI_DATA
+from PyQt6.QtCore import QPoint
 
 from src.gui.emoji_picker import EmojiPickerButton, EmojiPickerPopup
 
@@ -96,3 +97,27 @@ def test_recent_emoji_round_trip_mru_dedup_and_cap(qtbot):
         *recent[6:23],
     ]
     assert len(button.get_recent_emoji()) == 24
+
+
+def test_popup_opens_leftward_from_the_button(qtbot):
+    """The popup is much wider than the button — anchoring its left edge to
+    the button's left edge (as opposed to its right edge) would run it off
+    the window/screen's right side instead of opening toward open space."""
+    button = EmojiPickerButton()
+    qtbot.addWidget(button)
+    button.move(500, 500)
+    button.show()
+    qtbot.waitExposed(button)
+
+    button._show_popup()
+    popup = button._popup
+    qtbot.addWidget(popup)
+
+    button_left_edge = button.mapToGlobal(QPoint(0, 0)).x()
+    button_right_edge = button.mapToGlobal(QPoint(button.width(), 0)).x()
+
+    # A few pixels of slop is tolerated (observed under offscreen + coverage
+    # instrumentation), but it must clearly open toward negative x (left),
+    # not extend rightward from the button.
+    assert abs((popup.x() + popup.width()) - button_right_edge) <= 5
+    assert popup.x() < button_left_edge

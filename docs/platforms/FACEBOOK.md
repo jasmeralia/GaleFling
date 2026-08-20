@@ -22,8 +22,8 @@ Before connecting a Facebook Page, you must have:
 
 ## Connecting a Facebook Page
 
-1. Open GaleFling and go to **Settings > Meta**.
-2. Under the **Facebook Page** section, click **Connect**.
+1. Open GaleFling and go to **Settings > Facebook Page**.
+2. Under **Connected Accounts**, click **Connect**.
 3. GaleFling opens a browser window pointing to the Facebook Login for Business
    authorization page.
 4. Log in to Facebook (if not already logged in) and grant the requested permissions
@@ -144,9 +144,9 @@ before retrying.
 | Problem | Solution |
 |---|---|
 | `Invalid Scopes: <name>` on the authorization screen | A requested permission, or one of its documented dependencies, is unavailable to the app. Meta names the dependency even when the request did not contain it. See [Required Permissions](#required-permissions) above and [META_APPS.md](META_APPS.md#scopes-request-only-what-is-used). |
-| Connect button is disabled | Enter app credentials in **Settings > Meta > App Credentials**, or import them via **Settings > Advanced > Import Credentials**. |
+| Connect button is disabled | Enter app credentials in **Settings > Facebook Page > App Credentials**, or import them via **Settings > Advanced > Import Credentials**. |
 | Page list is empty after authorizing | Your Facebook account may not administer any Pages, or the Page is in a restricted or deactivated state — a deactivated Page must be reactivated before it appears. Verify Page admin access in Facebook. |
-| `FB-AUTH-EXPIRED` error when posting | Your Page token was invalidated (password change or permission revocation). Go to **Settings > Meta** and reconnect the Facebook Page. |
+| `FB-AUTH-EXPIRED` error when posting | Your Page token was invalidated (password change or permission revocation). Go to **Settings > Facebook Page** and reconnect. |
 | `FB-AUTH-INVALID` error when posting | The token or Page ID is incorrect. Disconnect and reconnect. |
 | `FB-RATE-LIMIT` error when posting | Facebook rate limited the request. Wait a few minutes and try again. |
 | `FB-POST-FAILED` error | The Facebook API returned an unexpected error. Check that the Page is active and not restricted. |

@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPen
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -27,29 +27,55 @@ _PLATFORM_ICON_ALIASES: dict[str, str] = {
     'meta_facebook_page': 'facebook',
 }
 
-_TOGGLE_STYLE = f"""
-QCheckBox {{
-    spacing: 0;
-}}
-QCheckBox::indicator {{
-    width: 36px;
-    height: 20px;
-    border-radius: 10px;
-    background-color: {tokens.SURFACE_INSET};
-    border: 1px solid {tokens.BORDER};
-}}
-QCheckBox::indicator:hover {{
-    border-color: {tokens.ACCENT};
-}}
-QCheckBox::indicator:checked {{
-    background-color: {tokens.ACCENT};
-    border-color: {tokens.ACCENT};
-}}
-QCheckBox::indicator:disabled {{
-    background-color: {tokens.SURFACE};
-    border-color: {tokens.BORDER};
-}}
-"""
+
+class _ToggleSwitch(QCheckBox):
+    """A checkbox painted as a track-and-knob switch instead of a native indicator.
+
+    QSS alone can't move a knob between two positions, and a plain colored
+    pill (no knob at all) reads as a button rather than a toggle. This paints
+    both explicitly so on/off is unambiguous at a glance.
+    """
+
+    _WIDTH = 40
+    _HEIGHT = 22
+    _MARGIN = 3
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(self._WIDTH, self._HEIGHT)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def paintEvent(self, _event) -> None:  # noqa: N802 (Qt override)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        checked = self.isChecked()
+        if not self.isEnabled():
+            track_color = QColor(tokens.SURFACE)
+            border_color = QColor(tokens.BORDER)
+            knob_color = QColor(tokens.TEXT_MUTED)
+        elif checked:
+            track_color = QColor(tokens.ACCENT)
+            border_color = QColor(tokens.ACCENT)
+            knob_color = QColor(tokens.CANVAS)
+        else:
+            track_color = QColor(tokens.SURFACE_INSET)
+            border_color = QColor(tokens.TEXT_SECONDARY)
+            knob_color = QColor(tokens.TEXT_SECONDARY)
+
+        track_rect = QRectF(0.5, 0.5, self._WIDTH - 1, self._HEIGHT - 1)
+        painter.setPen(QPen(border_color, 1))
+        painter.setBrush(track_color)
+        radius = track_rect.height() / 2
+        painter.drawRoundedRect(track_rect, radius, radius)
+
+        knob_diameter = self._HEIGHT - 2 * self._MARGIN
+        knob_x = float(self._WIDTH - self._MARGIN - knob_diameter if checked else self._MARGIN)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(knob_color)
+        painter.drawEllipse(QRectF(knob_x, self._MARGIN, knob_diameter, knob_diameter))
+
+        painter.end()
 
 
 @dataclass
@@ -125,6 +151,7 @@ class PlatformSelector(QWidget):
     def _build_account_row(self, account: AccountConfig) -> _AccountRowWidgets:
         specs = PLATFORM_SPECS_MAP.get(account.platform_id)
         color = specs.platform_color if specs else tokens.TEXT
+        text_color = tokens.legible_accent(color)
 
         label_text = self._format_account_label(account)
         self._labels[account.account_id] = label_text
@@ -155,11 +182,13 @@ class PlatformSelector(QWidget):
 
         name_label = QLabel(platform_name)
         name_label.setObjectName('platformName')
-        name_label.setStyleSheet(f'font-size: 13px; font-weight: bold; color: {color};')
+        name_label.setStyleSheet(f'font-size: 13px; font-weight: bold; color: {text_color};')
 
         handle_label = QLabel(handle_text)
         handle_label.setObjectName('platformHandle')
-        handle_label.setStyleSheet(f'font-size: 12px; color: {tokens.TEXT_MUTED};')
+        handle_label.setStyleSheet(
+            f'font-size: 12px; font-weight: 600; color: {tokens.TEXT_SECONDARY};'
+        )
         handle_label.setVisible(bool(handle_text))
 
         labels_layout.addWidget(name_label)
@@ -171,9 +200,8 @@ class PlatformSelector(QWidget):
         status_pill.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         row_layout.addWidget(status_pill)
 
-        toggle = QCheckBox('')
+        toggle = _ToggleSwitch()
         toggle.setChecked(account.enabled)
-        toggle.setStyleSheet(_TOGGLE_STYLE)
         toggle.clicked.connect(
             lambda _checked, aid=account.account_id: self._on_checkbox_clicked(aid)
         )
@@ -340,6 +368,7 @@ class PlatformSelector(QWidget):
         account = self._get_account(account_id)
         specs = PLATFORM_SPECS_MAP.get(account.platform_id if account else '')
         color = specs.platform_color if specs else tokens.TEXT
+        text_color = tokens.legible_accent(color)
 
         if account_id in self._format_restricted:
             row.name_label.setStyleSheet(
@@ -347,7 +376,7 @@ class PlatformSelector(QWidget):
                 ' font-style: italic;'
             )
             row.handle_label.setStyleSheet(
-                f'font-size: 12px; color: {tokens.TEXT_MUTED}; font-style: italic;'
+                f'font-size: 12px; font-weight: 600; color: {tokens.TEXT_SECONDARY}; font-style: italic;'
             )
             row.status_pill.setText('Restricted')
             row.status_pill.setStyleSheet(self._status_pill_style(tokens.WARNING))
@@ -358,33 +387,38 @@ class PlatformSelector(QWidget):
                 ' font-style: italic;'
             )
             row.handle_label.setStyleSheet(
-                f'font-size: 12px; color: {tokens.TEXT_MUTED}; font-style: italic;'
+                f'font-size: 12px; font-weight: 600; color: {tokens.TEXT_SECONDARY}; font-style: italic;'
             )
             row.status_pill.setText('Restricted')
             row.status_pill.setStyleSheet(self._status_pill_style(tokens.WARNING))
             cb.setToolTip('Too many attachments for this platform.')
         elif account_id in self._available:
-            row.name_label.setStyleSheet(f'font-size: 13px; font-weight: bold; color: {color};')
-            row.handle_label.setStyleSheet(f'font-size: 12px; color: {tokens.TEXT_MUTED};')
-            row.status_pill.setText('Ready')
-            row.status_pill.setStyleSheet(self._status_pill_style(tokens.SUCCESS))
-            cb.setToolTip('')
-        else:
             row.name_label.setStyleSheet(
-                f'font-size: 13px; font-weight: bold; color: {color}; font-style: italic;'
+                f'font-size: 13px; font-weight: bold; color: {text_color};'
             )
             row.handle_label.setStyleSheet(
-                f'font-size: 12px; color: {tokens.TEXT_MUTED}; font-style: italic;'
+                f'font-size: 12px; font-weight: 600; color: {tokens.TEXT_SECONDARY};'
+            )
+            row.status_pill.setText('Ready')
+            row.status_pill.setStyleSheet(self._status_pill_style(tokens.SUCCESS))
+            cb.setToolTip(f'Include {row.name_label.text()} when posting')
+        else:
+            row.name_label.setStyleSheet(
+                f'font-size: 13px; font-weight: bold; color: {text_color}; font-style: italic;'
+            )
+            row.handle_label.setStyleSheet(
+                f'font-size: 12px; font-weight: 600; color: {tokens.TEXT_SECONDARY}; font-style: italic;'
             )
             row.status_pill.setText('Unavailable')
             row.status_pill.setStyleSheet(self._status_pill_style(tokens.TEXT_MUTED))
-            cb.setToolTip('')
+            cb.setToolTip(f'{row.name_label.text()} is not connected — set it up in Settings.')
 
     @staticmethod
     def _status_pill_style(color: str) -> str:
         return (
             f'color: {color}; border: 1px solid {color}; border-radius: 10px;'
-            f' padding: 2px 8px; font-size: 11px; background-color: transparent;'
+            f' padding: 2px 10px; font-size: 12px; font-weight: 600;'
+            f' background-color: {tokens.with_alpha(color, 0.16)};'
         )
 
     @staticmethod

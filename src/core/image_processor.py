@@ -455,23 +455,3 @@ def process_image(
             },
         )
         raise
-
-
-def generate_thumbnail(image_path: Path, max_size: int = 400) -> Path | None:
-    """Generate a thumbnail for preview display."""
-    try:
-        img: Image.Image = Image.open(image_path)
-        img.thumbnail((max_size, max_size), Resampling.LANCZOS)
-        with tempfile.NamedTemporaryFile(suffix='_thumb.png', delete=False) as tmp:
-            img.save(tmp.name, 'PNG')
-            get_logger().info(
-                'Thumbnail generated',
-                extra={'input_path': str(image_path), 'output_path': tmp.name},
-            )
-            return Path(tmp.name)
-    except Exception as e:
-        get_logger().exception(
-            'Thumbnail generation failed',
-            extra={'image_path': str(image_path), 'error': str(e)},
-        )
-        return None

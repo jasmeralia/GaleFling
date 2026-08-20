@@ -136,7 +136,19 @@ class SettingsDialog(QDialog):
         self._add_sidebar_group('Accounts')
         self._add_sidebar_page('Twitter', 'icons/brands/twitter.svg', self._create_twitter_tab())
         self._add_sidebar_page('Bluesky', 'icons/brands/bluesky.svg', self._create_bluesky_tab())
-        self._add_sidebar_page('Meta', 'icons/brands/instagram.svg', self._create_meta_tab())
+
+        # Meta platforms each get their own sidebar page — they share app-credential
+        # and OAuth-relay machinery, but are otherwise independent accounts.
+        self._meta_provider_groups: dict[str, QGroupBox] = {}
+        self._meta_app_credential_edits: dict[str, dict[str, QLineEdit]] = {}
+        self._meta_oauth_redirect_uri_edits: dict[str, QLineEdit] = {}
+        for provider, display_name in self._META_APP_CREDENTIAL_PROVIDERS:
+            self._add_sidebar_page(
+                display_name,
+                f'icons/brands/{self._META_PROVIDER_ICONS[provider]}.svg',
+                self._create_meta_provider_tab(provider, display_name),
+            )
+        self._refresh_meta_status()
 
         self._webview_profile_edits: dict[str, QLineEdit] = {}
         for platform_id, specs in PLATFORM_SPECS_MAP.items():
@@ -385,93 +397,99 @@ class SettingsDialog(QDialog):
 
     # Meta provider config: (provider_id, display_name, max_accounts, account_ids)
     _META_PROVIDERS: list[tuple[str, str, int, list[str]]] = [
-        ('meta_threads', 'Threads', 2, ['meta_threads_1', 'meta_threads_2']),
-        ('meta_instagram', 'Instagram', 2, ['meta_instagram_1', 'meta_instagram_2']),
         ('meta_facebook_page', 'Facebook Page', 1, ['meta_facebook_page_1']),
+        ('meta_instagram', 'Instagram', 2, ['meta_instagram_1', 'meta_instagram_2']),
+        ('meta_threads', 'Threads', 2, ['meta_threads_1', 'meta_threads_2']),
     ]
     _META_APP_CREDENTIAL_PROVIDERS: list[tuple[str, str]] = [
-        ('meta_threads', 'Threads'),
-        ('meta_instagram', 'Instagram'),
-        ('meta_facebook_page', 'Facebook Page'),
+        (provider, display_name) for provider, display_name, _max, _ids in _META_PROVIDERS
     ]
+    _META_PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+        provider: display_name for provider, display_name, _max, _ids in _META_PROVIDERS
+    }
+    _META_PROVIDER_ICONS: dict[str, str] = {
+        'meta_facebook_page': 'facebook',
+        'meta_instagram': 'instagram',
+        'meta_threads': 'threads',
+    }
 
-    def _create_meta_tab(self) -> QScrollArea:
+    def _create_meta_provider_tab(self, provider: str, display_name: str) -> QScrollArea:
+        """Build one Meta platform's settings page (Facebook Page, Instagram, or Threads).
+
+        Each page manages its own connected accounts and app credentials, but shares
+        the single OAuth relay URI setting across all three — edits there stay synced.
+        """
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
 
         widget = QWidget()
-        self._meta_tab_widget = widget
         layout = QVBoxLayout(widget)
 
-        # Per-provider sections; populated by _refresh_meta_status
-        self._meta_provider_groups: dict[str, QGroupBox] = {}
-        for provider, display_name, _max, _ids in self._META_PROVIDERS:
-            group = QGroupBox(display_name)
-            layout.addWidget(group)
-            self._meta_provider_groups[provider] = group
+        # Connected accounts; populated by _refresh_meta_status
+        group = QGroupBox('Connected Accounts')
+        layout.addWidget(group)
+        self._meta_provider_groups[provider] = group
 
-        # App credentials — editable per provider without re-importing all platforms
-        app_creds_group = QGroupBox('App Credentials')
-        app_creds_layout = QVBoxLayout(app_creds_group)
-        app_creds_hint = QLabel(
-            '<i>App ID and App Secret for each Meta platform. You can also import all '
-            'credentials at once via Settings → Advanced → Import Credentials. See '
-            'docs/platforms/META_APPS.md for which App ID to use.</i>'
-        )
-        app_creds_hint.setWordWrap(True)
-        app_creds_layout.addWidget(app_creds_hint)
-
+        # App credentials — editable without re-importing all platforms
         get_app_cred_fns = {
             'meta_threads': self._auth_manager.get_meta_threads_app_credentials,
             'meta_instagram': self._auth_manager.get_meta_instagram_app_credentials,
             'meta_facebook_page': self._auth_manager.get_meta_facebook_app_credentials,
         }
-        self._meta_app_credential_edits: dict[str, dict[str, QLineEdit]] = {}
-        for provider, display_name in self._META_APP_CREDENTIAL_PROVIDERS:
-            section = QGroupBox(display_name)
-            section_layout = QFormLayout(section)
-            creds = get_app_cred_fns[provider]() or {}
-            app_id_edit = QLineEdit(creds.get('app_id', ''))
-            app_secret_edit = QLineEdit(creds.get('app_secret', ''))
-            app_secret_edit.setEchoMode(QLineEdit.EchoMode.Password)
-            section_layout.addRow('App ID:', app_id_edit)
-            section_layout.addRow('App Secret:', app_secret_edit)
-            clear_btn = QPushButton('Clear Credentials')
-            clear_btn.clicked.connect(
-                lambda _=False, p=provider, name=display_name: self._clear_meta_app_credentials(
-                    p, name
-                )
-            )
-            section_layout.addRow('', clear_btn)
-            self._meta_app_credential_edits[provider] = {
-                'app_id': app_id_edit,
-                'app_secret': app_secret_edit,
-            }
-            app_creds_layout.addWidget(section)
+        app_creds_group = QGroupBox('App Credentials')
+        app_creds_layout = QFormLayout(app_creds_group)
+        app_creds_hint = QLabel(
+            f'<i>App ID and App Secret for {display_name}. You can also import all '
+            'credentials at once via Settings → Advanced → Import Credentials. See '
+            'docs/platforms/META_APPS.md for which App ID to use.</i>'
+        )
+        app_creds_hint.setWordWrap(True)
+        app_creds_layout.addRow(app_creds_hint)
+        creds = get_app_cred_fns[provider]() or {}
+        app_id_edit = QLineEdit(creds.get('app_id', ''))
+        app_secret_edit = QLineEdit(creds.get('app_secret', ''))
+        app_secret_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        app_creds_layout.addRow('App ID:', app_id_edit)
+        app_creds_layout.addRow('App Secret:', app_secret_edit)
+        clear_btn = QPushButton('Clear Credentials')
+        clear_btn.clicked.connect(
+            lambda _=False, p=provider, name=display_name: self._clear_meta_app_credentials(p, name)
+        )
+        app_creds_layout.addRow('', clear_btn)
+        self._meta_app_credential_edits[provider] = {
+            'app_id': app_id_edit,
+            'app_secret': app_secret_edit,
+        }
         layout.addWidget(app_creds_group)
 
-        # OAuth relay URI setting
+        # OAuth relay URI setting — shared by all three Meta platforms
         relay_group = QGroupBox('OAuth Relay')
         relay_layout = QFormLayout(relay_group)
         relay_hint = QLabel(
-            '<i>HTTPS redirect URI registered in each Meta app dashboard. '
-            'All three platforms share the same relay URL.</i>'
+            '<i>HTTPS redirect URI registered in each Meta app dashboard. Shared by '
+            'Facebook Page, Instagram, and Threads — editing it on any of their pages '
+            'updates it everywhere.</i>'
         )
         relay_hint.setWordWrap(True)
         relay_layout.addRow(relay_hint)
-        self._meta_oauth_redirect_uri_edit = QLineEdit(
-            self._auth_manager.get_meta_oauth_redirect_uri()
-        )
-        self._meta_oauth_redirect_uri_edit.setPlaceholderText(
-            'https://galefling.jasmer.tools/oauth/callback'
-        )
-        relay_layout.addRow('OAuth Redirect URI:', self._meta_oauth_redirect_uri_edit)
+        relay_edit = QLineEdit(self._auth_manager.get_meta_oauth_redirect_uri())
+        relay_edit.setPlaceholderText('https://galefling.jasmer.tools/oauth/callback')
+        relay_edit.textChanged.connect(self._sync_meta_relay_edits)
+        relay_layout.addRow('OAuth Redirect URI:', relay_edit)
+        self._meta_oauth_redirect_uri_edits[provider] = relay_edit
         layout.addWidget(relay_group)
 
         layout.addStretch()
         scroll.setWidget(widget)
-        self._refresh_meta_status()
         return scroll
+
+    def _sync_meta_relay_edits(self, text: str) -> None:
+        """Keep the OAuth relay URI field in sync across all three Meta pages."""
+        for edit in self._meta_oauth_redirect_uri_edits.values():
+            if edit.text() != text:
+                edit.blockSignals(True)
+                edit.setText(text)
+                edit.blockSignals(False)
 
     def _clear_meta_app_credentials(self, provider: str, display_name: str) -> None:
         reply = QMessageBox.question(
@@ -488,7 +506,7 @@ class SettingsDialog(QDialog):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        get_logger().info(f'User selected Settings > Meta > Clear {display_name} App Credentials')
+        get_logger().info(f'User selected Settings > {display_name} > Clear App Credentials')
         clear_fns = {
             'meta_threads': self._auth_manager.clear_meta_threads_app_credentials,
             'meta_instagram': self._auth_manager.clear_meta_instagram_app_credentials,
@@ -622,20 +640,24 @@ class SettingsDialog(QDialog):
         from src.core.meta_oauth import MetaOAuthFlow
         from src.gui.meta_connect_dialog import MetaConnectDialog
 
-        get_logger().info(f'User selected Settings > Meta > Connect {provider}')
+        display_name = self._META_PROVIDER_DISPLAY_NAMES.get(provider, 'Meta')
+        get_logger().info(f'User selected Settings > {display_name} > Connect {provider}')
         flow = MetaOAuthFlow(provider, app_creds['app_id'], app_creds['app_secret'])
         dlg = MetaConnectDialog(provider, flow, account_id, self._auth_manager, parent=self)
         dlg.exec()
         self._refresh_meta_status()
 
     def _disconnect_meta_account(self, account_id: str) -> None:
-        get_logger().info(f'User selected Settings > Meta > Disconnect {account_id}')
+        provider = account_id.rsplit('_', 1)[0]
+        display_name = self._META_PROVIDER_DISPLAY_NAMES.get(provider, 'Meta')
+        get_logger().info(f'User selected Settings > {display_name} > Disconnect {account_id}')
         self._auth_manager.remove_account(account_id)
         self._auth_manager.clear_account_credentials(account_id)
         self._refresh_meta_status()
 
     def _test_meta_account_connection(self, account_id: str, provider_id: str) -> None:
-        get_logger().info(f'User selected Settings > Meta > Test Connection {account_id}')
+        display_name = self._META_PROVIDER_DISPLAY_NAMES.get(provider_id, 'Meta')
+        get_logger().info(f'User selected Settings > {display_name} > Test Connection {account_id}')
         account = self._auth_manager.get_account(account_id)
         profile_name = account.profile_name if account else ''
         platform: MetaThreadsPlatform | MetaInstagramPlatform | MetaFacebookPagePlatform
@@ -1054,8 +1076,8 @@ class SettingsDialog(QDialog):
                     )
                 )
 
-        # Meta — OAuth relay redirect URI
-        meta_relay_uri = self._meta_oauth_redirect_uri_edit.text().strip()
+        # Meta — OAuth relay redirect URI (synced across all three provider pages)
+        meta_relay_uri = next(iter(self._meta_oauth_redirect_uri_edits.values())).text().strip()
         if meta_relay_uri:
             self._auth_manager.save_meta_oauth_redirect_uri(meta_relay_uri)
 

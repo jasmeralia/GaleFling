@@ -4,7 +4,6 @@ import pytest
 from PIL import Image
 
 from src.core.image_processor import (
-    generate_thumbnail,
     process_image,
     validate_image,
 )
@@ -104,18 +103,3 @@ class TestProcessImage:
         assert result.meets_requirements
         assert result.format == 'PNG'
         assert result.path.suffix == '.png'
-
-
-class TestGenerateThumbnail:
-    def test_creates_thumbnail(self, small_jpeg):
-        thumb = generate_thumbnail(small_jpeg, max_size=50)
-        assert thumb is not None
-        assert thumb.exists()
-        img = Image.open(thumb)
-        assert img.size[0] <= 50
-        assert img.size[1] <= 50
-
-    def test_returns_none_for_invalid(self, tmp_path):
-        bad = tmp_path / 'bad.jpg'
-        bad.write_bytes(b'not an image')
-        assert generate_thumbnail(bad) is None

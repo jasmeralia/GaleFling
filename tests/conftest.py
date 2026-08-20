@@ -1,5 +1,28 @@
 import os
 import sys
+import tempfile
+
+import pytest
+
+
+@pytest.fixture(autouse=True, scope='session')
+def _redirect_ad_hoc_tempfile_dir(tmp_path_factory):
+    """Redirect tempfile.NamedTemporaryFile()/mkstemp() (no explicit dir=) into
+    pytest's own managed temp area for the whole session.
+
+    Several production code paths (image_processor.py, video_processor.py)
+    create real images/videos via `tempfile.NamedTemporaryFile(delete=False)`
+    without an explicit `dir=`, so they land in the shared OS temp dir where
+    nothing ever cleans them up — unlike pytest's own `tmp_path`, which is
+    rotated automatically (last 3 runs kept). Setting `tempfile.tempdir`
+    redirects any such call for the rest of the process into a location
+    pytest already manages, without touching the calling code.
+    """
+    shared_dir = tmp_path_factory.mktemp('shared_tempfile_dir', numbered=False)
+    original = tempfile.tempdir
+    tempfile.tempdir = str(shared_dir)
+    yield
+    tempfile.tempdir = original
 
 
 def pytest_configure():

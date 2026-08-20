@@ -463,6 +463,9 @@ class VideoPreviewTab(QWidget):
     def _on_preview_ready(self, result: dict):
         """Handle video processing completion."""
         if self._shutting_down:
+            stale_thumb: Path | None = result.get('thumbnail')
+            if stale_thumb:
+                stale_thumb.unlink(missing_ok=True)
             return
         from src.core.video_processor import ProcessedVideo
 
@@ -475,6 +478,7 @@ class VideoPreviewTab(QWidget):
             # Fallback preview when QtMultimedia backend is unavailable
             if thumb_path and thumb_path.exists():
                 self._set_preview_pixmap(QPixmap(str(thumb_path)))
+                thumb_path.unlink(missing_ok=True)
             else:
                 self._preview_label.setText('(no thumbnail available)')
 
@@ -553,6 +557,7 @@ class VideoPreviewTab(QWidget):
             thumb = extract_thumbnail(self._cached_path)
             if thumb and thumb.exists():
                 self._set_preview_pixmap(QPixmap(str(thumb)))
+                thumb.unlink(missing_ok=True)
             else:
                 self._preview_label.setText('(cached video)')
         proc_size = _format_size(self._cached_path.stat().st_size)

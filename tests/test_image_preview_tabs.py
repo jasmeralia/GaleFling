@@ -576,6 +576,56 @@ def test_video_preview_tab_load_cached_fallback_text(qtbot, tmp_path, monkeypatc
     assert tab._progress.value() == 100
 
 
+def test_video_preview_tab_load_cached_deletes_thumbnail_after_use(qtbot, tmp_path, monkeypatch):
+    """The extracted thumbnail is only ever needed to build the QPixmap — it
+    must not be left behind once that's done (see CHANGELOG for the leak)."""
+    video = tmp_path / 'cached.mp4'
+    video.write_bytes(b'mp4')
+    thumb = tmp_path / 'cached_vthumb.png'
+    thumb.write_bytes(b'not a real png, existence is all that is checked')
+    tab = VideoPreviewTab(video, SNAPCHAT_SPECS, cached_path=video)
+    qtbot.addWidget(tab)
+
+    monkeypatch.setattr(tab, '_load_video_source', lambda _path: False)
+    monkeypatch.setattr('src.core.video_processor.extract_thumbnail', lambda *_a, **_k: thumb)
+
+    tab.load_preview()
+
+    assert not thumb.exists()
+
+
+def test_video_preview_tab_on_preview_ready_deletes_thumbnail_after_use(qtbot, tmp_path):
+    video = tmp_path / 'input.mp4'
+    video.write_bytes(b'mp4')
+    thumb = tmp_path / 'input_vthumb.png'
+    thumb.write_bytes(b'not a real png, existence is all that is checked')
+    processed = ProcessedVideo(
+        path=video,
+        original_info=_make_video_info(),
+        processed_info=_make_video_info(),
+        meets_requirements=True,
+    )
+    tab = VideoPreviewTab(video, SNAPCHAT_SPECS)
+    qtbot.addWidget(tab)
+
+    tab._load_video_source = lambda _path: False  # no QtMultimedia backend
+    tab._on_preview_ready({'processed': processed, 'thumbnail': thumb})
+
+    assert not thumb.exists()
+
+
+def test_video_preview_tab_on_preview_ready_shutting_down_cleans_up_thumbnail(qtbot, tmp_path):
+    thumb = tmp_path / 'input_vthumb.png'
+    thumb.write_bytes(b'not a real png, existence is all that is checked')
+    tab = VideoPreviewTab(tmp_path / 'input.mp4', SNAPCHAT_SPECS)
+    qtbot.addWidget(tab)
+
+    tab._shutting_down = True
+    tab._on_preview_ready({'processed': None, 'thumbnail': thumb})
+
+    assert not thumb.exists()
+
+
 def test_video_preview_tab_media_controls_and_shutdown_with_fake_multimedia(
     qtbot, tmp_path, monkeypatch
 ):

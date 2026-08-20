@@ -799,6 +799,7 @@ def process_video(
 def extract_thumbnail(video_path: Path, max_size: int = 400) -> Path | None:
     """Extract the first frame from a video as a PNG thumbnail."""
     logger = get_logger()
+    thumb_path: Path | None = None
     try:
         ffmpeg = get_ffmpeg_path()
         with tempfile.NamedTemporaryFile(suffix='_vthumb.png', delete=False) as tmp:
@@ -837,4 +838,6 @@ def extract_thumbnail(video_path: Path, max_size: int = 400) -> Path | None:
             'Video thumbnail extraction failed',
             extra={'video_path': str(video_path), 'error': str(exc)},
         )
+        if thumb_path is not None:
+            thumb_path.unlink(missing_ok=True)
         return None

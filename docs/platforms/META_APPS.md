@@ -54,6 +54,12 @@ page, or import them all at once via **Settings > Advanced > Import Credentials*
 }
 ```
 
+Before importing, check a credential file against what's already stored with
+`tools/validate_import_file.py path/to/creds_import.json` — it's read-only
+(never calls the real importer, never writes anything) and reports per-field
+match/differ/new/empty status without ever printing a credential value, so
+its output is safe to paste anywhere.
+
 ## Redirect URIs are per use case
 
 The relay URL must be registered separately for each app, and **not** in the

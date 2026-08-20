@@ -25,6 +25,9 @@ class DummyAuthManager:
     def get_meta_threads_app_credentials(self):
         return None
 
+    def get_meta_instagram_app_credentials(self):
+        return None
+
     def get_meta_facebook_app_credentials(self):
         return None
 

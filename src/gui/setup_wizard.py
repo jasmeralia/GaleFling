@@ -54,7 +54,6 @@ _FIXED_WIZARD_STEP_LABELS: list[str] = [
     'Credentials',
     'Twitter',
     'Bluesky',
-    'Instagram',
     'Meta',
 ]
 
@@ -678,93 +677,21 @@ class BlueskySetupPage(QWizardPage):
         return True
 
 
-class InstagramSetupPage(QWizardPage):
-    """Instagram API credentials setup (Instagram Login path)."""
-
-    def __init__(self, auth_manager: AuthManager, parent=None):
-        super().__init__(parent)
-        self._auth_manager = auth_manager
-        self.setAutoFillBackground(True)
-
-        self.setTitle('Setup - Instagram')
-        self.setSubTitle('Instagram API (requires a Professional/Creator account)')
-
-        layout = QVBoxLayout(self)
-
-        info = QLabel(
-            'Instagram posting uses the Instagram Login path. You will need:<br>'
-            '<ul>'
-            '<li>A long-lived Instagram user access token</li>'
-            '<li>Your Instagram User ID (numeric)</li>'
-            '</ul>'
-            "<i>Skip this step if you don't have an Instagram Professional account.</i>"
-        )
-        info.setOpenExternalLinks(True)
-        info.setWordWrap(True)
-        layout.addWidget(info)
-        layout.addSpacing(8)
-
-        form = QFormLayout()
-
-        self._profile_name = QLineEdit()
-        self._profile_name.setPlaceholderText('e.g. rinthemodel')
-        form.addRow('Profile Name:', self._profile_name)
-
-        self._access_token = QLineEdit()
-        self._access_token.setEchoMode(QLineEdit.EchoMode.Password)
-        self._access_token.setPlaceholderText('Long-lived access token')
-        form.addRow('Access Token:', self._access_token)
-
-        self._user_id = QLineEdit()
-        self._user_id.setPlaceholderText('e.g. 17841400000')
-        form.addRow('IG User ID:', self._user_id)
-
-        layout.addLayout(form)
-        layout.addStretch()
-
-        # Pre-fill
-        existing = self._auth_manager.get_account_credentials('meta_instagram_1')
-        if existing:
-            self._profile_name.setText(existing.get('profile_name', ''))
-            self._access_token.setText(existing.get('access_token', ''))
-            self._user_id.setText(existing.get('user_id', ''))
-
-    def validatePage(self) -> bool:  # noqa: N802
-        token = self._access_token.text().strip()
-        uid = self._user_id.text().strip()
-        name = self._profile_name.text().strip()
-
-        if token and uid:
-            self._auth_manager.save_account_credentials(
-                'meta_instagram_1',
-                {
-                    'access_token': token,
-                    'user_id': uid,
-                    'profile_name': name,
-                },
-            )
-            self._auth_manager.add_account(
-                AccountConfig(
-                    platform_id='meta_instagram',
-                    account_id='meta_instagram_1',
-                    profile_name=name,
-                )
-            )
-        return True
-
-
 class MetaApiSetupPage(QWizardPage):
-    """Meta API accounts setup page (Threads and Facebook Page).
+    """Meta API accounts setup page (Threads, Instagram, and Facebook Page).
 
-    Allows connecting up to two Threads accounts and one Facebook Page account
-    via the MetaConnectDialog OAuth flow.  Requires app credentials to have been
-    imported first via Settings → Advanced → Import Credentials from JSON.
+    Allows connecting up to two Threads accounts, up to two Instagram accounts,
+    and one Facebook Page account via the MetaConnectDialog OAuth flow. Requires
+    app credentials to have been imported first via Settings → Advanced →
+    Import Credentials from JSON.
     """
 
     # (provider_id, display_name, account_id)
     _ACCOUNT_DEFS = [
         ('meta_threads', 'Threads Account 1', 'meta_threads_1'),
         ('meta_threads', 'Threads Account 2', 'meta_threads_2'),
+        ('meta_instagram', 'Instagram Account 1', 'meta_instagram_1'),
+        ('meta_instagram', 'Instagram Account 2', 'meta_instagram_2'),
         ('meta_facebook_page', 'Facebook Page', 'meta_facebook_page_1'),
     ]
 
@@ -773,13 +700,14 @@ class MetaApiSetupPage(QWizardPage):
         self._auth_manager = auth_manager
         self.setAutoFillBackground(True)
 
-        self.setTitle('Setup - Meta (Threads & Facebook Page)')
-        self.setSubTitle('Connect Threads and Facebook Page accounts via Meta OAuth')
+        self.setTitle('Setup - Meta (Threads, Instagram & Facebook Page)')
+        self.setSubTitle('Connect Threads, Instagram, and Facebook Page accounts via Meta OAuth')
 
         layout = QVBoxLayout(self)
 
         info = QLabel(
-            '<b>Threads</b> and <b>Facebook Page</b> posting require Meta app credentials.<br>'
+            '<b>Threads</b>, <b>Instagram</b>, and <b>Facebook Page</b> posting require '
+            'Meta app credentials.<br>'
             'Import them via <i>Settings → Advanced → Import Credentials from JSON</i>.<br>'
             'Once imported, use the buttons below to connect accounts.<br><br>'
             '<i>You can skip this step and connect accounts later from Settings → Meta.</i>'
@@ -822,6 +750,8 @@ class MetaApiSetupPage(QWizardPage):
     def _get_app_creds(self, provider_id: str) -> dict | None:
         if provider_id == 'meta_threads':
             return self._auth_manager.get_meta_threads_app_credentials()
+        if provider_id == 'meta_instagram':
+            return self._auth_manager.get_meta_instagram_app_credentials()
         if provider_id == 'meta_facebook_page':
             return self._auth_manager.get_meta_facebook_app_credentials()
         return None
@@ -1224,10 +1154,8 @@ class SetupWizard(QWizard):
         steps.append((_FIXED_WIZARD_STEP_LABELS[2], page_id))
         page_id = self.addPage(BlueskySetupPage(auth_manager))
         steps.append((_FIXED_WIZARD_STEP_LABELS[3], page_id))
-        page_id = self.addPage(InstagramSetupPage(auth_manager))
-        steps.append((_FIXED_WIZARD_STEP_LABELS[4], page_id))
         page_id = self.addPage(MetaApiSetupPage(auth_manager))
-        steps.append((_FIXED_WIZARD_STEP_LABELS[5], page_id))
+        steps.append((_FIXED_WIZARD_STEP_LABELS[4], page_id))
 
         for platform_id, platform_name, account_id in _available_webview_platform_defs():
             page_id = self.addPage(

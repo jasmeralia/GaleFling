@@ -1,142 +1,122 @@
 # Instagram Setup Guide
 
-GaleFling posts to Instagram using the Facebook Graph API. This requires a **Business** or **Creator** Instagram account linked to a Facebook Page. Personal Instagram accounts are not supported by Meta's API.
+GaleFling posts to Instagram using the **Instagram Platform Content Publishing API**
+(Instagram Login path, `https://graph.instagram.com/`). Authentication is handled via
+Instagram OAuth, which produces a long-lived Instagram user access token stored securely
+in the system credential store.
+
+GaleFling supports **up to 2 Instagram accounts**.
 
 ## Prerequisites
 
-Before you begin, make sure you have:
+Before connecting an Instagram account, you must have:
 
-1. An Instagram account converted to a **Business** or **Creator** account.
-2. A **Facebook Page** linked to that Instagram account.
-3. A **Meta (Facebook) Developer** account.
+1. An Instagram account converted to a **Business** or **Creator** account. Personal
+   accounts are not eligible for the publishing API.
+   - Open the Instagram app and go to **Settings > Account**.
+   - Tap **Switch to professional account**, then choose **Business** or **Creator**.
+   - No Facebook Page link is required under this path.
+2. Meta app credentials imported into GaleFling via **Settings > Advanced > Import
+   Credentials**. Your operator (Jas) provides a JSON credential file for this step.
+   Without app credentials imported, the Connect button will be disabled.
+3. You must have been added as an **Instagram Tester** on the GaleFling Instagram app in
+   the Meta developer portal. Your operator handles this — you only need to accept the
+   invitation via **Instagram app → Settings and privacy → Apps and websites → Tester
+   invites**.
 
-### Converting to a Business/Creator Account
+## Connecting an Account
 
-1. Open the Instagram app and go to **Settings > Account**.
-2. Tap **Switch to professional account**.
-3. Choose **Business** or **Creator** and follow the prompts.
-4. When asked, connect your Facebook Page (or create a new one).
+1. Open GaleFling and go to **Settings > Instagram**.
+2. Under **Connected Accounts**, click **Connect** next to the account slot you want
+   to fill (Account 1 or Account 2).
+3. GaleFling opens a browser window pointing to the Instagram authorization page.
+4. Log in to Instagram (if not already logged in) and tap **Allow** to grant GaleFling
+   permission to post on your behalf.
+5. The browser tab shows "You can close this tab" — GaleFling has received the
+   authorization code and the setup is complete.
+6. The account now shows as **Connected** in the Meta settings tab, with your
+   Instagram username displayed.
 
-### Creating a Facebook Page (if needed)
+## Required Permissions
 
-1. Go to [facebook.com/pages/create](https://www.facebook.com/pages/create).
-2. Choose a page name and category.
-3. After creating the page, link it to your Instagram account via **Page Settings > Instagram**.
+GaleFling requests the following Instagram scopes during the connect flow:
 
-## Obtaining Credentials
-
-You need three values to configure Instagram in GaleFling:
-
-| Credential | Description |
+| Scope | Purpose |
 |---|---|
-| Access Token | A long-lived token from the Graph API |
-| Instagram User ID | Your Instagram Business account's numeric ID |
-| Facebook Page ID | The numeric ID of the linked Facebook Page |
+| `instagram_business_basic` | Required baseline for all Instagram API calls |
+| `instagram_business_content_publish` | Required to create and publish posts |
 
-### Step 1: Create a Meta App
+## Post Types Supported
 
-1. Go to [developers.facebook.com](https://developers.facebook.com/) and log in.
-2. Click **My Apps > Create App**.
-3. Select **Business** as the app type.
-4. Give it a name (e.g. "GaleFling Posting") and click **Create App**.
+| Post Type | Supported |
+|---|---|
+| Single image | Yes |
+| Single video | Yes |
+| Carousel (2–10 items) | Yes |
 
-### Step 2: Add Instagram Graph API
+Stories are explicitly out of scope — GaleFling only publishes to the main feed.
 
-1. In your app dashboard, click **Add Product**.
-2. Find **Instagram Graph API** and click **Set Up**.
+## Media Specifications
 
-### Step 3: Generate a User Access Token
+### Images
 
-1. Go to **Tools > Graph API Explorer** ([developers.facebook.com/tools/explorer](https://developers.facebook.com/tools/explorer/)).
-2. Select your app from the **Meta App** dropdown.
-3. Click **Generate Access Token**.
-4. Grant the following permissions when prompted:
-   - `instagram_basic`
-   - `instagram_content_publish`
-   - `pages_show_list`
-   - `pages_read_engagement`
-5. Copy the generated token.
+| Constraint | Limit |
+|---|---|
+| Formats | JPEG, PNG |
+| Max dimensions | 1440 × 1440 px |
+| Max file size | 8 MB |
+| Max attachments | 10 images per carousel |
 
-### Step 4: Extend the Token
+### Videos
 
-The token from Step 3 is short-lived (about 1 hour). Extend it to a long-lived token (60 days):
+| Constraint | Limit |
+|---|---|
+| Format | MP4 |
+| Max dimensions | 1920 × 1080 px |
+| Max file size | 100 MB |
+| Max duration | 60 seconds |
 
-1. Go to [developers.facebook.com/tools/debug/accesstoken](https://developers.facebook.com/tools/debug/accesstoken/).
-2. Paste your token and click **Debug**.
-3. Click **Extend Access Token** at the bottom.
-4. Copy the new long-lived token.
+### Text
 
-Alternatively, use the Graph API directly:
+| Constraint | Limit |
+|---|---|
+| Max length | 2,200 characters |
+| Text with media | Supported (an image or video is required — Instagram does not support text-only posts) |
 
-```
-GET https://graph.facebook.com/v21.0/oauth/access_token
-  ?grant_type=fb_exchange_token
-  &client_id=YOUR_APP_ID
-  &client_secret=YOUR_APP_SECRET
-  &fb_exchange_token=YOUR_SHORT_LIVED_TOKEN
-```
+## How Posting Works
 
-### Step 5: Find Your Facebook Page ID
+Instagram requires media to be hosted at a publicly accessible URL — it cannot accept
+binary file uploads directly in the API payload. GaleFling handles this automatically:
 
-Using the Graph API Explorer with your long-lived token:
-
-```
-GET /me/accounts
-```
-
-This returns a list of Pages you manage. The `id` field is your Page ID.
-
-### Step 6: Find Your Instagram User ID
-
-Using the Graph API Explorer:
-
-```
-GET /YOUR_PAGE_ID?fields=instagram_business_account
-```
-
-The `instagram_business_account.id` value is your Instagram User ID.
-
-## Entering Credentials in GaleFling
-
-On first launch, the setup wizard asks for Instagram credentials. If you already ran the wizard, go to **Settings > Accounts** instead.
-
-1. **Profile Name**: A label for this account (e.g. `rinthemodel`).
-2. **Access Token**: The long-lived token from Step 4.
-3. **IG User ID**: The Instagram User ID from Step 6.
-4. **Facebook Page ID**: The Page ID from Step 5.
+1. GaleFling uploads your media to a private S3 staging bucket and obtains a temporary
+   public URL.
+2. GaleFling calls the Instagram API to create a media container, passing the S3 URL.
+3. GaleFling polls the container status until processing is complete.
+4. GaleFling publishes the container, making the post live on Instagram.
+5. The S3 staging object is automatically cleaned up within 7 days by a lifecycle
+   policy — no action required on your part.
 
 ## Token Renewal
 
-Long-lived tokens expire after **60 days**. When your token expires, posts will fail with `IG-AUTH-EXPIRED`. To fix this:
-
-1. Repeat Steps 3-4 above to generate a new long-lived token.
-2. Go to **Settings > Accounts** in GaleFling and update the Access Token field.
-3. Click **Save**.
-
-You can also refresh a still-valid long-lived token before it expires:
-
-```
-GET https://graph.facebook.com/v21.0/oauth/access_token
-  ?grant_type=fb_exchange_token
-  &client_id=YOUR_APP_ID
-  &client_secret=YOUR_APP_SECRET
-  &fb_exchange_token=YOUR_CURRENT_LONG_LIVED_TOKEN
-```
+Instagram access tokens are valid for **60 days**. GaleFling automatically refreshes
+your token before it expires — you will not need to re-authorize under normal
+conditions. If a refresh ever fails (for example, after a password change or a revoked
+permission), GaleFling will show a **Re-authorize** prompt in the Meta settings tab.
+Click it and repeat the connect flow to restore posting access.
 
 ## Webhooks (not required)
 
-Leave the **Configure webhooks** step of the Instagram use case unconfigured.
-GaleFling only publishes and consumes no webhook events, so there is nothing for
-a callback URL to deliver to. The dashboard's note that "your app must be in
-published state" to receive webhooks concerns event delivery, not App Review,
-and does not apply here.
+Leave the **Configure webhooks** step of the Instagram use case unconfigured in the App
+Dashboard. GaleFling only publishes and consumes no webhook events, so there is nothing
+for a callback URL to deliver to. The dashboard's note that "your app must be in
+published state" to receive webhooks concerns event delivery, not App Review, and does
+not apply here.
 
-In particular, do **not** put the OAuth relay URL
-(`https://galefling.jasmer.tools/oauth/callback`) in the webhook Callback URL
-field. That endpoint answers OAuth redirects by issuing a 302 to localhost; it
-does not implement Meta's `hub.challenge` verification handshake, so Meta
-rejects it with "The callback URL or verify token couldn't be validated." That
-URL belongs in **OAuth redirect URIs** under the business login settings.
+In particular, do **not** put the OAuth relay URL in the webhook Callback URL field.
+That endpoint answers OAuth redirects by issuing a redirect to localhost; it does not
+implement Meta's `hub.challenge` verification handshake, so Meta rejects it with "The
+callback URL or verify token couldn't be validated." That URL belongs in **OAuth
+redirect URIs** under the Instagram use case's Business Login settings.
 
 ## Deleting media is not possible on this API setup
 
@@ -162,7 +142,7 @@ three unrelated causes and names none of them; here it is the third. The object
 demonstrably exists, because the same token reads it back seconds earlier.
 
 **Consequence for testing:** mutating Instagram functional tests cannot clean up after
-themselves. Every run leaves five posts that must be removed by hand in the Instagram app.
+themselves. Every run leaves posts that must be removed by hand in the Instagram app.
 The run reports each one with its tag and permalink and records it in the artifact ledger.
 See [FUNCTIONAL_TESTING.md](../testing/FUNCTIONAL_TESTING.md#leaving-mutating-artifacts-up-for-inspection).
 
@@ -174,13 +154,12 @@ different integration for the whole product. Manual cleanup is the cheaper trade
 
 | Problem | Solution |
 |---|---|
-| `Invalid platform app` on the authorization screen | The `client_id` is the top-level Meta App ID. Use the **Instagram app ID** shown at the top of App Dashboard > Instagram > API setup with Instagram login — it is a different number from the app's top-level ID. See [META_APPS.md](META_APPS.md#the-app-id-asymmetry). |
-| Connect button is disabled | Enter app credentials in **Settings > Instagram > App Credentials**, or import them via **Settings > Advanced > Import Credentials**. |
+| `Invalid platform app` on the authorization screen | The configured `app_id` is the app's top-level App ID. Use the **Instagram App ID** shown at App Dashboard > Instagram use case > Settings — it is a different number from the app's top-level ID. See [META_APPS.md](META_APPS.md#the-app-id-asymmetry). |
 | `Insufficient developer role` on the authorization screen | The Instagram account has no accepted **Instagram Tester** role on the app. A pending invitation is not enough — accept it at Instagram > Settings and privacy > Apps and websites > Tester invites. See [META_APPS.md](META_APPS.md#tester-roles-while-apps-are-in-development). |
+| Connect button is disabled | Enter app credentials in **Settings > Instagram > App Credentials**, or import them via **Settings > Advanced > Import Credentials**. |
 | "The callback URL or verify token couldn't be validated" | Something that is not a webhook endpoint was entered as the webhook Callback URL. See [Webhooks](#webhooks-not-required) — the step can be skipped entirely. |
-| `IG-AUTH-INVALID` | Token is wrong or lacks required permissions. Regenerate with correct scopes. |
-| `IG-AUTH-EXPIRED` | Token has expired (60-day limit). Generate a new long-lived token. |
-| `IG-RATE-LIMIT` | Instagram limits posting frequency. Wait before posting again. |
-| `IMG-UPLOAD-FAILED` | Image may exceed 8 MB or be in an unsupported format. Use JPEG or PNG. |
-| "Instagram Business account required" | Your account must be converted to Business or Creator type. |
-| Page ID returns empty `instagram_business_account` | The Facebook Page is not linked to an Instagram Business account. Link it in Page Settings. |
+| `IG-AUTH-INVALID` | Token is wrong or lacks required permissions. Disconnect and reconnect the account. |
+| `IG-AUTH-EXPIRED` | Automatic refresh failed, or the 60-day token fully expired. Reconnect via **Settings > Instagram**. |
+| `IG-RATE-LIMIT` | Instagram limits posting frequency (100 API-published posts per 24-hour period). Wait before posting again. |
+| `IMG-UPLOAD-FAILED` / `IMG-TOO-LARGE` / `IMG-INVALID-FORMAT` | Image may exceed 8 MB or be in an unsupported format. Use JPEG or PNG. |
+| "Instagram Business account required" | Your account must be converted to Business or Creator type — see [Prerequisites](#prerequisites). |

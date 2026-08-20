@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.gui.setup_wizard import BlueskySetupPage, InstagramSetupPage, TwitterSetupPage
+from src.gui.setup_wizard import BlueskySetupPage, MetaApiSetupPage, TwitterSetupPage
 
 
 class _DummyAccount:
@@ -15,6 +15,7 @@ class _DummyAuthManager:
         self.accounts = []
         self.saved_bluesky: dict[str, str] | None = None
         self.saved_bluesky_alt: dict[str, str] | None = None
+        self._meta_app_creds: dict[str, dict[str, str]] = {}
 
     def get_twitter_app_credentials(self):
         return self._twitter_app or None
@@ -52,6 +53,15 @@ class _DummyAuthManager:
 
     def save_bluesky_auth_alt(self, identifier, app_password):
         self.saved_bluesky_alt = {'identifier': identifier, 'app_password': app_password}
+
+    def get_meta_threads_app_credentials(self):
+        return self._meta_app_creds.get('meta_threads')
+
+    def get_meta_instagram_app_credentials(self):
+        return self._meta_app_creds.get('meta_instagram')
+
+    def get_meta_facebook_app_credentials(self):
+        return self._meta_app_creds.get('meta_facebook_page')
 
 
 def test_twitter_start_pin_flow_missing_credentials_shows_warning(qtbot, monkeypatch):
@@ -141,20 +151,38 @@ def test_bluesky_validate_page_saves_both_accounts(qtbot):
     assert {a.account_id for a in auth.accounts} == {'bluesky_1', 'bluesky_alt'}
 
 
-def test_instagram_validate_page_saves_credentials_and_account(qtbot):
+def test_meta_page_account_defs_include_two_instagram_accounts():
+    provider_ids = [
+        provider_id for provider_id, _label, _account_id in MetaApiSetupPage._ACCOUNT_DEFS
+    ]
+    account_ids = [
+        account_id for _provider_id, _label, account_id in MetaApiSetupPage._ACCOUNT_DEFS
+    ]
+
+    assert provider_ids.count('meta_instagram') == 2
+    assert 'meta_instagram_1' in account_ids
+    assert 'meta_instagram_2' in account_ids
+
+
+def test_meta_page_instagram_connect_disabled_without_app_credentials(qtbot):
     auth = _DummyAuthManager()
-    page = InstagramSetupPage(auth)
+    page = MetaApiSetupPage(auth)
     qtbot.addWidget(page)
 
-    page._profile_name.setText('jasmeralia')
-    page._access_token.setText('ig-token')
-    page._user_id.setText('17841400000')
+    widgets = page._account_widgets['meta_instagram_1']
+    assert widgets['provider_id'] == 'meta_instagram'
+    assert widgets['connect_btn'].isEnabled() is False
 
-    assert page.validatePage() is True
 
-    assert auth.get_account_credentials('meta_instagram_1') == {
-        'access_token': 'ig-token',
-        'user_id': '17841400000',
-        'profile_name': 'jasmeralia',
+def test_meta_page_instagram_connect_enabled_once_app_credentials_imported(qtbot):
+    auth = _DummyAuthManager()
+    auth._meta_app_creds['meta_instagram'] = {'app_id': 'ig-app-id', 'app_secret': 'ig-app-secret'}
+    page = MetaApiSetupPage(auth)
+    qtbot.addWidget(page)
+
+    widgets = page._account_widgets['meta_instagram_1']
+    assert widgets['connect_btn'].isEnabled() is True
+    assert page._get_app_creds('meta_instagram') == {
+        'app_id': 'ig-app-id',
+        'app_secret': 'ig-app-secret',
     }
-    assert auth.accounts[-1].account_id == 'meta_instagram_1'

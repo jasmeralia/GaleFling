@@ -3,9 +3,15 @@ from __future__ import annotations
 from src.gui.setup_wizard import (
     _META_PROVIDER_DEFS,
     BlueskySetupPage,
+    CredentialImportPage,
     MetaProviderSetupPage,
     TwitterSetupPage,
 )
+
+
+class _DummyConfigManager:
+    def __init__(self, notification_email: str = ''):
+        self.notification_email = notification_email
 
 
 class _DummyAccount:
@@ -67,6 +73,26 @@ class _DummyAuthManager:
 
     def get_meta_facebook_app_credentials(self):
         return self._meta_app_creds.get('meta_facebook_page')
+
+
+def test_credential_import_page_prefills_notification_email(qtbot):
+    auth = _DummyAuthManager()
+    config = _DummyConfigManager(notification_email='rin@example.com')
+    page = CredentialImportPage(auth, config)
+    qtbot.addWidget(page)
+
+    assert page._notification_email_edit.text() == 'rin@example.com'
+
+
+def test_credential_import_page_validate_saves_notification_email(qtbot):
+    auth = _DummyAuthManager()
+    config = _DummyConfigManager()
+    page = CredentialImportPage(auth, config)
+    qtbot.addWidget(page)
+
+    page._notification_email_edit.setText('jas@example.com')
+    assert page.validatePage() is True
+    assert config.notification_email == 'jas@example.com'
 
 
 def test_twitter_start_pin_flow_missing_credentials_shows_warning(qtbot, monkeypatch):

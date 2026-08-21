@@ -218,13 +218,27 @@ whose due time passed during that kind of outage.
 
 #### Email configuration
 
+**Implemented 2026-08-21, ahead of the rest of scheduling** — see
+[docs/EMAIL_NOTIFICATIONS.md](../EMAIL_NOTIFICATIONS.md) for the user-facing setup guide.
+SMTP credentials (host, port, username, app password) import the same way as `meta`,
+`twitter`, and `aws` via `src/core/credential_importer.py`'s versioned, partial-import-safe
+`smtp` section, and are stored through `AuthManager` (`smtp_auth.json`, file-per-credential
+pattern — not `keyring`, despite an earlier draft of this section assuming that; every other
+imported credential already uses this same plain-file mechanism, so SMTP matches it for
+consistency rather than introducing a new one). The **notification email address** — a
+single address, not the "recipients" plural this section originally assumed, since that's
+what was actually asked for — is a separate, non-secret `ConfigManager` setting Rin sets
+herself, captured via a Setup Wizard field and editable in Settings → Advanced → Email
+Notifications, alongside a "Test Connection" button that always sends a real test email
+(requires both the notification address and imported SMTP credentials to be set).
+
 SMTP is preferred over SES for an R5 reason rather than a technical one: **it can ride the
-credential import Jas already hands Rin.** `src/core/credential_importer.py` is versioned,
-accepts partial imports, and already carries `meta`, `twitter`, and `aws` sections; an
-`smtp` section alongside them means host, port, username, app password, and recipients all
-arrive pre-filled. Rin configures nothing and sees no mail settings unless she goes
-looking. SES would mean AWS identity verification and a sending-domain setup with no
-corresponding benefit at this volume.
+credential import Jas already hands Rin.** Rin configures nothing beyond the notification
+address and sees no mail settings unless she goes looking. SES would mean AWS identity
+verification and a sending-domain setup with no corresponding benefit at this volume.
+
+Not yet implemented: anything that actually *sends* a notification on a failed or blocked
+scheduled post — that's Phase 1 work, once the rest of scheduling exists to trigger it.
 
 Gmail specifics worth pinning down before implementation:
 
@@ -439,6 +453,7 @@ settings are resolved above (Phase 0.1) — not configured, not a risk.
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | Implemented SMTP credential import + notification email setup ahead of the rest of scheduling (Jas): `smtp` credential import section, `AuthManager` storage, a Settings → Advanced → Email Notifications section with a real test-email button, and a Setup Wizard field for the notification address. See `docs/EMAIL_NOTIFICATIONS.md`. Corrected two assumptions this section had made: storage is plain-file via `AuthManager` (matching every other credential), not `keyring`; and the notification address is a single field, not the "recipients" plural originally assumed. Sending an actual notification on a failed/blocked post is still Phase 1 work, pending the rest of scheduling. |
 | 2026-08-21 | Added a bulk "Post all" action to the missed-post reconciliation window (Jas), offered alongside the per-item Post now/Delete/Edit flow rather than replacing it — for when Rin just wants everything out without stepping through each one. No bulk Delete or Edit: deleting unreviewed risks losing something wanted, and bulk-editing doesn't make sense across differing captions. |
 | 2026-08-21 | Clarified multiple-missed-posts handling in startup reconciliation (Jas): one reconciliation window stepping through each missed item in turn (progress like "Post 2 of 4"), not a separate popup dialog per item — spawning N windows on launch is the opposite of graceful. Cited `ResultsDialog` (`src/gui/results_dialog.py`) as existing precedent for one window handling multiple items. |
 | 2026-08-21 | Resolved the startup-reconciliation staleness-threshold open question (Jas): no automatic threshold. Instead, a missed-post dialog on launch for every item whose due time passed, showing a preview and offering **Post now / Delete / Edit** — left to Rin's judgment rather than guessed automatically, since captions referencing a specific date/time are rare but wrong either way (silent stale post, or silently discarded content) is worse than asking. Added to Phase 1 scope; the open-questions list updated to drop the now-resolved threshold question. |

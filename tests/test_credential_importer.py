@@ -37,6 +37,12 @@ def test_full_import(auth, tmp_path):
             'region': 'us-west-2',
             'media_staging_bucket': 'my-bucket',
         },
+        'smtp': {
+            'host': 'smtp.gmail.com',
+            'port': 587,
+            'username': 'galefling@rin-city.com',
+            'app_password': 'app-pw',
+        },
     }
     result = import_credentials(_write_json(tmp_path, data), auth)
 
@@ -48,6 +54,7 @@ def test_full_import(auth, tmp_path):
         'meta.facebook',
         'twitter',
         'aws',
+        'smtp',
     }
 
     th = auth.get_meta_threads_app_credentials()
@@ -62,6 +69,11 @@ def test_full_import(auth, tmp_path):
     assert aws is not None
     assert aws['access_key_id'] == 'AKID'
     assert aws['media_staging_bucket'] == 'my-bucket'
+    smtp = auth.get_smtp_credentials()
+    assert smtp is not None
+    assert smtp['host'] == 'smtp.gmail.com'
+    assert smtp['port'] == 587
+    assert smtp['username'] == 'galefling@rin-city.com'
 
 
 def test_partial_import_meta_only(auth, tmp_path):
@@ -140,6 +152,34 @@ def test_incomplete_twitter_section_skipped(auth, tmp_path):
 
     assert 'twitter' in result.skipped
     assert auth.get_twitter_oauth2_app_credentials() is None
+
+
+def test_incomplete_smtp_section_skipped(auth, tmp_path):
+    data = {
+        'version': SUPPORTED_VERSION,
+        'smtp': {'host': 'smtp.gmail.com', 'username': 'user@example.com'},  # missing app_password
+    }
+    result = import_credentials(_write_json(tmp_path, data), auth)
+
+    assert 'smtp' in result.skipped
+    assert auth.get_smtp_credentials() is None
+
+
+def test_smtp_default_port(auth, tmp_path):
+    data = {
+        'version': SUPPORTED_VERSION,
+        'smtp': {
+            'host': 'smtp.gmail.com',
+            'username': 'galefling@rin-city.com',
+            'app_password': 'app-pw',
+            # no 'port' key — should default to 587
+        },
+    }
+    result = import_credentials(_write_json(tmp_path, data), auth)
+
+    assert 'smtp' in result.imported
+    smtp = auth.get_smtp_credentials()
+    assert smtp is not None and smtp['port'] == 587
 
 
 def test_aws_default_region(auth, tmp_path):

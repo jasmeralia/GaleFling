@@ -35,6 +35,7 @@ from src.core.aws_utils import check_s3_connection
 from src.core.config_manager import ConfigManager
 from src.core.credential_importer import ImportResult, import_credentials
 from src.core.logger import get_logger
+from src.core.smtp_utils import check_smtp_connection
 from src.platforms.meta_facebook_page import MetaFacebookPagePlatform
 from src.platforms.meta_instagram import MetaInstagramPlatform
 from src.platforms.meta_threads import MetaThreadsPlatform
@@ -702,6 +703,20 @@ class SettingsDialog(QDialog):
             aws_creds.get('media_staging_bucket', '') if aws_creds else ''
         )
 
+    def _refresh_smtp_display(self) -> None:
+        """Reload SMTP credential display widgets from stored credentials."""
+        smtp_creds = self._auth_manager.get_smtp_credentials()
+        self._smtp_host_label.setText(
+            smtp_creds.get('host', '') if smtp_creds else '(not configured)'
+        )
+        self._smtp_port_label.setText(str(smtp_creds.get('port', '')) if smtp_creds else '')
+        self._smtp_username_label.setText(
+            smtp_creds.get('username', '') if smtp_creds else '(not configured)'
+        )
+        raw_app_password = smtp_creds.get('app_password', '') if smtp_creds else ''
+        masked = _mask_credential(raw_app_password)
+        self._smtp_app_password_label.setText(masked if masked else '(not configured)')
+
     def _import_credentials_from_json(self) -> None:
         get_logger().info('User selected Settings > Import Credentials from JSON')
         path_str, _ = QFileDialog.getOpenFileName(
@@ -745,6 +760,7 @@ class SettingsDialog(QDialog):
         )
         self._refresh_meta_status()
         self._refresh_aws_display()
+        self._refresh_smtp_display()
 
     def _test_s3_connection(self) -> None:
         get_logger().info('User selected Settings > Test S3 Connection')
@@ -775,6 +791,44 @@ class SettingsDialog(QDialog):
             QMessageBox.information(self, 'S3 Connection OK', 'S3 connection test passed.')
         else:
             QMessageBox.warning(self, 'S3 Connection Failed', f'S3 connection test failed:\n{msg}')
+
+    def _test_smtp_connection(self) -> None:
+        get_logger().info('User selected Settings > Test SMTP Connection')
+        smtp_creds = self._auth_manager.get_smtp_credentials()
+        if not smtp_creds:
+            QMessageBox.warning(
+                self, 'No Credentials', 'SMTP credentials have not been imported yet.'
+            )
+            return
+
+        recipient = self._notification_email_edit.text().strip()
+        if not recipient:
+            QMessageBox.warning(
+                self,
+                'No Notification Email',
+                'Set a notification email address above before testing — the test '
+                'proves delivery by sending a real message to it.',
+            )
+            return
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            ok, msg = check_smtp_connection(
+                host=smtp_creds['host'],
+                port=int(smtp_creds['port']),
+                username=smtp_creds['username'],
+                app_password=smtp_creds['app_password'],
+                recipient=recipient,
+            )
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if ok:
+            QMessageBox.information(self, 'SMTP Connection OK', f'Test email sent to {recipient}.')
+        else:
+            QMessageBox.warning(
+                self, 'SMTP Connection Failed', f'SMTP connection test failed:\n{msg}'
+            )
 
     def _create_webview_platform_tab(self, platform_id: str, specs) -> QScrollArea:
         scroll = QScrollArea()
@@ -951,8 +1005,9 @@ class SettingsDialog(QDialog):
         import_layout = QVBoxLayout(import_group)
         import_hint = QLabel(
             '<i>Import app-level credentials for Meta (Threads/Instagram/Facebook), '
-            'Twitter OAuth 2.0, and AWS from a JSON file provided by your administrator. '
-            'The file is not modified or deleted by GaleFling after import.</i>'
+            'Twitter OAuth 2.0, AWS, and SMTP (email notifications) from a JSON file '
+            'provided by your administrator. The file is not modified or deleted by '
+            'GaleFling after import.</i>'
         )
         import_hint.setWordWrap(True)
         import_layout.addWidget(import_hint)
@@ -987,6 +1042,49 @@ class SettingsDialog(QDialog):
         aws_layout.addRow('', test_s3_btn)
 
         layout.addWidget(aws_group)
+
+        # Email notifications (SMTP)
+        smtp_group = QGroupBox('Email Notifications')
+        smtp_layout = QFormLayout(smtp_group)
+
+        smtp_hint = QLabel(
+            '<i>Used to email a notification if a scheduled post ever fails to send '
+            '(scheduling is not available yet). SMTP credentials arrive via credential '
+            'import above; the notification address is yours to set.</i>'
+        )
+        smtp_hint.setWordWrap(True)
+        smtp_layout.addRow(smtp_hint)
+
+        smtp_creds = self._auth_manager.get_smtp_credentials()
+        self._smtp_host_label = QLabel(
+            smtp_creds.get('host', '') if smtp_creds else '(not configured)'
+        )
+        smtp_layout.addRow('Host:', self._smtp_host_label)
+
+        self._smtp_port_label = QLabel(str(smtp_creds.get('port', '')) if smtp_creds else '')
+        smtp_layout.addRow('Port:', self._smtp_port_label)
+
+        self._smtp_username_label = QLabel(
+            smtp_creds.get('username', '') if smtp_creds else '(not configured)'
+        )
+        smtp_layout.addRow('Username:', self._smtp_username_label)
+
+        raw_app_password = smtp_creds.get('app_password', '') if smtp_creds else ''
+        masked_app_password = _mask_credential(raw_app_password)
+        self._smtp_app_password_label = QLabel(
+            masked_app_password if masked_app_password else '(not configured)'
+        )
+        smtp_layout.addRow('App Password:', self._smtp_app_password_label)
+
+        self._notification_email_edit = QLineEdit(self._config.notification_email)
+        self._notification_email_edit.setPlaceholderText('you@example.com')
+        smtp_layout.addRow('Notification email:', self._notification_email_edit)
+
+        test_smtp_btn = QPushButton('Test Connection')
+        test_smtp_btn.clicked.connect(self._test_smtp_connection)
+        smtp_layout.addRow('', test_smtp_btn)
+
+        layout.addWidget(smtp_group)
 
         layout.addStretch()
         scroll.setWidget(widget)
@@ -1105,6 +1203,9 @@ class SettingsDialog(QDialog):
                     existing_aws.get('region', 'us-west-2'),
                     aws_bucket_text,
                 )
+
+        # Notification email
+        self._config.notification_email = self._notification_email_edit.text()
 
         self._config.save()
         if webview_compatibility_before != self._config.webview_compatibility_mode:

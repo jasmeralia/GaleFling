@@ -600,6 +600,22 @@ def meta_aws_credentials():
 
 
 @pytest.fixture
+def smtp_credentials():
+    """SMTP credentials for scheduled-post failure notifications (docs/EMAIL_NOTIFICATIONS.md)."""
+    username = os.environ.get('SMTP_USERNAME')
+    creds = {
+        'host': os.environ.get('SMTP_HOST'),
+        'port': int(os.environ.get('SMTP_PORT', '587') or 587),
+        'username': username,
+        'app_password': os.environ.get('SMTP_APP_PASSWORD'),
+        'recipient': os.environ.get('SMTP_TEST_RECIPIENT') or username,
+    }
+    if not all([creds['host'], creds['username'], creds['app_password']]):
+        pytest.skip('SMTP credentials not configured')
+    return RedactedCredentials(creds)
+
+
+@pytest.fixture
 def galefling_data_dir():
     """Resolve the application data directory holding WebView profiles.
 

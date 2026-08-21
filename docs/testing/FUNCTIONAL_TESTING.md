@@ -168,7 +168,9 @@ Every functional test belongs to exactly one side-effect group:
   tests never call a real post-creation endpoint.
 - `mutating` includes every test that calls a platform post-creation endpoint,
   including rejection tests whose requests are expected to fail. These tests may
-  create, update, or delete real posts.
+  create, update, or delete real posts. `test_smtp.py`'s send test is `mutating` for
+  the same reason — a real external side effect (an email delivered) — even though it
+  isn't a social-platform post.
 - `disabled_platform` marks functional tests for platforms disabled in the product
   (currently Snapchat, OnlyFans, and Fansly — see their platform docs for why). These
   are **excluded** from `make test-functional*` and VM runs by default. Pass
@@ -397,6 +399,22 @@ META_AWS_BUCKET=your-staging-bucket
 - Required for Instagram and Threads image, video, and carousel functional tests
 - The bucket must expose public-read object URLs so Meta can fetch staged media
 - See `infrastructure/galefling-media-staging.yaml` for the reference CloudFormation stack
+
+#### SMTP (email notifications)
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=galefling@rin-city.com
+SMTP_APP_PASSWORD=your-app-password
+# Optional — defaults to SMTP_USERNAME (send-to-self) if unset
+SMTP_TEST_RECIPIENT=someone@example.com
+```
+- See [docs/EMAIL_NOTIFICATIONS.md](../EMAIL_NOTIFICATIONS.md) for the feature this
+  supports and [docs/plans/SCHEDULING.md](../plans/SCHEDULING.md#email-configuration) for
+  the design rationale
+- `test_smtp.py`'s mutating test sends one real email per run to
+  `SMTP_TEST_RECIPIENT` (or the sending account itself if unset) — not public content, so
+  the neutral-content rule (AGENTS.md rule 15) does not apply, but it is still a real send
 
 #### WebView Platforms — Common
 

@@ -661,7 +661,7 @@ class MainWindow(QMainWindow):
         try:
             self._append_fatal_marker('Launching setup wizard')
             get_logger().info('Launching setup wizard')
-            wizard = SetupWizard(self._auth_manager, None)
+            wizard = SetupWizard(self._auth_manager, self._config, None)
             self._append_fatal_marker('Setup wizard created')
             get_logger().info('Setup wizard created')
             self._apply_dialog_theme(wizard)

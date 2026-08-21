@@ -32,8 +32,13 @@ class DummyAuthManager:
         return None
 
 
+class DummyConfigManager:
+    def __init__(self):
+        self.notification_email = ''
+
+
 def test_setup_wizard_applies_style(qtbot):
-    wizard = SetupWizard(DummyAuthManager())
+    wizard = SetupWizard(DummyAuthManager(), DummyConfigManager())
     qtbot.addWidget(wizard)
     wizard.show()
     qtbot.waitExposed(wizard)

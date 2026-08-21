@@ -68,6 +68,12 @@ SECTIONS = [
         'aws_media_staging_auth.json',
         ('access_key_id', 'secret_access_key', 'region', 'media_staging_bucket'),
     ),
+    (
+        'smtp',
+        ('host', 'username', 'app_password'),
+        'smtp_auth.json',
+        ('host', 'port', 'username', 'app_password'),
+    ),
 ]
 
 
@@ -131,7 +137,7 @@ def validate(import_path: Path, config_dir: Path) -> int:
     print(f'comparing against: {auth_dir}')
     print()
 
-    known_top_level = {'version', 'meta', 'twitter', 'aws'}
+    known_top_level = {'version', 'meta', 'twitter', 'aws', 'smtp'}
     unknown = sorted(set(data.keys()) - known_top_level)
     if unknown:
         print(f'note: unrecognized top-level key(s) {unknown} -- ignored by the current importer\n')

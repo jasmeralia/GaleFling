@@ -130,6 +130,32 @@ def test_meta_oauth_redirect_uri_defaults_to_relay_url(tmp_path, monkeypatch):
     assert uri == 'https://galefling.jasmer.tools/oauth/callback'
 
 
+def test_smtp_credentials_round_trip(tmp_path, monkeypatch):
+    manager = _make_auth(tmp_path, monkeypatch)
+
+    assert manager.has_smtp_credentials() is False
+    manager.save_smtp_credentials('smtp.gmail.com', 587, 'galefling@rin-city.com', 'app-pw')
+    creds = manager.get_smtp_credentials()
+    assert creds is not None
+    assert creds['host'] == 'smtp.gmail.com'
+    assert creds['port'] == 587
+    assert creds['username'] == 'galefling@rin-city.com'
+    assert creds['app_password'] == 'app-pw'
+    assert manager.has_smtp_credentials() is True
+    assert (tmp_path / 'smtp_auth.json').exists()
+
+
+def test_smtp_credentials_clear(tmp_path, monkeypatch):
+    manager = _make_auth(tmp_path, monkeypatch)
+
+    manager.save_smtp_credentials('smtp.gmail.com', 587, 'user@example.com', 'app-pw')
+    assert manager.has_smtp_credentials() is True
+
+    manager.clear_smtp_credentials()
+    assert manager.has_smtp_credentials() is False
+    assert not (tmp_path / 'smtp_auth.json').exists()
+
+
 def test_meta_oauth_redirect_uri_round_trip(tmp_path, monkeypatch):
     manager = _make_auth(tmp_path, monkeypatch)
     manager.save_meta_oauth_redirect_uri('https://example.com/oauth/callback')

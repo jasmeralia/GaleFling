@@ -1,8 +1,9 @@
 """Import app-level credentials from a provider JSON file.
 
 Supports Meta (threads / instagram / facebook), Twitter OAuth 2.0,
-and AWS media staging credentials. Partial imports (missing platforms)
-are valid — only sections present and complete in the file are stored.
+AWS media staging, and SMTP (scheduled-post failure notifications)
+credentials. Partial imports (missing platforms) are valid — only
+sections present and complete in the file are stored.
 """
 
 from __future__ import annotations
@@ -93,6 +94,23 @@ def import_credentials(path: Path, auth_manager: AuthManager) -> ImportResult:
             get_logger().info('credential_importer: imported AWS media staging credentials')
         else:
             result.skipped.append('aws')
+
+    # ── SMTP ─────────────────────────────────────────────────────────
+    smtp = data.get('smtp', {})
+    if smtp:
+        host = smtp.get('host', '').strip()
+        username = smtp.get('username', '').strip()
+        app_password = smtp.get('app_password', '').strip()
+        try:
+            port = int(smtp.get('port', 587) or 587)
+        except (TypeError, ValueError):
+            port = 587
+        if host and username and app_password:
+            auth_manager.save_smtp_credentials(host, port, username, app_password)
+            result.imported.append('smtp')
+            get_logger().info('credential_importer: imported SMTP credentials')
+        else:
+            result.skipped.append('smtp')
 
     return result
 

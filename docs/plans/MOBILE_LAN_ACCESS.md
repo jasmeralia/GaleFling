@@ -347,7 +347,7 @@ outright. Neither is required to satisfy R1.
 
 | # | Deliverable | Owner | Pass criteria |
 |---|-------------|-------|---------------|
-| 0.1 | Confirm Rin's sleep + autologon settings | Jas | Written into this doc. Also benefits scheduling — see [SCHEDULING.md](SCHEDULING.md#phase-0--spike-and-confirmation-scheduling-relevant-items) — but tracked as one item rather than duplicated. |
+| ~~0.1~~ | ~~Confirm Rin's sleep + autologon settings~~ | **Resolved 2026-08-21 (Jas)** | Sleep is not configured — not a risk. Autologon still needs separate confirmation (see [Open questions](#open-questions) #1 below). Surfaced a bigger finding for scheduling: Rin routinely fully shuts the machine down when not in active use — see [SCHEDULING.md#shutdown-awareness-r4](SCHEDULING.md#shutdown-awareness-r4). |
 | 0.4 | mDNS + media upload from Rin's iPhone | Agent + operator | `galefling.local` resolves from her phone through the Dream Machine; a photo and a short video reach a local endpoint from a home-screen web app over plain HTTP |
 | 0.5 | Go/no-go | Both | Local queue scoped to every schedulable platform per [SCHEDULING.md](SCHEDULING.md); mDNS + LAN delivery confirmed viable for the mobile client |
 
@@ -415,12 +415,13 @@ shape once the architecture stops fighting the platforms.
 
 ## Open questions
 
-1. Rin's sleep settings and autologon state — Jas to confirm; expected to already be correct. (Phase 0.1)
+1. Rin's autologon state — still to confirm. Sleep is resolved (Phase 0.1, 2026-08-21):
+   not configured. (Phase 0.1)
 2. Does mDNS resolve end-to-end on Rin's actual network — her iPhone to her desktop
    through the Dream Machine? Everything about discovery rests on this. (Phase 0.4)
 
-Scheduling's staleness-threshold open question is tracked in
-[SCHEDULING.md#open-questions](SCHEDULING.md#open-questions).
+Scheduling's staleness-threshold and reboot-vs-shutdown-detection open questions are
+tracked in [SCHEDULING.md#open-questions](SCHEDULING.md#open-questions).
 
 ---
 
@@ -498,6 +499,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | Resolved the sleep half of Phase 0.1 (Jas): confirmed not configured, retiring that risk from scheduling's register. Surfaced a bigger finding in the process — Rin routinely fully shuts the machine down when not in active use — which fed a new "Shutdown awareness" design section in `docs/plans/SCHEDULING.md` rather than this document, since it's a scheduling-protection concern. Autologon confirmation remains an open question. |
 | 2026-08-21 | Split out of `docs/plans/SCHEDULING_AND_MULTI_CLIENT.md` into this mobile/LAN-access-only document (Jas): scheduling and mobile/LAN access are handled in entirely different phases and no longer need one shared file. Content carried over verbatim from the combined plan's mobile/LAN-relevant sections; scheduling content moved to `docs/plans/SCHEDULING.md`. This document retains the full original changelog below for continuity, since it is the architectural/topology-level document the combined plan grew from. |
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`, since removed — its analysis survives as Appendix A. Re-framed from mobile port to desktop-resident scheduler + mobile web client. |
 | 2026-08-13 | Noted that Rin (Nevada) and Jas (Washington) are remote from each other, so R5's "unaided" has no in-person fallback and support is screen-share only. Both on Pacific time. |

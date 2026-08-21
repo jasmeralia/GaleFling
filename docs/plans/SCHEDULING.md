@@ -193,6 +193,63 @@ for why the poster can't be installed as a Windows service and what that implies
 autologon and session restore. Startup reconciliation, above, is what catches anything
 whose due time passed during that kind of outage.
 
+### Shutdown awareness (R4)
+
+**Resolved 2026-08-21 (Phase 0.1, Jas): Rin does not have sleep configured, but she does
+sometimes fully shut down the machine when not in active use.** This retires the "desktop
+sleeps despite being powered" risk — nothing to mitigate there — but surfaces a more
+consequential one: unlike sleep, a full shutdown doesn't self-heal on its own the way
+autologon + session restore handles a Windows Update reboot (see
+[MOBILE_LAN_ACCESS.md#windows-session-constraints](MOBILE_LAN_ACCESS.md#windows-session-constraints));
+the machine stays off until Rin manually turns it back on, so a scheduled post's window can
+pass with nobody around to notice. This is routine behavior for her, not an edge case, so it
+needs a real mitigation rather than just startup reconciliation catching it after the fact.
+
+Two pieces, both scoped to Windows (Rin's platform — see the Linux note below):
+
+1. **Composer-time warning.** The schedule picker shows a persistent reminder that
+   scheduled posts require the computer to stay on and logged in, and that shutting down
+   will prevent them from firing on time. Static, not conditional on anything — she should
+   see this every time she schedules, not just when something is already pending.
+2. **Shutdown-block prompt while a post is pending.** While the local queue holds ≥1
+   pending item, the poster process (running as the tray/background entry point — see
+   [MOBILE_LAN_ACCESS.md#windows-session-constraints](MOBILE_LAN_ACCESS.md#windows-session-constraints))
+   handles `WM_QUERYENDSESSION` and calls `ShutdownBlockReasonCreate` with a reason string
+   naming the pending post(s), so Windows shows its native "this app is preventing
+   shutdown" dialog instead of GaleFling silently losing the window. Rin can proceed with
+   the shutdown from that dialog if she means to — this is a courtesy prompt, not a lock.
+
+**Reboot vs. shutdown — open technical question, needs a Phase 0/1 spike before relying on
+it.** The ask is that a restart shouldn't trigger the same prompt, since autologon +
+session restore already means a restart self-heals. But `WM_QUERYENDSESSION`'s `lParam`
+does not cleanly expose "this is a restart" vs. "this is a full power-off" to a listening
+application — only `ENDSESSION_LOGOFF`, `ENDSESSION_CRITICAL`, and `ENDSESSION_CLOSEAPP`
+are documented flags, none of which distinguish reboot from shutdown. Two candidate
+approaches:
+
+   - **Query the System event log for Event ID 1074** (logged by the component that
+     requested the shutdown/restart, with a human-readable reason that does distinguish
+     them) shortly after the query fires. Fragile: needs Event Log read permissions, and
+     there's no guarantee the 1074 entry is written and readable before GaleFling has to
+     decide whether to return `FALSE` from the handler.
+   - **Don't try to distinguish upfront.** Show the block/prompt on every
+     `WM_QUERYENDSESSION` uniformly, and satisfy "reboots shouldn't need the same prompt"
+     through the already-planned autologon + startup reconciliation making a restart
+     self-heal quickly — so in practice a restart costs Rin, at worst, one extra dialog
+     dismissal rather than a real failure. This is the pragmatic default unless the spike
+     finds event-log detection reliable enough to trust.
+
+Either way, **`ENDSESSION_CRITICAL` shutdowns cannot be blocked by any app** — some
+Windows-Update-forced restarts fall into this category, and the OS proceeds regardless of
+what the handler returns. The block/prompt is a best-effort courtesy on top of startup
+reconciliation, which remains the actual safety net for anything that gets through
+unprompted.
+
+**Linux note:** this entire mechanism is Windows-specific because Rin's machine is
+Windows. Linux has an analogous inhibitor-lock mechanism (`systemd-logind`'s `Inhibit()`
+D-Bus call, or the `systemd-inhibit` CLI wrapper) if parity is ever wanted for R6, but it
+is not scoped now — nothing in this design requires it to ship.
+
 #### Email configuration
 
 SMTP is preferred over SES for an R5 reason rather than a technical one: **it can ride the
@@ -257,7 +314,8 @@ is tracked as one item rather than duplicated.
 
 ## Phase 1 — Scheduler in the desktop app (~2–3 weeks)
 
-Schedule queue, due-time poller, background/tray operation, and missed-window handling — one
+Schedule queue, due-time poller, background/tray operation, missed-window handling, and the
+Windows shutdown-block prompt (see [Shutdown awareness](#shutdown-awareness-r4)) — one
 uniform path for every schedulable platform, no delegated-vs-local routing to build for the
 active platform set (OnlyFans/Fansly's separate UI-automation delegation stays dormant while
 paused). Deliverable: **a post scheduled from the existing desktop GUI fires correctly with
@@ -274,7 +332,8 @@ block it.
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | Windows Update reboot strands the poster at the lock screen | Medium | High | Autologon + session restore; startup reconciliation posts anything missed during the outage, late and flagged |
-| Desktop sleeps despite being powered | Medium | High | Confirm in Phase 0.1; disable sleep; wake timers |
+| ~~Desktop sleeps despite being powered~~ | — | — | **Resolved 2026-08-21 (Phase 0.1):** confirmed Rin does not have sleep configured. Not a real risk; nothing to mitigate. |
+| Rin manually shuts down the machine when not in active use, silently dropping pending scheduled posts | **High** — confirmed routine behavior, not an edge case | High | See [Shutdown awareness](#shutdown-awareness-r4): composer-time warning plus a `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt while a post is pending, backstopped by startup reconciliation for anything that still gets through |
 | Local-queue posting breaks when a platform's API changes | Medium | Medium | Same fragility as posting today; reconcile after the fact |
 | Cloudflare behavior changes on Fansly/OnlyFans | Medium | High | Unchanged from today; posting stays on her machine and IP. Not a scheduling risk per se — those platforms are paused — but retained here since a reactivation would restore their delegated-scheduling model. |
 
@@ -287,9 +346,15 @@ Windows drift, mDNS failure, and the mobile-specific risks live in
 
 1. What staleness threshold should startup reconciliation use before marking a due post
    missed rather than posting it late?
+2. Can GaleFling reliably distinguish a restart from a full shutdown at
+   `WM_QUERYENDSESSION` time, well enough to skip the block/prompt on restarts
+   specifically? See [Shutdown awareness](#shutdown-awareness-r4) — needs a spike before
+   Phase 1 build-out; the pragmatic fallback (prompt uniformly, lean on autologon +
+   startup reconciliation for restarts) doesn't need this answered first.
 
-Rin's sleep/autologon state and mDNS resolution are mobile/LAN-access open questions — see
-[MOBILE_LAN_ACCESS.md#open-questions](MOBILE_LAN_ACCESS.md#open-questions).
+Rin's autologon state and mDNS resolution are mobile/LAN-access open questions — see
+[MOBILE_LAN_ACCESS.md#open-questions](MOBILE_LAN_ACCESS.md#open-questions). Her sleep
+settings are resolved above (Phase 0.1) — not configured, not a risk.
 
 ---
 
@@ -309,6 +374,7 @@ Rin's sleep/autologon state and mDNS resolution are mobile/LAN-access open quest
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | Resolved Phase 0.1 (Jas): Rin does not have sleep configured, retiring that risk, but she does routinely fully shut down the machine when not in active use — a bigger risk than sleep would have been, since it doesn't self-heal the way a reboot does. Added [Shutdown awareness](#shutdown-awareness-r4): a composer-time warning plus a Windows `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt while a post is pending, added to Phase 1 scope. Flagged reboot-vs-shutdown detection as an open technical question (`ENDSESSION_CRITICAL` shutdowns can't be blocked by any app regardless), with a pragmatic fallback that doesn't depend on resolving it before Phase 1. |
 | 2026-08-21 | Split out of `docs/plans/SCHEDULING_AND_MULTI_CLIENT.md` into this scheduling-only document (Jas): scheduling and mobile/LAN access are handled in entirely different phases and no longer need one shared file. Content carried over verbatim from the combined plan's scheduling-relevant sections; mobile/LAN content moved to `docs/plans/MOBILE_LAN_ACCESS.md`. |
 | 2026-08-21 | Resolved the API-vs-product scheduling gap flagged in Odoo #450, against Meta's current developer docs. Facebook Page is confirmed to support real API-level scheduling (`scheduled_publish_time` live on `/{page-id}/feed`), resolving the #392-vs-2026-08-13 contradiction — but Jas then decided **not** to delegate to it: every schedulable platform (Facebook, Instagram, Threads, Bluesky, Twitter) holds in one uniform local queue instead, trading Facebook's off-desktop resilience for a single scheduling mechanism instead of two, and mooting the scheduling-window discrepancy between Meta's own doc pages (30 vs 75 days) since GaleFling's poller no longer needs it. Revisit if more platforms gain real API scheduling later. Separately, confirmed Instagram and Threads have **no** API scheduling at all — neither Graph API exposes a scheduling parameter, only a two-step immediate-publish container model — so they were never delegation candidates regardless of the Facebook decision. FetLife reclassified from "local queue" to **ineligible for scheduling, excluded from the picker**: its posting path is WebView/human-confirmed and its session check already skips headless validation due to Cloudflare fingerprinting, so an unattended fire would either break or ambush the user with a surprise composer window. Also answered: Instagram→Facebook crossposting requires a linked Facebook Page and cannot use a personal profile at all — moot for the design now, noted for completeness. |
 | 2026-08-13 | Carried forward the findings of Odoo #392 ("Look into scheduling support"), a research task now completed. Added queue management to R2 — multiple pending posts, editable and cancellable — which the plan had not stated. Flagged a direct contradiction on Facebook: #392 recorded `scheduled_publish_time` as working, a 2026-08-13 review did not; resolving it became Phase 0.3, and an Instagram-crosspost workaround was demoted to a fallback (later dropped entirely — see 2026-08-21 entries above). |

@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QWizard
 
 from src.gui.setup_wizard import (
     _FIXED_WIZARD_STEP_LABELS,
+    _META_PROVIDER_DEFS,
     SetupWizard,
     _available_webview_platform_defs,
 )
@@ -15,10 +16,14 @@ def test_step_rail_matches_registered_pages(qtbot):
     wizard = SetupWizard(DummyAuthManager())
     qtbot.addWidget(wizard)
 
-    expected_labels = _FIXED_WIZARD_STEP_LABELS + [
-        platform_name
-        for _platform_id, platform_name, _account_id in _available_webview_platform_defs()
-    ]
+    expected_labels = (
+        _FIXED_WIZARD_STEP_LABELS
+        + [display_name for _provider_id, display_name, _account_defs in _META_PROVIDER_DEFS]
+        + [
+            platform_name
+            for _platform_id, platform_name, _account_id in _available_webview_platform_defs()
+        ]
+    )
 
     rail_labels = [label for label, _page_id in wizard._step_rail._steps]
     assert rail_labels == expected_labels

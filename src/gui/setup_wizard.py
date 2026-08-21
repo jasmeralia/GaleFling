@@ -54,8 +54,55 @@ _FIXED_WIZARD_STEP_LABELS: list[str] = [
     'Credentials',
     'Twitter',
     'Bluesky',
-    'Meta',
 ]
+
+# (provider_id, display_name, [(row_label, account_id), ...])
+_META_PROVIDER_DEFS: list[tuple[str, str, list[tuple[str, str]]]] = [
+    (
+        'meta_threads',
+        'Threads',
+        [('Threads Account 1', 'meta_threads_1'), ('Threads Account 2', 'meta_threads_2')],
+    ),
+    (
+        'meta_instagram',
+        'Instagram',
+        [('Instagram Account 1', 'meta_instagram_1'), ('Instagram Account 2', 'meta_instagram_2')],
+    ),
+    (
+        'meta_facebook_page',
+        'Facebook Page',
+        [('Facebook Page', 'meta_facebook_page_1')],
+    ),
+]
+
+# Tester-invite acceptance is required per account while the Meta app is in
+# Development mode — see
+# docs/platforms/META_APPS.md#tester-roles-while-apps-are-in-development.
+# Facebook Page roles are accepted differently (an in-app notification or
+# Business Integrations settings), not via a self-service "website
+# permissions" invites page like Threads/Instagram.
+_META_TESTER_INVITE_HTML: dict[str, str] = {
+    'meta_threads': (
+        'Each Threads account must accept this app’s <b>Threads Tester</b> '
+        'invitation before it can connect — otherwise authorization fails with '
+        '“Insufficient developer role.” Accept it at '
+        '<a href="https://www.threads.com/settings/website_permissions">'
+        'threads.com/settings/website_permissions</a> → Invites.'
+    ),
+    'meta_instagram': (
+        'Each Instagram account must accept this app’s <b>Instagram Tester</b> '
+        'invitation before it can connect — otherwise authorization fails with '
+        '“Insufficient developer role.” Accept it at '
+        '<a href="https://www.instagram.com/accounts/manage_access/">'
+        'instagram.com/accounts/manage_access</a> → Tester invites.'
+    ),
+    'meta_facebook_page': (
+        'The Facebook account must accept this app’s <b>Tester</b> or '
+        '<b>Developer</b> role invitation before it can connect. Accept it via the '
+        'notification in the Facebook app, or under Facebook → Settings → '
+        'Business Integrations.'
+    ),
+}
 
 
 def _available_webview_platform_defs() -> list[tuple[str, str, str]]:
@@ -320,7 +367,11 @@ class TwitterSetupPage(QWizardPage):
             '<i>Each account is authorized separately. Before clicking '
             '"Start PIN Flow", make sure you are logged into the correct '
             'Twitter account in your web browser. To add a second account, '
-            'log out of the first account in your browser first.</i>'
+            'log out of the first account in your browser first.<br><br>'
+            '"Start PIN Flow" opens Twitter’s authorization page in your '
+            'browser. Click <b>Authorize app</b> there — Twitter will show '
+            'you a 7-digit PIN. Copy it into the PIN field below and click '
+            '"Complete PIN".</i>'
         )
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -677,53 +728,62 @@ class BlueskySetupPage(QWizardPage):
         return True
 
 
-class MetaApiSetupPage(QWizardPage):
-    """Meta API accounts setup page (Threads, Instagram, and Facebook Page).
+class MetaProviderSetupPage(QWizardPage):
+    """Setup page for a single Meta platform (Threads, Instagram, or Facebook Page).
 
-    Allows connecting up to two Threads accounts, up to two Instagram accounts,
-    and one Facebook Page account via the MetaConnectDialog OAuth flow. Requires
-    app credentials to have been imported first via Settings → Advanced →
-    Import Credentials from JSON.
+    Each Meta platform gets its own wizard step — rather than one page bundling
+    all three — so the tester-invite instructions and account-connect rows stay
+    scoped to the platform they apply to. Connects accounts via the
+    MetaConnectDialog OAuth flow. Requires app credentials to have been imported
+    first via Settings → Advanced → Import Credentials from JSON.
     """
 
-    # (provider_id, display_name, account_id)
-    _ACCOUNT_DEFS = [
-        ('meta_threads', 'Threads Account 1', 'meta_threads_1'),
-        ('meta_threads', 'Threads Account 2', 'meta_threads_2'),
-        ('meta_instagram', 'Instagram Account 1', 'meta_instagram_1'),
-        ('meta_instagram', 'Instagram Account 2', 'meta_instagram_2'),
-        ('meta_facebook_page', 'Facebook Page', 'meta_facebook_page_1'),
-    ]
-
-    def __init__(self, auth_manager: AuthManager, parent=None):
+    def __init__(
+        self,
+        auth_manager: AuthManager,
+        provider_id: str,
+        display_name: str,
+        account_defs: list[tuple[str, str]],
+        parent=None,
+    ):
         super().__init__(parent)
         self._auth_manager = auth_manager
+        self._provider_id = provider_id
+        self._display_name = display_name
         self.setAutoFillBackground(True)
 
-        self.setTitle('Setup - Meta (Threads, Instagram & Facebook Page)')
-        self.setSubTitle('Connect Threads, Instagram, and Facebook Page accounts via Meta OAuth')
+        self.setTitle(f'Setup - {display_name}')
+        self.setSubTitle(f'Connect {display_name} via Meta OAuth')
 
         layout = QVBoxLayout(self)
 
         info = QLabel(
-            '<b>Threads</b>, <b>Instagram</b>, and <b>Facebook Page</b> posting require '
-            'Meta app credentials.<br>'
+            f'<b>{display_name}</b> posting requires Meta app credentials.<br>'
             'Import them via <i>Settings → Advanced → Import Credentials from JSON</i>.<br>'
             'Once imported, use the buttons below to connect accounts.<br><br>'
-            '<i>You can skip this step and connect accounts later from Settings → Meta.</i>'
+            f'<i>You can skip this step and connect accounts later from '
+            f'Settings → {display_name}.</i>'
         )
         info.setWordWrap(True)
         layout.addWidget(info)
         layout.addSpacing(8)
 
+        tester_html = _META_TESTER_INVITE_HTML.get(provider_id)
+        if tester_html:
+            tester_note = QLabel(tester_html)
+            tester_note.setWordWrap(True)
+            tester_note.setOpenExternalLinks(True)
+            layout.addWidget(tester_note)
+            layout.addSpacing(8)
+
         self._account_widgets: dict[str, dict] = {}
 
-        for provider_id, display_name, account_id in self._ACCOUNT_DEFS:
+        for row_label, account_id in account_defs:
             row_widget = QWidget()
             row = QHBoxLayout(row_widget)
             row.setContentsMargins(0, 0, 0, 0)
 
-            label = QLabel(f'<b>{display_name}:</b>')
+            label = QLabel(f'<b>{row_label}:</b>')
             label.setMinimumWidth(180)
             row.addWidget(label)
 
@@ -732,14 +792,11 @@ class MetaApiSetupPage(QWizardPage):
             row.addStretch()
 
             connect_btn = QPushButton('Connect')
-            connect_btn.clicked.connect(
-                lambda _checked, p=provider_id, aid=account_id: self._connect_account(p, aid)
-            )
+            connect_btn.clicked.connect(lambda _checked, aid=account_id: self._connect_account(aid))
             row.addWidget(connect_btn)
 
             layout.addWidget(row_widget)
             self._account_widgets[account_id] = {
-                'provider_id': provider_id,
                 'status_label': status_label,
                 'connect_btn': connect_btn,
             }
@@ -747,25 +804,24 @@ class MetaApiSetupPage(QWizardPage):
         layout.addStretch()
         self._refresh_status()
 
-    def _get_app_creds(self, provider_id: str) -> dict | None:
-        if provider_id == 'meta_threads':
+    def _get_app_creds(self) -> dict | None:
+        if self._provider_id == 'meta_threads':
             return self._auth_manager.get_meta_threads_app_credentials()
-        if provider_id == 'meta_instagram':
+        if self._provider_id == 'meta_instagram':
             return self._auth_manager.get_meta_instagram_app_credentials()
-        if provider_id == 'meta_facebook_page':
+        if self._provider_id == 'meta_facebook_page':
             return self._auth_manager.get_meta_facebook_app_credentials()
         return None
 
     def _refresh_status(self) -> None:
+        app_creds = self._get_app_creds()
         for account_id, widgets in self._account_widgets.items():
-            provider_id = widgets['provider_id']
-            app_creds = self._get_app_creds(provider_id)
             account = self._auth_manager.get_account(account_id)
 
             if account:
                 name = account.profile_name or account_id
                 widgets['status_label'].setText(
-                    f'<span style="color: #4CAF50; font-weight: bold;">\u2713 {name}</span>'
+                    f'<span style="color: #4CAF50; font-weight: bold;">✓ {name}</span>'
                 )
                 widgets['connect_btn'].setText('Reconnect')
             else:
@@ -775,31 +831,33 @@ class MetaApiSetupPage(QWizardPage):
             widgets['connect_btn'].setEnabled(bool(app_creds))
             if not app_creds:
                 widgets['connect_btn'].setToolTip(
-                    'Import app credentials first via Settings \u2192 Advanced \u2192 '
+                    'Import app credentials first via Settings → Advanced → '
                     'Import Credentials from JSON'
                 )
             else:
                 widgets['connect_btn'].setToolTip('')
 
-    def _connect_account(self, provider_id: str, account_id: str) -> None:
+    def _connect_account(self, account_id: str) -> None:
         from src.core.meta_oauth import MetaOAuthFlow
         from src.gui.meta_connect_dialog import MetaConnectDialog
 
-        app_creds = self._get_app_creds(provider_id)
+        app_creds = self._get_app_creds()
         if not app_creds:
             QMessageBox.warning(
                 self,
                 'App Credentials Missing',
                 'Import Meta app credentials first via\n'
-                'Settings \u2192 Advanced \u2192 Import Credentials from JSON.',
+                'Settings → Advanced → Import Credentials from JSON.',
             )
             return
 
         get_logger().info(
-            f'User selected Setup Wizard > Meta > Connect {provider_id} ({account_id})'
+            f'User selected Setup Wizard > {self._display_name} > Connect ({account_id})'
         )
-        flow = MetaOAuthFlow(provider_id, app_creds['app_id'], app_creds['app_secret'])
-        dlg = MetaConnectDialog(provider_id, flow, account_id, self._auth_manager, parent=self)
+        flow = MetaOAuthFlow(self._provider_id, app_creds['app_id'], app_creds['app_secret'])
+        dlg = MetaConnectDialog(
+            self._provider_id, flow, account_id, self._auth_manager, parent=self
+        )
         dlg.exec()
         self._refresh_status()
 
@@ -1154,8 +1212,12 @@ class SetupWizard(QWizard):
         steps.append((_FIXED_WIZARD_STEP_LABELS[2], page_id))
         page_id = self.addPage(BlueskySetupPage(auth_manager))
         steps.append((_FIXED_WIZARD_STEP_LABELS[3], page_id))
-        page_id = self.addPage(MetaApiSetupPage(auth_manager))
-        steps.append((_FIXED_WIZARD_STEP_LABELS[4], page_id))
+
+        for provider_id, display_name, account_defs in _META_PROVIDER_DEFS:
+            page_id = self.addPage(
+                MetaProviderSetupPage(auth_manager, provider_id, display_name, account_defs)
+            )
+            steps.append((display_name, page_id))
 
         for platform_id, platform_name, account_id in _available_webview_platform_defs():
             page_id = self.addPage(

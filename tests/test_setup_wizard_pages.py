@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from src.gui.setup_wizard import BlueskySetupPage, MetaApiSetupPage, TwitterSetupPage
+from src.gui.setup_wizard import (
+    _META_PROVIDER_DEFS,
+    BlueskySetupPage,
+    MetaProviderSetupPage,
+    TwitterSetupPage,
+)
 
 
 class _DummyAccount:
@@ -151,38 +156,42 @@ def test_bluesky_validate_page_saves_both_accounts(qtbot):
     assert {a.account_id for a in auth.accounts} == {'bluesky_1', 'bluesky_alt'}
 
 
-def test_meta_page_account_defs_include_two_instagram_accounts():
-    provider_ids = [
-        provider_id for provider_id, _label, _account_id in MetaApiSetupPage._ACCOUNT_DEFS
-    ]
-    account_ids = [
-        account_id for _provider_id, _label, account_id in MetaApiSetupPage._ACCOUNT_DEFS
-    ]
+def _instagram_account_defs():
+    return next(
+        account_defs
+        for provider_id, _display_name, account_defs in _META_PROVIDER_DEFS
+        if provider_id == 'meta_instagram'
+    )
 
-    assert provider_ids.count('meta_instagram') == 2
+
+def test_meta_provider_defs_include_two_instagram_accounts():
+    instagram_defs = _instagram_account_defs()
+    account_ids = [account_id for _label, account_id in instagram_defs]
+
+    assert len(instagram_defs) == 2
     assert 'meta_instagram_1' in account_ids
     assert 'meta_instagram_2' in account_ids
 
 
 def test_meta_page_instagram_connect_disabled_without_app_credentials(qtbot):
     auth = _DummyAuthManager()
-    page = MetaApiSetupPage(auth)
+    page = MetaProviderSetupPage(auth, 'meta_instagram', 'Instagram', _instagram_account_defs())
     qtbot.addWidget(page)
 
     widgets = page._account_widgets['meta_instagram_1']
-    assert widgets['provider_id'] == 'meta_instagram'
+    assert page._provider_id == 'meta_instagram'
     assert widgets['connect_btn'].isEnabled() is False
 
 
 def test_meta_page_instagram_connect_enabled_once_app_credentials_imported(qtbot):
     auth = _DummyAuthManager()
     auth._meta_app_creds['meta_instagram'] = {'app_id': 'ig-app-id', 'app_secret': 'ig-app-secret'}
-    page = MetaApiSetupPage(auth)
+    page = MetaProviderSetupPage(auth, 'meta_instagram', 'Instagram', _instagram_account_defs())
     qtbot.addWidget(page)
 
     widgets = page._account_widgets['meta_instagram_1']
     assert widgets['connect_btn'].isEnabled() is True
-    assert page._get_app_creds('meta_instagram') == {
+    assert page._get_app_creds() == {
         'app_id': 'ig-app-id',
         'app_secret': 'ig-app-secret',
     }

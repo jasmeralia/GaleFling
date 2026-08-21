@@ -9,8 +9,8 @@ GaleFling is a Windows GUI application for posting to multiple social platforms 
 - Status: active v1.x development (multi-account + API/WebView hybrid posting + media processing)
 
 ## Mandatory Agent Rules
-1. After any code or docs change, run the full Release Checklist unless the user explicitly says not to.
-2. Do not skip linting or tests.
+1. After any code change, run the full Release Checklist (`make lint` + `make test-cov`) unless the user explicitly says not to. After a **docs-only change** — no files under `src/`, `tests/`, `tools/`, `scripts/`, `infrastructure/`, or `build/` touched; only documentation such as `README.md`, `CHANGELOG.md`, `AGENTS.md`/`CLAUDE.md`, or `docs/**` — run `make lint` only. Skip `make test-cov`: nothing under test can be affected by a docs-only change, so running the full suite is pure overhead.
+2. Do not skip linting. Do not skip tests for a code change — the docs-only exception in rule 1 is the only case where `make test-cov` may be skipped.
 3. If lint/tests fail, fix them before concluding.
 4. Make the smallest effective change unless the user requests a broader refactor.
 5. If project knowledge changes materially, update `AGENTS.md` and/or docs in `docs/`.

@@ -75,6 +75,14 @@ _META_PROVIDER_DEFS: list[tuple[str, str, list[tuple[str, str]]]] = [
     ),
 ]
 
+# The step rail wraps a two-word label onto two lines and has no vertical
+# room for it (confirmed visually: "Facebook Page" collides with the
+# connector line above it), so it needs a shorter label than the page's own
+# title/subtitle use. Every other step is already a single word.
+_META_STEP_RAIL_LABELS: dict[str, str] = {
+    'meta_facebook_page': 'Facebook',
+}
+
 # Tester-invite acceptance is required per account while the Meta app is in
 # Development mode — see
 # docs/platforms/META_APPS.md#tester-roles-while-apps-are-in-development.
@@ -1217,7 +1225,8 @@ class SetupWizard(QWizard):
             page_id = self.addPage(
                 MetaProviderSetupPage(auth_manager, provider_id, display_name, account_defs)
             )
-            steps.append((display_name, page_id))
+            rail_label = _META_STEP_RAIL_LABELS.get(provider_id, display_name)
+            steps.append((rail_label, page_id))
 
         for platform_id, platform_name, account_id in _available_webview_platform_defs():
             page_id = self.addPage(

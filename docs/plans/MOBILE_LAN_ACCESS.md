@@ -1,30 +1,34 @@
-# GaleFling — Scheduling & Multi-Client Architecture
+# GaleFling — Mobile / LAN Access
 
 ## Status
 
-**Draft — Phase 0 not started.** OnlyFans and Fansly are paused in the app as of
-2026-08-16 (`available=False` — aggressive automation-detection/banning risk; see
-`docs/platforms/ONLYFANS.md` / `docs/platforms/FANSLY.md`). Every reference to them
-below as delegated-scheduling targets is now historical: the delegated-scheduling set
-is Instagram and Threads only until either platform is reactivated. The IP-identity
-reasoning that motivated keeping posting on Rin's own machine remains valid regardless.
+**Draft — Phase 0 partially resolved, Phase 2/3 not started.** Split out of the combined
+`SCHEDULING_AND_MULTI_CLIENT.md` plan on 2026-08-21 (Jas) — scheduling and mobile/LAN
+access are handled in entirely different phases and no longer need to share one
+document. See [docs/plans/SCHEDULING.md](SCHEDULING.md) for the scheduling design (R2,
+R4, delegate-vs-local-queue) — this document owns everything else: the desktop-resident
+server topology, R1, R3, R5, R6, R7, and the mobile web client.
 
-Supersedes an earlier `ANDROID_PORT.md` plan that framed
-this work as an Android/iOS port of the desktop app. That framing was wrong; see
+Tracked in Odoo **#451**. Scheduling is tracked separately in Odoo **#450** (both split
+from the original combined plan/index, Odoo **#426**, on 2026-08-16). Per Odoo #451,
+mobile/LAN access is **not currently an active priority** for Rin — this document
+remains the design record for when it is picked up.
+
+Supersedes an earlier `ANDROID_PORT.md` plan that framed this work as an Android/iOS
+port of the desktop app. That framing was wrong; see
 [Why this is not a port](#why-this-is-not-a-port). That document has been removed — its
 still-relevant feasibility analysis is preserved in
 [Appendix A](#appendix-a--mobile-native-port-analysis-deferred), and the surrounding
 discussion is in Odoo #426.
 
-Canonical repo path: `docs/plans/SCHEDULING_AND_MULTI_CLIENT.md`
+Canonical repo path: `docs/plans/MOBILE_LAN_ACCESS.md`
 
 ---
 
 ## Executive summary
 
-Rin asked for two things that were not on the roadmap: **posting from her phone**, and
-**scheduled posts**. The first reads as "port the app to mobile." It isn't. Taken
-together with the second, the correct response is a **topology change, not a rewrite**:
+Rin asked for posting from her phone. That reads as "port the app to mobile." It isn't.
+The correct response is a **topology change, not a rewrite**:
 
 | Component | Runs on | Status |
 |-----------|---------|--------|
@@ -40,7 +44,9 @@ WorkManager schedules into maintenance windows, not at times; iOS `BGTaskSchedul
 explicitly opportunistic with no timing guarantee and does not run at all after a force
 quit. The WebView tier additionally needs a live browser rendering a DOM, which neither
 mobile OS permits from a background task. Something that is already always-on has to do
-the posting — and Rin's desktop already is.
+the posting — and Rin's desktop already is. This is why GaleFling's scheduler
+([SCHEDULING.md](SCHEDULING.md)) lives on the desktop rather than the phone, even though
+this document's mobile client is what lets Rin *create* a scheduled post from her phone.
 
 Once the desktop is the poster, the phone client becomes thin: compose, attach media,
 pick platforms, pick a time, watch status. That is a web app, which removes the App
@@ -75,29 +81,29 @@ Moving the work to the always-on desktop deletes all of them at once:
 
 From Rin:
 
-1. **R1** — Compose and post from her phone (iPhone).
-2. **R2** — Schedule a post for a future time, and **manage what is queued**: hold several
-   pending posts at once, see them, and edit or cancel any of them before it fires.
-   Carried over from Odoo #392, whose research fed into this plan.
+- **R1** — Compose and post from her phone (iPhone).
 
 Derived:
 
-3. **R3** — Posting must continue to originate from her own machine and network
-   (see [IP identity](#why-the-poster-stays-on-her-machine)).
-4. **R4** — When GaleFling attempts a scheduled post and it fails, that failure must be
-   reported, not swallowed. Scope is GaleFling reporting its own failures; the health of
-   the machine it runs on is [explicitly out of scope](#explicitly-not-in-scope-monitoring-rins-machine).
-5. **R5** — Rin must be able to complete setup herself. She was sent setup instructions
-   for the current desktop app months ago and has not gotten through them; onboarding
-   friction is the empirically binding constraint on this project, not implementation
-   effort. Treated as a deliverable, not a documentation afterthought.
-6. **R6** — **Windows and Linux both run the full application**, with every capability
-   enabled, including serving mobile clients. There is no reduced or headless-only build:
-   the desktop app is the composer, the poster, the scheduler, *and* the server the phone
-   talks to. A mobile client is always a view onto some desktop instance, never a
-   standalone posting agent.
-7. **R7** — Phone and desktop connect **directly over the LAN**. No relay, no VPN, no
-   hosted component, no third party in the path.
+- **R3** — Posting must continue to originate from her own machine and network
+  (see [IP identity](#why-the-poster-stays-on-her-machine)). This also underlies
+  scheduling's local queue — see
+  [SCHEDULING.md](SCHEDULING.md#requirements) — since the due-time poller runs on the
+  same machine under the same constraint.
+- **R5** — Rin must be able to complete setup herself. She was sent setup instructions
+  for the current desktop app months ago and has not gotten through them; onboarding
+  friction is the empirically binding constraint on this project, not implementation
+  effort. Treated as a deliverable, not a documentation afterthought.
+- **R6** — **Windows and Linux both run the full application**, with every capability
+  enabled, including serving mobile clients. There is no reduced or headless-only build:
+  the desktop app is the composer, the poster, the scheduler, *and* the server the phone
+  talks to. A mobile client is always a view onto some desktop instance, never a
+  standalone posting agent.
+- **R7** — Phone and desktop connect **directly over the LAN**. No relay, no VPN, no
+  hosted component, no third party in the path.
+
+R2 and R4 (scheduling and its failure reporting) are defined in
+[SCHEDULING.md](SCHEDULING.md#requirements).
 
 ---
 
@@ -128,7 +134,7 @@ Derived:
     |                                                            |
     |  full GUI: composer, setup wizard, settings, WebView tabs  |
     |  embedded web server: serves the mobile client + its API   |
-    |  schedule queue (SQLite)                                   |
+    |  schedule queue (SQLite) — see SCHEDULING.md                |
     |  API tier: Twitter, Bluesky, Meta                          |
     |  WebView tier: FetLife (Qt WebEngine); OnlyFans, Fansly paused |
     |  media pipeline: ffmpeg, Pillow                            |
@@ -186,8 +192,9 @@ attach media from her library, choose platforms and a time, and watch status.
 Exactly two things are lost, and neither is currently worth paying for:
 
 - **Push notifications** — moot. GaleFling has no notification model at all today; post
-  results are shown in the results dialog. There is nothing to push. R4 is satisfied by
-  the desktop GUI and by Jas's alerting.
+  results are shown in the results dialog. There is nothing to push. R4
+  ([SCHEDULING.md](SCHEDULING.md#not-failing-silently-r4)) is satisfied by the desktop
+  GUI and by Jas's alerting.
 - **Offline capability** — narrower than it sounds. Without a service worker the page
   loads only while the desktop is reachable, so tapping the home-screen icon while away
   from home produces a browser error rather than opening the app, and there is no
@@ -245,6 +252,8 @@ originating from Jas's house — a different city, ISP, and ASN than every prior
 those accounts — that is precisely the anomaly those platforms watch for. A residential
 IP is not inherently safe; an IP *consistent with where the account has always been used*
 is. Jas's residential IP is the right IP for Jas's accounts and the wrong one for Rin's.
+This is R3, and it applies equally to scheduling's local queue — see
+[SCHEDULING.md](SCHEDULING.md#requirements).
 
 Secondary reasons, in descending order of weight:
 
@@ -275,162 +284,15 @@ Also out of scope: native mobile clients (see [Appendix A](#appendix-a--mobile-n
 any posting path that does not originate from the user's own machine, and
 [monitoring whether Rin's machine is up](#explicitly-not-in-scope-monitoring-rins-machine).
 
----
-
-## Scheduling design
-
-### Delegate to the platform wherever it exists
-
-There is a useful inversion here: the platforms that are hardest to automate are the ones
-that can absorb the scheduling themselves. Driving a composer once to set a future post in
-the platform's own scheduler is strictly more reliable than holding the schedule locally —
-it survives the desktop being off, rebooting, or losing its network at post time.
-
-Confirmed by Jas, 2026-08-13 — **at the product level only.** "Native scheduling: Yes"
-below means the platform's own app/website lets a human schedule a post; it does **not**
-mean the API GaleFling would actually call was checked for the same capability. Those are
-different questions, and the Facebook row further down is the proof this gap is real: the
-2026-07-31 research (#392) and the 2026-08-13 review reached opposite conclusions, and the
-likely explanation is that one of them looked at the UI and the other at the Graph API.
-**Instagram and Threads carry the identical unverified gap** — GaleFling's automation for
-both is API-only (`graph_api`, no WebView composer to drive), so "Instagram/Threads support
-scheduling" is only actionable if their Graph API endpoints accept a `scheduled_publish_time`-
-equivalent parameter, which has not been checked. Resolve this for Instagram and Threads
-before Phase 0.2, the same way Facebook's row already calls out resolving it there. OnlyFans
-and Fansly are the one case where this particular gap doesn't apply the same way — their
-delegation model was UI-automation (drive the composer, not an API call), so a product-level
-"Yes" was the relevant question for them — but see the note below the table; both are now
-paused for an unrelated reason regardless.
-
-| Platform | Native scheduling | Approach |
-|----------|-------------------|----------|
-| OnlyFans *(paused)* | Yes | Was **Delegate** — drive the composer once, set a future time. Not pursued while paused. |
-| Fansly *(paused)* | Yes | Was **Delegate** — drive the composer once, set a future time. Not pursued while paused. |
-| Instagram | Yes (product-level only — **Graph API support unverified**) | **Delegate**, pending API verification |
-| Threads | Yes (product-level only — **Graph API support unverified**) | **Delegate**, pending API verification |
-| Facebook Page | No, directly (product vs. API conflict — see below, **unresolved**) | **Delegate indirectly** — see below |
-| FetLife | No | Hold locally |
-| Bluesky | No | Hold locally |
-| Twitter | Not in the v2 API | Hold locally |
-
-The originally delegated set included both Cloudflare-protected WebView platforms, which
-was the valuable part: for OnlyFans and Fansly the desktop would not need to be awake at
-post time at all, and the riskiest automation would run once, while someone is around,
-rather than unattended at 2 a.m. That's now moot while both are paused; the active
-delegated set (Instagram, Threads) doesn't carry the same Cloudflare/automation-risk
-profile.
-
-**Facebook — check the Graph API before building the workaround.** Earlier research
-(Odoo #392, 2026-07-31) recorded `POST /{page-id}/feed` with `published=false` and a future
-`scheduled_publish_time` as a genuine server-side schedule. The 2026-08-13 review concluded
-Facebook does not appear to support scheduling. Both can hold if the later check looked at
-the Facebook UI rather than the Graph API, or if the parameter is now restricted by API
-version or permission. **Resolve this first**: if `scheduled_publish_time` works, Facebook
-delegates directly and the crosspost workaround below is unnecessary.
-
-**Facebook via Instagram crosspost (fallback).** If direct scheduling is genuinely gone,
-Instagram's scheduling can carry Facebook with it, since an Instagram post can crosspost to
-a linked Page. A scheduled Instagram post can therefore carry Facebook with it, leaving nothing for
-the local queue. Conditions to verify in Phase 0: the accounts must be linked with
-crossposting enabled; the post must satisfy Instagram's constraints — media required, no
-text-only — even when Facebook alone would have accepted it; and the two become coupled,
-so "Facebook but not Instagram" and per-platform caption variants are lost for scheduled
-posts. If any of those bite, Facebook falls back to the local queue, which is why it stays
-listed as conditional rather than resolved.
-
-That leaves the scheduler's unattended workload at three platforms — four if Facebook
-falls back — only one of which drives a browser.
-
-### Local queue
-
-For the remainder: a SQLite-backed queue in the existing app data directory, a due-time
-poller in the poster process, and per-item state (`pending` → `in_flight` → `posted` /
-`failed`).
-
-**Queue management is part of R2, not a later nicety.** Several posts may be pending at
-once, and Rin must be able to see the queue, edit a pending item, and cancel one — from
-the desktop GUI and from the mobile client alike. Editing an item already delegated to a
-platform means reaching back into that platform's own scheduler to amend or cancel it,
-which is materially harder than editing a locally-held item; the two paths should not be
-assumed symmetric in the UI.
-
-### Not failing silently (R4)
-
-R4 covers exactly one thing: **GaleFling tried to post something and it did not work.**
-Interactive posting already fails loudly, since Rin is present and sees the error.
-Scheduled posting is the case that can fail unobserved, because nobody is watching at post
-time.
-
-Three channels, none of which need a service worker or a notification model:
-
-- **Email over SMTP.** The natural channel for something that happens while nobody is
-  looking: it reaches Rin and Jas on any device without the phone client being open, and
-  needs no service worker, no notification model, and no secure context. See
-  [Email configuration](#email-configuration) — this is chosen over SES specifically
-  because it can be pre-configured for Rin rather than set up by her.
-- **Visible failure state in the desktop GUI**, alongside the existing results dialog.
-- **The existing log-upload path**, for diagnosis after the fact.
-
-**Startup reconciliation** covers the adjacent correctness problem — not losing work when
-the app restarts. On launch the queue is re-examined and anything whose due time passed
-while the app was down is resolved rather than silently skipped. Open design question:
-whether to post it late, or past some staleness threshold to mark it missed and notify
-instead. A caption tied to a specific time or event is worse posted three days late than
-not posted at all, so the threshold should probably be short and configurable.
-
-Delegated posts (Instagram, Threads; OnlyFans and Fansly while paused) sidestep this entirely — the
-platform fires them whether or not the desktop was up — and are reconciled on the next
-session by checking whether the platform actually published.
-
-#### Email configuration
-
-SMTP is preferred over SES for an R5 reason rather than a technical one: **it can ride the
-credential import Jas already hands Rin.** `src/core/credential_importer.py` is versioned,
-accepts partial imports, and already carries `meta`, `twitter`, and `aws` sections; an
-`smtp` section alongside them means host, port, username, app password, and recipients all
-arrive pre-filled. Rin configures nothing and sees no mail settings unless she goes
-looking. SES would mean AWS identity verification and a sending-domain setup with no
-corresponding benefit at this volume.
-
-Gmail specifics worth pinning down before implementation:
-
-- `smtp.gmail.com` port 587 with STARTTLS (or 465 implicit TLS). Outbound only, and no
-  different in posture from the platform APIs and S3 uploads the app already makes.
-- **An App Password is required** — Google removed plain-password SMTP access, and
-  generating an App Password requires 2-Step Verification on the account.
-- The `From:` header is rewritten to the authenticated account unless a verified alias is
-  used, so the sending identity is whoever owns the mailbox.
-- Free-account sending limits are around 500 messages/day, which is irrelevant here.
-
-**Mailbox — decided: a dedicated Google Workspace account**, roughly $5/month for the
-extra user.
-
-The reasoning is a trust-boundary one rather than a technical one. gelfling, rinling, and
-TrueNAS are single-operator machines, so personal credentials on them are acceptable.
-Rin's desktop is not: an application running on a machine someone else uses should not
-hold a credential tied to a personal identity, however narrowly that credential is scoped.
-Having her generate her own is equally wrong — it would require walking her through
-enabling 2-Step Verification, exactly the class of step R5 exists to remove.
-
-A dedicated account contains the blast radius to "can send mail from a mailbox that holds
-nothing," and it is the same account intended to consolidate server-generated mail — see
-Odoo task **#427**, routing exim on rin-city.com through the Workspace SMTP relay instead
-of sending directly from EC2.
-
-Use a **separate App Password per host**, so Rin's machine can be revoked independently of
-the servers. The App Password is a credential like any other: stored through `AuthManager`
-(`keyring` is already a dependency), never logged, and covered by the same handling rules
-as platform credentials.
-
-#### Explicitly not in scope: monitoring Rin's machine
+### Explicitly not in scope: monitoring Rin's machine
 
 Whether her desktop is powered on, and whether GaleFling is running on it, is **not
 monitored and not alerted on**. That is her machine; if it is down for a week she either
 knows or is not home, and proactively watching it is not Jas's responsibility. This is a
-different problem from R4, which is about GaleFling reporting *its own* failures while it
-is running.
+different problem from R4 ([SCHEDULING.md](SCHEDULING.md#not-failing-silently-r4)), which
+is about GaleFling reporting *its own* failures while it is running.
 
-An earlier revision of this document treated the two as one and proposed a dead-man's
+An earlier revision of the combined plan treated the two as one and proposed a dead-man's
 switch — an outbound heartbeat to something Jas operates, alerting when it stopped. That
 is dropped. It solved a problem nobody has, and it was the only remaining piece that
 reached outside the house.
@@ -440,15 +302,16 @@ reached outside the house.
 ## Windows session constraints
 
 The WebView tier needs an **interactive desktop session** — Chromium cannot render
-meaningfully from Session 0 — so the poster cannot be installed as a Windows service. It
-must run as a startup item inside Rin's logged-in session. Consequences:
+meaningfully from Session 0 — so neither the scheduler's poller nor the embedded mobile
+server can be installed as a Windows service. Both must run as a startup item inside
+Rin's logged-in session. Consequences:
 
-- A Windows Update reboot leaves the machine at the lock screen with the poster dead
-  until someone logs in. Mitigation: enable *"Use my sign-in info to automatically finish
-  setting up after an update"* so Windows restores her session, so a reboot self-heals
-  rather than waiting on someone noticing. Anything whose due time passed during the
-  reboot is caught by startup reconciliation — see
-  [Not failing silently](#not-failing-silently-r4).
+- A Windows Update reboot leaves the machine at the lock screen with the poster and
+  server both dead until someone logs in. Mitigation: enable *"Use my sign-in info to
+  automatically finish setting up after an update"* so Windows restores her session, so a
+  reboot self-heals rather than waiting on someone noticing. Anything whose due time
+  passed during the reboot is caught by scheduling's startup reconciliation — see
+  [SCHEDULING.md#not-failing-silently-r4](SCHEDULING.md#not-failing-silently-r4).
 - **Powered 24×7 is not the same as awake 24×7.** Sleep and Modern Standby settings must
   be confirmed, not assumed.
 - The existing GUI keeps working as-is; service mode is a second entry point into the same
@@ -468,37 +331,29 @@ Measured against the current tree (~17,043 LOC in `src/`):
 | `src/utils/` — constants, helpers | 537 | Reused as-is |
 | `src/gui/` + `theme.py` + `main.py` | 7,857 | Reused; gains a headless/tray mode |
 
-New code: schedule queue, embedded web server and its API, mDNS advertisement, device
-auth, mobile client.
+New code for this document's scope: embedded web server and its API, mDNS advertisement,
+device auth, mobile client. (Scheduling's new code — schedule queue, due-time poller — is
+tracked in [SCHEDULING.md](SCHEDULING.md).)
 
 For contrast, the superseded plan's Option B was 3–5 months and reimplemented the
 1,813-line WebView base against a second engine; Option C discarded `src/` and `tests/`
-outright. Neither is required to satisfy R1 and R2.
+outright. Neither is required to satisfy R1.
 
 ---
 
 ## Phases
 
-### Phase 0 — Spike and confirmation (~1 week)
+### Phase 0 — Spike and confirmation (mobile/LAN-relevant items)
 
 | # | Deliverable | Owner | Pass criteria |
 |---|-------------|-------|---------------|
-| 0.1 | Confirm Rin's sleep + autologon settings | Jas | Written into this doc |
-| 0.2 | Delegated scheduling spike | Agent + operator | Existing automation sets a *future* post on Instagram **or** Threads; operator confirms it fires. (Originally scoped to Fansly/OnlyFans — both paused as of 2026-08-16, see Status above; re-scope back to them if reactivated.) |
-| 0.3 | Facebook: direct Graph API scheduling | Agent | Determine whether `published=false` + `scheduled_publish_time` still works on `/{page-id}/feed`. Resolves a contradiction between #392 and the 2026-08-13 review, and decides whether 0.3b is needed at all |
-| 0.3b | Facebook-via-Instagram crosspost *(only if 0.3 fails)* | Agent + operator | A *scheduled* Instagram post reaches the linked Facebook Page; coupling constraints documented |
+| 0.1 | Confirm Rin's sleep + autologon settings | Jas | Written into this doc. Also benefits scheduling — see [SCHEDULING.md](SCHEDULING.md#phase-0--spike-and-confirmation-scheduling-relevant-items) — but tracked as one item rather than duplicated. |
 | 0.4 | mDNS + media upload from Rin's iPhone | Agent + operator | `galefling.local` resolves from her phone through the Dream Machine; a photo and a short video reach a local endpoint from a home-screen web app over plain HTTP |
-| 0.5 | Go/no-go | Both | Delegation viable for the platforms that support it; local queue scoped to the remainder |
+| 0.5 | Go/no-go | Both | Local queue scoped to every schedulable platform per [SCHEDULING.md](SCHEDULING.md); mDNS + LAN delivery confirmed viable for the mobile client |
 
-0.2 is the highest-value item: it is what keeps the unattended scheduler down to four
-platforms and keeps the Cloudflare-sensitive automation attended.
-
-### Phase 1 — Scheduler in the desktop app (~2–3 weeks)
-
-Schedule queue, due-time poller, background/tray operation, missed-window handling, and
-delegated-vs-local routing per platform. Deliverable: **a post scheduled from the existing
-desktop GUI fires correctly with the app minimized**, on both Windows and Linux. No phone
-involved yet. This alone satisfies R2.
+Scheduling's Phase 0 items (0.2, 0.3, 0.3b) are tracked in
+[SCHEDULING.md#phase-0--spike-and-confirmation-scheduling-relevant-items](SCHEDULING.md#phase-0--spike-and-confirmation-scheduling-relevant-items)
+and are already resolved.
 
 ### Phase 2 — Embedded server + mobile client (~3–4 weeks)
 
@@ -510,7 +365,10 @@ shown on open rather than pushed.
 
 Includes mDNS advertisement and device auth per
 [Discovery and TLS](#discovery-and-tls); no certificates in the baseline. Bind, TLS, auth, and pairing must work identically on Windows and Linux
-(R6). Completing this phase satisfies **R1** outright.
+(R6). Completing this phase satisfies **R1** outright. Depends on the schedule picker/queue
+existing server-side, so in practice follows
+[SCHEDULING.md Phase 1](SCHEDULING.md#phase-1--scheduler-in-the-desktop-app-23-weeks),
+though nothing about the mobile client's design requires waiting on it.
 
 ### Phase 3 — Onboarding (R5) (~1 week)
 
@@ -526,8 +384,10 @@ machine is a design defect, not a support burden. (Both are on Pacific time, so 
 times carry no cross-timezone ambiguity between them — though the UI should still state
 which clock a scheduled time refers to.)
 
-**Total: ~6–9 weeks**, sequential, with Phases 1 and 2 each independently useful — Phase 1
-delivers scheduling on its own, Phase 2 delivers phone posting.
+**Total for this document's phases: ~5–6 weeks** (0.4, 2, 3), independent of
+[SCHEDULING.md's Phase 1](SCHEDULING.md#phase-1--scheduler-in-the-desktop-app-23-weeks)
+(~2–3 weeks) — scheduling can ship and be used from the desktop GUI before any mobile work
+lands.
 
 ---
 
@@ -536,9 +396,6 @@ delivers scheduling on its own, Phase 2 delivers phone posting.
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | Rin does not complete setup (historical precedent) | **High** | High | Phase 3 as a real phase; minimize her step count; no VPN or account signup on her side |
-| Windows Update reboot strands the poster at the lock screen | Medium | High | Autologon + session restore; startup reconciliation posts anything missed during the outage, late and flagged |
-| Desktop sleeps despite being powered | Medium | High | Confirm in 0.1; disable sleep; wake timers |
-| Delegated scheduling breaks when a composer changes | Medium | Medium | Same fragility as posting today; reconcile after the fact |
 | **Windows** drifts out of parity — development and first-pass testing happen on Kubuntu | Medium | High | Existing practice already covers this: releases ship as pre-releases and are promoted to stable only after explicit Windows verification, now via the `galefling-win11` VM. Windows is Rin's platform, so the promotion gate is the control that matters. |
 | mDNS fails — VLAN segregation, or a client that will not resolve `.local` | Low | Medium | Verify in Phase 0.4 on Rin's actual network; fall back to a discovery step in the desktop GUI that displays the current address |
 | Compose-while-away later wanted, forcing the TLS upgrade path | Low | Low | Deliberate later work; the client and API are unchanged by it |
@@ -546,20 +403,24 @@ delivers scheduling on its own, Phase 2 delivers phone posting.
 | Large video upload from Safari over cellular stalls | Medium | Medium | Chunked/resumable upload; no background upload on iOS |
 | iOS clears the auth token from local storage | Medium | Low | Keep re-pairing cheap — a QR code or short code from the desktop GUI, not a credential re-entry |
 | No Web Share Target on iOS | Certain | **Accepted** | Rin opens the app and picks media — confirmed acceptable |
-| Cloudflare behavior changes on Fansly/OnlyFans | Medium | High | Unchanged from today; posting stays on her machine and IP |
 
-Note that the top risks are operational rather than technical, which is the expected shape
-once the architecture stops fighting the platforms.
+Scheduling-specific risks (reboot strands the poster, desktop sleep, local-queue posting
+breaking on API changes, Cloudflare on paused platforms) are tracked in
+[SCHEDULING.md#risk-register-scheduling-relevant](SCHEDULING.md#risk-register-scheduling-relevant).
+
+Note that the top risks here are operational rather than technical, which is the expected
+shape once the architecture stops fighting the platforms.
 
 ---
 
 ## Open questions
 
-1. Rin's sleep settings and autologon state — Jas to confirm; expected to already be correct.
+1. Rin's sleep settings and autologon state — Jas to confirm; expected to already be correct. (Phase 0.1)
 2. Does mDNS resolve end-to-end on Rin's actual network — her iPhone to her desktop
    through the Dream Machine? Everything about discovery rests on this. (Phase 0.4)
-3. What staleness threshold should startup reconciliation use before marking a due post
-   missed rather than posting it late?
+
+Scheduling's staleness-threshold open question is tracked in
+[SCHEDULING.md#open-questions](SCHEDULING.md#open-questions).
 
 ---
 
@@ -622,6 +483,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 
 ## References
 
+- `docs/plans/SCHEDULING.md` — scheduling design, R2/R4, delegate-vs-local-queue decision
 - `docs/ARCHITECTURE_OVERVIEW.md` — two-tier posting model
 - `docs/platforms/PLATFORM_SPECS.md` — platform limits and API vs WebView
 - `src/platforms/base_webview.py` — WebView tier retained unchanged by this plan
@@ -636,14 +498,14 @@ sustained rental and is the only option that supports an interactive debug loop.
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | Split out of `docs/plans/SCHEDULING_AND_MULTI_CLIENT.md` into this mobile/LAN-access-only document (Jas): scheduling and mobile/LAN access are handled in entirely different phases and no longer need one shared file. Content carried over verbatim from the combined plan's mobile/LAN-relevant sections; scheduling content moved to `docs/plans/SCHEDULING.md`. This document retains the full original changelog below for continuity, since it is the architectural/topology-level document the combined plan grew from. |
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`, since removed — its analysis survives as Appendix A. Re-framed from mobile port to desktop-resident scheduler + mobile web client. |
-| 2026-08-13 | Carried forward the findings of Odoo #392 ("Look into scheduling support"), a research task now completed. Added queue management to R2 — multiple pending posts, editable and cancellable — which the plan had not stated. Flagged a direct contradiction on Facebook: #392 recorded `scheduled_publish_time` as working, the 2026-08-13 review did not; resolving it is now Phase 0.3, and the Instagram-crosspost workaround demoted to a fallback. |
 | 2026-08-13 | Noted that Rin (Nevada) and Jas (Washington) are remote from each other, so R5's "unaided" has no in-person fallback and support is screen-share only. Both on Pacific time. |
-| 2026-08-13 | Failure notification settled on SMTP over SES (Jas), delivered through the existing credential-import file as a new `smtp` section so Rin configures nothing. Gmail App Password requirements documented. Mailbox decided: a dedicated Google Workspace account, on the trust-boundary reasoning that a machine someone else uses should not hold personal credentials. Shared with Odoo #427 (exim relay). |
-| 2026-08-13 | Separated two problems that had been conflated (Jas): GaleFling reporting its own posting failures is in scope and best served by email; whether Rin's machine is up is **not** monitored and not Jas's responsibility. Dead-man's switch dropped entirely rather than scoped. Startup reconciliation reframed as queue correctness rather than alerting, with a staleness threshold noted as an open design question. |
-| 2026-08-13 | Rewrote R4/alerting: split app-running from app-not-running failures, promoted startup queue reconciliation to the primary defence, scoped the dead-man's switch to sustained outages only, and removed a stale reference to pushing to paired devices — there is no push channel in the baseline. |
 | 2026-08-13 | Clarified what plain HTTP actually costs (Jas): push is moot since GaleFling has no notification model, and "offline" means the app will not open at all while off-LAN, i.e. no compose-while-away. Both sit behind the same secure-context gate, so the TLS upgrade is one decision rather than two. |
 | 2026-08-13 | Discovery reworked (Jas): Rin's desktop has no static IP or DHCP reservation and configuring one is not something to ask of her, so any address-based scheme fails R5. Baseline is now mDNS (`galefling.local`) over plain HTTP. Corrected an error in the previous revision — plain HTTP does **not** prevent Add to Home Screen on iOS, nor `<input type=file>`; only service workers, push, and offline are lost. TLS via dynamic public DNS pointing at the private IP is retained as a deliberate later upgrade. |
 | 2026-08-13 | Relay/Tailscale dropped entirely (Jas): phone and desktop are on the same router, so they connect directly. Off-LAN access moved to explicit non-goals. Added R7 and the TLS/secure-context constraint that LAN-direct imposes. Corrected the parity risk — Linux is the primary development platform since the move to Kubuntu; Windows is the side that drifts, controlled by the existing pre-release-then-promote gate. Noted the WSL functional path as effectively dead. |
-| 2026-08-13 | Facebook Page scheduling reframed as delegable indirectly, by letting a scheduled Instagram post crosspost to the linked Page (Jas). Added as Phase 0.3. |
-| 2026-08-13 | Native-scheduling table confirmed by Jas (Threads and Instagram yes; Facebook and FetLife no). Added R6 — full functionality on both Windows and Linux, with the desktop app itself serving mobile clients. Relay demoted to optional off-LAN transport; phases reordered so LAN-only phone posting lands before any hosted component. |
+| 2026-08-13 | Added R6 — full functionality on both Windows and Linux, with the desktop app itself serving mobile clients. Relay demoted to optional off-LAN transport; phases reordered so LAN-only phone posting lands before any hosted component. |
+
+For the scheduling-specific portions of the 2026-08-13 and 2026-08-21 history (delegate
+vs. local-queue research, Facebook API verification, email/SMTP failure reporting), see
+[SCHEDULING.md's changelog](SCHEDULING.md#changelog).

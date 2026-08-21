@@ -361,8 +361,11 @@ def test_settings_dialog_has_grouped_sidebar_sections(qtbot, tmp_path, monkeypat
         dialog._settings_sidebar.item(i).text() for i in range(dialog._settings_sidebar.count())
     ]
 
-    assert sidebar_names[:3] == ['App', 'General', 'Advanced']
-    assert sidebar_names[3:9] == [
+    # Advanced trails every account section under its own "More" header — not
+    # grouped with General under "App" — so browsing accounts never scrolls
+    # past it first.
+    assert sidebar_names[:2] == ['App', 'General']
+    assert sidebar_names[2:8] == [
         'Accounts',
         'Twitter',
         'Bluesky',
@@ -376,8 +379,8 @@ def test_settings_dialog_has_grouped_sidebar_sections(qtbot, tmp_path, monkeypat
     assert 'Snapchat' not in sidebar_names
     assert 'OnlyFans' not in sidebar_names
     assert 'Fansly' not in sidebar_names
-    assert sidebar_names[9:] == ['FetLife']
-    for row in (1, 2, 4, 5, 6, 7, 8, 9):
+    assert sidebar_names[8:] == ['FetLife', 'More', 'Advanced']
+    for row in (1, 3, 4, 5, 6, 7, 8, 10):
         assert not dialog._settings_sidebar.item(row).icon().isNull()
 
 

@@ -34,6 +34,7 @@ from PyQt6.QtGui import QImage
 from PyQt6.QtWidgets import QApplication
 
 from src.core.auth_manager import AuthManager
+from src.core.config_manager import ConfigManager
 from src.gui.setup_wizard import SetupWizard
 from src.utils.theme import apply_theme
 
@@ -61,7 +62,8 @@ def main() -> None:
     apply_theme(app)
 
     auth_manager = AuthManager()  # fresh, first-run state
-    wizard = SetupWizard(auth_manager)
+    config_manager = ConfigManager()
+    wizard = SetupWizard(auth_manager, config_manager)
     apply_theme(app, wizard)
     wizard.resize(640, 780)
     wizard.show()

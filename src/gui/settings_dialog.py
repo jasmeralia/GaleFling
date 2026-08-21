@@ -130,9 +130,6 @@ class SettingsDialog(QDialog):
         general_tab = self._create_general_tab()
         self._add_sidebar_page('General', 'icons/ui/settings.svg', general_tab)
 
-        advanced_tab = self._create_advanced_tab()
-        self._add_sidebar_page('Advanced', 'icons/ui/tune.svg', advanced_tab)
-
         # Per-platform account sections
         self._add_sidebar_group('Accounts')
         self._add_sidebar_page('Twitter', 'icons/brands/twitter.svg', self._create_twitter_tab())
@@ -164,6 +161,14 @@ class SettingsDialog(QDialog):
                 icon_resource,
                 self._create_webview_platform_tab(platform_id, specs),
             )
+
+        # Advanced sits below every account section, so browsing accounts doesn't
+        # require scrolling past it first. "More" (not a second "App" label) keeps
+        # it visually distinct from the account list without implying a repeated
+        # section or being redundant with the "Advanced" page title beneath it.
+        self._add_sidebar_group('More')
+        advanced_tab = self._create_advanced_tab()
+        self._add_sidebar_page('Advanced', 'icons/ui/tune.svg', advanced_tab)
 
         self._settings_sidebar.setCurrentRow(1)
         layout.addLayout(content_layout, 1)

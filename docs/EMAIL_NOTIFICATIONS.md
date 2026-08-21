@@ -18,7 +18,7 @@ scheduling, so both are already in place once it ships.
   `galefling@rin-city.com`, a dedicated mailbox with 2FA and an app password —
   see [docs/plans/SCHEDULING.md#email-configuration](plans/SCHEDULING.md#email-configuration)
   for why a dedicated account rather than a personal one). Arrives via the
-  same [credential import JSON](platforms/META_APPS.md) mechanism as Meta,
+  same [credential import JSON](CREDENTIALS.md) mechanism as Meta,
   Twitter, and AWS credentials — never hand-typed.
 - **Notification email address** — not a secret. The address that should
   *receive* the notifications. Set this yourself, either during first-run
@@ -94,6 +94,8 @@ If the SMTP account is a Google Workspace / Gmail mailbox:
 
 ## References
 
+- `docs/CREDENTIALS.md` — the full credential import JSON schema (all sections, not
+  just `smtp`), partial-import behavior, and versioning
 - `src/core/smtp_utils.py` — `check_smtp_connection()`, the test-email helper
 - `src/core/auth_manager.py` — `get_smtp_credentials()` / `save_smtp_credentials()`
 - `src/core/credential_importer.py` — the `smtp` import section

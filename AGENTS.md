@@ -159,6 +159,7 @@ galefling/
 
 ## Additional Documentation
 - `docs/ARCHITECTURE_OVERVIEW.md` — deeper architecture and subsystem behavior
+- `docs/CREDENTIALS.md` — full credential import JSON schema (meta/twitter/aws/smtp), partial imports, versioning
 - `docs/EMAIL_NOTIFICATIONS.md` — SMTP credential import, notification email setup, testing
 - `docs/MEDIA_PROCESSING.md` — image/video processing and conversion behavior
 - `docs/BUILD_AND_RELEASE.md` — build, tooling, packaging, and release mechanics

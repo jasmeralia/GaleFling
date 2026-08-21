@@ -41,7 +41,8 @@ Facebook is the exception that uses the top-level ID.
 Supplying a top-level App ID where a use-case-scoped one is required produces
 `Invalid platform app` at the authorization window. Enter the values in each
 platform's own **Settings > Threads/Instagram/Facebook Page > App Credentials**
-page, or import them all at once via **Settings > Advanced > Import Credentials**:
+page, or import them all at once via **Settings > Advanced > Import Credentials**
+— this is the `meta` section of the shared credential import JSON:
 
 ```json
 {
@@ -53,6 +54,10 @@ page, or import them all at once via **Settings > Advanced > Import Credentials*
   }
 }
 ```
+
+The same file also carries `twitter`, `aws`, and `smtp` sections — see
+[docs/CREDENTIALS.md](../CREDENTIALS.md) for the full schema, every field's
+required-ness, and how partial imports work.
 
 Before importing, check a credential file against what's already stored with
 `tools/validate_import_file.py path/to/creds_import.json` — it's read-only

@@ -12,6 +12,8 @@ output anywhere.
 This does not call ``import_credentials()`` and never writes anything -- it's
 a read-only comparison, not a dry-run of the real import.
 
+See docs/CREDENTIALS.md for the full schema this file is checked against.
+
 Usage::
 
     .venv/bin/python tools/validate_import_file.py path/to/creds_import.json

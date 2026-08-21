@@ -4,6 +4,9 @@ Supports Meta (threads / instagram / facebook), Twitter OAuth 2.0,
 AWS media staging, and SMTP (scheduled-post failure notifications)
 credentials. Partial imports (missing platforms) are valid — only
 sections present and complete in the file are stored.
+
+See docs/CREDENTIALS.md for the full schema, per-field required-ness,
+and why SUPPORTED_VERSION isn't bumped for additive sections.
 """
 
 from __future__ import annotations

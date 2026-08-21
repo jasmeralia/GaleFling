@@ -47,6 +47,7 @@ See [AGENTS.md](AGENTS.md) for project structure, architecture, and conventions.
 | File | Contents |
 |------|----------|
 | [docs/ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE_OVERVIEW.md) | Subsystem architecture and behavior |
+| [docs/CREDENTIALS.md](docs/CREDENTIALS.md) | Full credential import JSON schema (meta/twitter/aws/smtp), partial imports, versioning |
 | [docs/EMAIL_NOTIFICATIONS.md](docs/EMAIL_NOTIFICATIONS.md) | SMTP credential import, notification email setup, testing |
 | [docs/MEDIA_PROCESSING.md](docs/MEDIA_PROCESSING.md) | Image/video processing and conversion |
 | [docs/BUILD_AND_RELEASE.md](docs/BUILD_AND_RELEASE.md) | Build tooling, packaging, release mechanics |

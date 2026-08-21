@@ -372,10 +372,13 @@ though nothing about the mobile client's design requires waiting on it.
 
 ### Phase 3 — Onboarding (R5) (~1 week)
 
-Treated as engineering, not documentation: installer defaults that enable autostart, a
-first-run flow that ends with her phone paired and the client on her home screen, a
-one-page setup guide, and a way for Jas to see whether her side is healthy. **Success is
-Rin completing setup unaided, not the existence of instructions.**
+Treated as engineering, not documentation: installer defaults that turn on the
+[start-at-login setting](SCHEDULING.md#start-at-login) (which ships with scheduling in
+Phase 1, not introduced fresh here — Phase 3 just needs the installer to default it on for
+a new install, same as it would for scheduling alone), a first-run flow that ends with her
+phone paired and the client on her home screen, a one-page setup guide, and a way for Jas
+to see whether her side is healthy. **Success is Rin completing setup unaided, not the
+existence of instructions.**
 
 "Unaided" is load-bearing: Rin is in Nevada and Jas is in Washington, so there is no
 in-person fallback. Every setup step and every subsequent troubleshoot happens either on
@@ -499,6 +502,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | Phase 3's installer-default autostart language now points to `SCHEDULING.md`'s new [Start at login](SCHEDULING.md#start-at-login) setting (Jas) — that setting ships with scheduling in Phase 1, not introduced fresh here; Phase 3 only needs the installer to default it on. |
 | 2026-08-21 | Resolved the sleep half of Phase 0.1 (Jas): confirmed not configured, retiring that risk from scheduling's register. Surfaced a bigger finding in the process — Rin routinely fully shuts the machine down when not in active use — which fed a new "Shutdown awareness" design section in `docs/plans/SCHEDULING.md` rather than this document, since it's a scheduling-protection concern. Autologon confirmation remains an open question. |
 | 2026-08-21 | Split out of `docs/plans/SCHEDULING_AND_MULTI_CLIENT.md` into this mobile/LAN-access-only document (Jas): scheduling and mobile/LAN access are handled in entirely different phases and no longer need one shared file. Content carried over verbatim from the combined plan's mobile/LAN-relevant sections; scheduling content moved to `docs/plans/SCHEDULING.md`. This document retains the full original changelog below for continuity, since it is the architectural/topology-level document the combined plan grew from. |
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`, since removed — its analysis survives as Appendix A. Re-framed from mobile port to desktop-resident scheduler + mobile web client. |

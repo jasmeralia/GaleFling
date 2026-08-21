@@ -193,6 +193,46 @@ for why the poster can't be installed as a Windows service and what that implies
 autologon and session restore. Startup reconciliation, above, is what catches anything
 whose due time passed during that kind of outage.
 
+#### Email configuration
+
+SMTP is preferred over SES for an R5 reason rather than a technical one: **it can ride the
+credential import Jas already hands Rin.** `src/core/credential_importer.py` is versioned,
+accepts partial imports, and already carries `meta`, `twitter`, and `aws` sections; an
+`smtp` section alongside them means host, port, username, app password, and recipients all
+arrive pre-filled. Rin configures nothing and sees no mail settings unless she goes
+looking. SES would mean AWS identity verification and a sending-domain setup with no
+corresponding benefit at this volume.
+
+Gmail specifics worth pinning down before implementation:
+
+- `smtp.gmail.com` port 587 with STARTTLS (or 465 implicit TLS). Outbound only, and no
+  different in posture from the platform APIs and S3 uploads the app already makes.
+- **An App Password is required** — Google removed plain-password SMTP access, and
+  generating an App Password requires 2-Step Verification on the account.
+- The `From:` header is rewritten to the authenticated account unless a verified alias is
+  used, so the sending identity is whoever owns the mailbox.
+- Free-account sending limits are around 500 messages/day, which is irrelevant here.
+
+**Mailbox — decided: a dedicated Google Workspace account**, roughly $5/month for the
+extra user.
+
+The reasoning is a trust-boundary one rather than a technical one. gelfling, rinling, and
+TrueNAS are single-operator machines, so personal credentials on them are acceptable.
+Rin's desktop is not: an application running on a machine someone else uses should not
+hold a credential tied to a personal identity, however narrowly that credential is scoped.
+Having her generate her own is equally wrong — it would require walking her through
+enabling 2-Step Verification, exactly the class of step R5 exists to remove.
+
+A dedicated account contains the blast radius to "can send mail from a mailbox that holds
+nothing," and it is the same account intended to consolidate server-generated mail — see
+Odoo task **#427**, routing exim on rin-city.com through the Workspace SMTP relay instead
+of sending directly from EC2.
+
+Use a **separate App Password per host**, so Rin's machine can be revoked independently of
+the servers. The App Password is a credential like any other: stored through `AuthManager`
+(`keyring` is already a dependency), never logged, and covered by the same handling rules
+as platform credentials.
+
 ### Shutdown awareness (R4)
 
 **Resolved 2026-08-21 (Phase 0.1, Jas): Rin does not have sleep configured, but she does
@@ -250,45 +290,41 @@ Windows. Linux has an analogous inhibitor-lock mechanism (`systemd-logind`'s `In
 D-Bus call, or the `systemd-inhibit` CLI wrapper) if parity is ever wanted for R6, but it
 is not scoped now — nothing in this design requires it to ship.
 
-#### Email configuration
+### Start at login
 
-SMTP is preferred over SES for an R5 reason rather than a technical one: **it can ride the
-credential import Jas already hands Rin.** `src/core/credential_importer.py` is versioned,
-accepts partial imports, and already carries `meta`, `twitter`, and `aws` sections; an
-`smtp` section alongside them means host, port, username, app password, and recipients all
-arrive pre-filled. Rin configures nothing and sees no mail settings unless she goes
-looking. SES would mean AWS identity verification and a sending-domain setup with no
-corresponding benefit at this volume.
+Scheduling only works if GaleFling is actually running when a post comes due — a distinct
+failure mode from either sleep or a full shutdown (both covered above): the machine can be
+on and Rin logged in, with GaleFling simply never launched since the last boot, or closed
+via the tray icon's Exit action. Nothing above catches this, and it is exactly the kind of
+step R5 says should not be left for Rin to remember.
 
-Gmail specifics worth pinning down before implementation:
+**Add a "Start GaleFling at login" setting** — Settings dialog, on by default once the
+first post is scheduled rather than buried as an opt-in nobody finds. Concretely:
 
-- `smtp.gmail.com` port 587 with STARTTLS (or 465 implicit TLS). Outbound only, and no
-  different in posture from the platform APIs and S3 uploads the app already makes.
-- **An App Password is required** — Google removed plain-password SMTP access, and
-  generating an App Password requires 2-Step Verification on the account.
-- The `From:` header is rewritten to the authenticated account unless a verified alias is
-  used, so the sending identity is whoever owns the mailbox.
-- Free-account sending limits are around 500 messages/day, which is irrelevant here.
+- **The setting is a real, user-visible toggle**, not just an installer-time default.
+  Installer defaults (see
+  [MOBILE_LAN_ACCESS.md Phase 3](MOBILE_LAN_ACCESS.md#phase-3--onboarding-r5-1-week))
+  don't help if she reinstalls, resets the machine, or the setting gets toggled off some
+  other way — the app needs to be able to set and query this itself.
+- **Offer to turn it on at the moment it starts mattering.** When Rin schedules her first
+  pending post while autostart is off, prompt once (a checkbox alongside the
+  [composer-time warning](#shutdown-awareness-r4) is the natural spot, since both are
+  about the same underlying requirement — the computer must stay on and GaleFling must be
+  running) rather than requiring her to find Settings unprompted. Default the checkbox to
+  checked; she can decline.
+- **Platform mechanism**: on Windows, a `HKEY_CURRENT_USER\...\Run` registry value (no
+  admin rights needed, unlike a Startup-folder shortcut created system-wide) or a Startup
+  folder shortcut — either is fine, pick whichever the installer tooling makes easiest to
+  keep in sync with the setting's on/off state. On Linux, an XDG autostart desktop entry
+  under `~/.config/autostart/`. Both are per-user, requiring no elevation, consistent with
+  R6 (both platforms run the full app, including this).
+- **Launches to tray, not the visible window**, when started this way — Rin didn't ask to
+  see GaleFling's UI at every login, only for it to be running so scheduled posts fire.
 
-**Mailbox — decided: a dedicated Google Workspace account**, roughly $5/month for the
-extra user.
-
-The reasoning is a trust-boundary one rather than a technical one. gelfling, rinling, and
-TrueNAS are single-operator machines, so personal credentials on them are acceptable.
-Rin's desktop is not: an application running on a machine someone else uses should not
-hold a credential tied to a personal identity, however narrowly that credential is scoped.
-Having her generate her own is equally wrong — it would require walking her through
-enabling 2-Step Verification, exactly the class of step R5 exists to remove.
-
-A dedicated account contains the blast radius to "can send mail from a mailbox that holds
-nothing," and it is the same account intended to consolidate server-generated mail — see
-Odoo task **#427**, routing exim on rin-city.com through the Workspace SMTP relay instead
-of sending directly from EC2.
-
-Use a **separate App Password per host**, so Rin's machine can be revoked independently of
-the servers. The App Password is a credential like any other: stored through `AuthManager`
-(`keyring` is already a dependency), never logged, and covered by the same handling rules
-as platform credentials.
+This belongs to **Phase 1** (the setting must exist before or alongside the first release
+that lets her schedule anything — it's not mobile-specific, so it doesn't wait for
+Phase 2/3), though the composer-time prompt piece can reuse whatever UI moment the
+[Shutdown awareness](#shutdown-awareness-r4) warning already establishes.
 
 ---
 
@@ -314,12 +350,13 @@ is tracked as one item rather than duplicated.
 
 ## Phase 1 — Scheduler in the desktop app (~2–3 weeks)
 
-Schedule queue, due-time poller, background/tray operation, missed-window handling, and the
-Windows shutdown-block prompt (see [Shutdown awareness](#shutdown-awareness-r4)) — one
-uniform path for every schedulable platform, no delegated-vs-local routing to build for the
-active platform set (OnlyFans/Fansly's separate UI-automation delegation stays dormant while
-paused). Deliverable: **a post scheduled from the existing desktop GUI fires correctly with
-the app minimized**, on both Windows and Linux. No phone involved yet. This alone satisfies R2.
+Schedule queue, due-time poller, background/tray operation, missed-window handling, the
+Windows shutdown-block prompt (see [Shutdown awareness](#shutdown-awareness-r4)), and the
+[start-at-login setting](#start-at-login) — one uniform path for every schedulable platform,
+no delegated-vs-local routing to build for the active platform set (OnlyFans/Fansly's
+separate UI-automation delegation stays dormant while paused). Deliverable: **a post
+scheduled from the existing desktop GUI fires correctly with the app minimized**, on both
+Windows and Linux. No phone involved yet. This alone satisfies R2.
 
 This is the entire scheduling-side deliverable; mobile client work is
 [Phase 2](MOBILE_LAN_ACCESS.md#phase-2--embedded-server--mobile-client-34-weeks) and does not
@@ -334,6 +371,7 @@ block it.
 | Windows Update reboot strands the poster at the lock screen | Medium | High | Autologon + session restore; startup reconciliation posts anything missed during the outage, late and flagged |
 | ~~Desktop sleeps despite being powered~~ | — | — | **Resolved 2026-08-21 (Phase 0.1):** confirmed Rin does not have sleep configured. Not a real risk; nothing to mitigate. |
 | Rin manually shuts down the machine when not in active use, silently dropping pending scheduled posts | **High** — confirmed routine behavior, not an edge case | High | See [Shutdown awareness](#shutdown-awareness-r4): composer-time warning plus a `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt while a post is pending, backstopped by startup reconciliation for anything that still gets through |
+| Machine is on and Rin is logged in, but GaleFling itself isn't running (never launched since boot, or closed via the tray icon's Exit) | Medium | High | See [Start at login](#start-at-login): a real Settings toggle, offered proactively the first time she schedules a post while it's off |
 | Local-queue posting breaks when a platform's API changes | Medium | Medium | Same fragility as posting today; reconcile after the fact |
 | Cloudflare behavior changes on Fansly/OnlyFans | Medium | High | Unchanged from today; posting stays on her machine and IP. Not a scheduling risk per se — those platforms are paused — but retained here since a reactivation would restore their delegated-scheduling model. |
 
@@ -374,6 +412,7 @@ settings are resolved above (Phase 0.1) — not configured, not a risk.
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | Added [Start at login](#start-at-login) (Jas): scheduling only works if GaleFling is actually running, a failure mode distinct from sleep or shutdown — the machine can be on and Rin logged in with the app simply never launched, or closed via the tray icon. A real Settings toggle (not just an installer default), offered proactively the first time she schedules a post while it's off, using a per-user autostart mechanism on each platform (Windows Registry `Run` key or Startup folder shortcut; Linux XDG autostart entry). Added to Phase 1 scope and the risk register; `MOBILE_LAN_ACCESS.md`'s Phase 3 installer-default language updated to build on this setting rather than introduce autostart fresh. |
 | 2026-08-21 | Resolved Phase 0.1 (Jas): Rin does not have sleep configured, retiring that risk, but she does routinely fully shut down the machine when not in active use — a bigger risk than sleep would have been, since it doesn't self-heal the way a reboot does. Added [Shutdown awareness](#shutdown-awareness-r4): a composer-time warning plus a Windows `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt while a post is pending, added to Phase 1 scope. Flagged reboot-vs-shutdown detection as an open technical question (`ENDSESSION_CRITICAL` shutdowns can't be blocked by any app regardless), with a pragmatic fallback that doesn't depend on resolving it before Phase 1. |
 | 2026-08-21 | Split out of `docs/plans/SCHEDULING_AND_MULTI_CLIENT.md` into this scheduling-only document (Jas): scheduling and mobile/LAN access are handled in entirely different phases and no longer need one shared file. Content carried over verbatim from the combined plan's scheduling-relevant sections; mobile/LAN content moved to `docs/plans/MOBILE_LAN_ACCESS.md`. |
 | 2026-08-21 | Resolved the API-vs-product scheduling gap flagged in Odoo #450, against Meta's current developer docs. Facebook Page is confirmed to support real API-level scheduling (`scheduled_publish_time` live on `/{page-id}/feed`), resolving the #392-vs-2026-08-13 contradiction — but Jas then decided **not** to delegate to it: every schedulable platform (Facebook, Instagram, Threads, Bluesky, Twitter) holds in one uniform local queue instead, trading Facebook's off-desktop resilience for a single scheduling mechanism instead of two, and mooting the scheduling-window discrepancy between Meta's own doc pages (30 vs 75 days) since GaleFling's poller no longer needs it. Revisit if more platforms gain real API scheduling later. Separately, confirmed Instagram and Threads have **no** API scheduling at all — neither Graph API exposes a scheduling parameter, only a two-step immediate-publish container model — so they were never delegation candidates regardless of the Facebook decision. FetLife reclassified from "local queue" to **ineligible for scheduling, excluded from the picker**: its posting path is WebView/human-confirmed and its session check already skips headless validation due to Cloudflare fingerprinting, so an unattended fire would either break or ambush the user with a surprise composer window. Also answered: Instagram→Facebook crossposting requires a linked Facebook Page and cannot use a personal profile at all — moot for the design now, noted for completeness. |

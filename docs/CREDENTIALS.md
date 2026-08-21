@@ -79,6 +79,20 @@ an error — the rest of the file still imports normally. This is what lets
 an administrator hand over one section at a time, or add a new one (like
 `smtp`) to an existing file without touching what's already there.
 
+## Malformed input
+
+A section present with the wrong JSON type (e.g. `"meta": "oops"` instead of
+an object) or a field with the wrong type (e.g. a number where a string is
+expected) is reported as an **error** (wrong section type) or **skip**
+(wrong field type, folded into the same "incomplete" bucket as a missing
+field) — never an unhandled crash. `null` for a whole section is treated the
+same as omitting it entirely. The app's log file additionally records which
+required field *names* were missing or blank for a skipped section — never
+the values, and never anything beyond the fixed set of field-name constants
+this module already knows about, so nothing from the file itself can reach
+a log that might later be uploaded (see `docs/testing/FUNCTIONAL_TESTING.md`)
+or emailed.
+
 ## Import result feedback
 
 Both the Setup Wizard and Settings dialog report exactly what happened,

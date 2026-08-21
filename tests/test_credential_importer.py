@@ -225,3 +225,109 @@ def test_meta_oauth_redirect_uri_absent_does_not_override_default(auth, tmp_path
     assert 'meta.oauth_redirect_uri' not in result.imported
     # Default value still returned
     assert auth.get_meta_oauth_redirect_uri() == 'https://galefling.jasmer.tools/oauth/callback'
+
+
+# ── Malformed input — must report an error, never raise ────────────────────
+
+
+def test_top_level_not_an_object_reports_error(auth, tmp_path):
+    result = import_credentials(_write_json(tmp_path, [1, 2, 3]), auth)
+
+    assert not result.success
+    assert any('list' in err for err in result.errors)
+
+
+def test_top_level_string_reports_error(auth, tmp_path):
+    result = import_credentials(_write_json(tmp_path, 'oops'), auth)
+
+    assert not result.success
+    assert any('str' in err for err in result.errors)
+
+
+def test_meta_section_wrong_type_reports_error_not_crash(auth, tmp_path):
+    data = {'version': SUPPORTED_VERSION, 'meta': 'oops'}
+    result = import_credentials(_write_json(tmp_path, data), auth)
+
+    assert any("'meta'" in err and 'str' in err for err in result.errors)
+    assert auth.get_meta_threads_app_credentials() is None
+
+
+def test_meta_section_null_is_silently_ignored(auth, tmp_path):
+    data = {'version': SUPPORTED_VERSION, 'meta': None}
+    result = import_credentials(_write_json(tmp_path, data), auth)
+
+    assert result.errors == []
+    assert result.skipped == []
+
+
+def test_twitter_section_wrong_type_reports_error_not_crash(auth, tmp_path):
+    data = {'version': SUPPORTED_VERSION, 'twitter': 'oops'}
+    result = import_credentials(_write_json(tmp_path, data), auth)
+
+    assert any("'twitter'" in err and 'str' in err for err in result.errors)
+    assert auth.get_twitter_oauth2_app_credentials() is None
+
+
+def test_meta_threads_subsection_wrong_type_reports_error_not_crash(auth, tmp_path):
+    data = {'version': SUPPORTED_VERSION, 'meta': {'threads': [1, 2]}}
+    result = import_credentials(_write_json(tmp_path, data), auth)
+
+    assert any("'meta.threads'" in err and 'list' in err for err in result.errors)
+    assert auth.get_meta_threads_app_credentials() is None
+
+
+def test_smtp_field_wrong_type_skipped_not_crash(auth, tmp_path):
+    data = {
+        'version': SUPPORTED_VERSION,
+        'smtp': {'host': 'h', 'username': 'u', 'app_password': 12345},  # int, not str
+    }
+    result = import_credentials(_write_json(tmp_path, data), auth)
+
+    assert 'smtp' in result.skipped
+    assert auth.get_smtp_credentials() is None
+
+
+def test_missing_field_diagnostics_never_log_credential_values(auth, tmp_path, caplog):
+    """Skipped/malformed-section diagnostics must name fields, never leak values.
+
+    This log can be uploaded and emailed (see docs/testing/FUNCTIONAL_TESTING.md /
+    the log-upload path) — a leaked value here would reach an inbox, not just a
+    local file. Uses a section with one real-looking secret value plus a wrong-type
+    field, and asserts that literal string appears nowhere in any log record.
+    """
+    caplog.set_level('DEBUG', logger='GaleFling')
+    secret_value = 'sk_live_super_secret_value_12345'
+    data = {
+        'version': SUPPORTED_VERSION,
+        'twitter': {'client_id': secret_value, 'client_secret': ''},  # incomplete: skipped
+        'smtp': {'host': 'h', 'username': 'u', 'app_password': 999},  # wrong type: skipped
+        'meta': {'threads': 'not-an-object'},  # malformed: error
+    }
+    result = import_credentials(_write_json(tmp_path, data), auth)
+
+    assert 'twitter' in result.skipped
+    assert 'smtp' in result.skipped
+    assert any('meta.threads' in err for err in result.errors)
+
+    all_log_text = '\n'.join(record.getMessage() for record in caplog.records)
+    assert secret_value not in all_log_text
+    assert '999' not in all_log_text
+    # Errors/skips only ever surface as ImportResult data, not printed here —
+    # confirm the result itself doesn't carry the value either.
+    assert secret_value not in '\n'.join(result.errors)
+    assert secret_value not in '\n'.join(result.skipped)
+
+
+def test_valid_import_unaffected_by_hardening(auth, tmp_path):
+    data = {
+        'version': SUPPORTED_VERSION,
+        'meta': {'threads': {'app_id': 'a', 'app_secret': 'b'}},
+        'twitter': {'client_id': 'c', 'client_secret': 'd'},
+        'aws': {'access_key_id': 'e', 'secret_access_key': 'f', 'media_staging_bucket': 'g'},
+        'smtp': {'host': 'h', 'username': 'i', 'app_password': 'j'},
+    }
+    result = import_credentials(_write_json(tmp_path, data), auth)
+
+    assert result.success
+    assert result.errors == []
+    assert set(result.imported) == {'meta.threads', 'twitter', 'aws', 'smtp'}

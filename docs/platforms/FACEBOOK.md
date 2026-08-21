@@ -17,8 +17,8 @@ Before connecting a Facebook Page, you must have:
    Without app credentials imported, the Connect button will be disabled.
 3. You must have been added as a **Tester** or **Developer** on the GaleFling Facebook
    app in the Meta developer portal. Your operator handles this — you only need to
-   accept the invitation via **Facebook Settings > Business Integrations** or the
-   notification in the Facebook app.
+   accept the invitation via [facebook.com/settings?tab=business_tools](https://www.facebook.com/settings/?tab=business_tools)
+   (**Settings > Business Integrations**) or the notification in the Facebook app.
 
 ## Connecting a Facebook Page
 

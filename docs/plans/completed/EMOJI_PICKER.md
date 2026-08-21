@@ -1,5 +1,9 @@
 # Emoji Picker — Design Spec
 
+**Status: Implemented.** Moved to `docs/plans/completed/` on 2026-08-21 — shipped
+in PR #57 (merged 2026-08-15). `src/gui/emoji_picker.py` and
+`tests/test_emoji_picker.py` both exist. Kept for historical context.
+
 Status: locked for implementation. All decisions below are final; do not leave
 open design questions — if something genuinely blocks implementation, stop
 and ask rather than guessing.

@@ -1,5 +1,12 @@
 # Meta Posting Context for GaleFling
 
+**Status: Implemented.** Moved to `docs/plans/completed/` on 2026-08-21 — all
+7 completion criteria in this document verified true against current code:
+`src/platforms/threads.py` (WebView) is gone, `meta_threads.py` /
+`meta_instagram.py` / `meta_facebook_page.py` API adapters exist, and
+`src/gui/meta_connect_dialog.py` wires all three platforms including a
+Facebook Page selector. Kept for historical context.
+
 ## Goal
 
 Implement posting support for these Meta surfaces:

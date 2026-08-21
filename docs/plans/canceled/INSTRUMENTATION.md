@@ -1,5 +1,11 @@
 # Debug Instrumentation Plan
 
+**Status: Canceled.** Moved to `docs/plans/canceled/` on 2026-08-21 (Jas) — the
+OnlyFans section was already self-marked obsolete inline, and the FetLife
+cookie-diagnostics section is moot too: FetLife's session-check issue this was
+meant to help diagnose is already fixed, and OnlyFans is disabled. Kept for
+historical context.
+
 Targeted logging additions to help diagnose known issues without requiring a HAR
 capture or Chrome DevTools session. These are small, self-contained changes that can
 be shipped independently of the WebView2 migration.
@@ -145,4 +151,4 @@ context uses the same fingerprint as system Edge and is expected to pass Cloudfl
 challenges without issue. Once `FetLifePlatform` is migrated to `BaseWebView2Platform`,
 the `test_connection` override in `fetlife.py` should be removed and the base class live
 test re-enabled. This should be validated explicitly as part of Phase 4 of the WebView2
-migration (see `docs/plans/SNAPCHAT.md`).
+migration (see `docs/plans/canceled/SNAPCHAT.md`).

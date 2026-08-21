@@ -1,5 +1,13 @@
 # Snapchat WebView2 Migration Plan
 
+**Status: Canceled.** Moved to `docs/plans/canceled/` on 2026-08-21. This plan
+fixes a Chromium renderer crash, but Snapchat is now paused for an unrelated
+reason discovered 2026-08-11: its web app has no upload control at all (no
+file picker, camera-only capture) — see `docs/platforms/SNAPCHAT.md`. This
+migration would not address the actual current blocker. Kept in case the
+crash analysis or the WebView2 groundwork is useful if a virtual-camera
+approach is ever revisited.
+
 ## Background
 
 Snapchat's web app (`www.snapchat.com/web/`) crashes Qt's embedded Chromium renderer

@@ -66,6 +66,12 @@ FAKE_ACCOUNTS = [
     AccountConfig(platform_id='fetlife', account_id='fetlife_1', profile_name='SampleCreator'),
 ]
 
+# Accounts with saved (fake) credentials show a "Ready" status pill; the rest
+# show "Unavailable" -- a mix makes for a more representative screenshot than
+# an all-or-nothing account list. FetLife is WebView/session-based rather
+# than credential-based, so it's left "Unavailable" here regardless.
+FAKE_READY_ACCOUNT_IDS = {'bluesky_1', 'meta_instagram_1', 'twitter_1'}
+
 
 def _qpixmap_to_pil(pixmap) -> Image.Image:
     qimage = pixmap.toImage().convertToFormat(QImage.Format.Format_RGBA8888)
@@ -86,20 +92,22 @@ def _save(image: Image.Image, name: str) -> None:
     print(f'Wrote {path} ({image.width}x{image.height})')
 
 
-def build_auth_manager() -> AuthManager:
+def build_auth_manager(*, with_ready_accounts: bool = False) -> AuthManager:
     auth_manager = AuthManager()
     for account in FAKE_ACCOUNTS:
         auth_manager.add_account(account)
+        if with_ready_accounts and account.account_id in FAKE_READY_ACCOUNT_IDS:
+            auth_manager.save_account_credentials(account.account_id, {'access_token': 'fake'})
     return auth_manager
 
 
 def capture_main_window(app: QApplication) -> None:
     config = ConfigManager()
-    auth_manager = build_auth_manager()
+    auth_manager = build_auth_manager(with_ready_accounts=True)
 
     window = MainWindow(config, auth_manager)
     apply_theme(app, window)
-    window.resize(960, 1180)
+    window.resize(960, 1320)
     window.show()
     QApplication.processEvents()
 
@@ -201,6 +209,9 @@ def capture_results_dialog(app: QApplication) -> None:
             error_message='Session expired -- please reconnect this account in Settings.',
             account_id='fetlife_1',
             profile_name='SampleCreator',
+            # Fixed rather than datetime.now() so re-running this script doesn't
+            # churn the output PNG's bytes on every regeneration.
+            timestamp='2026-01-01T12:00:00',
         ),
     ]
     dialog = ResultsDialog(results)

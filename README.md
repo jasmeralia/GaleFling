@@ -77,7 +77,34 @@ You can also quickly open the local logs folder via **Help → Open Log Director
 
 ## Screenshots
 
-Coming soon.
+All accounts shown below are fake sample data — no real usernames or IDs.
+
+### Main window
+
+Compose once, post to every connected account. The emoji picker is open here;
+the account list shows one account per supported service, plus a second
+Twitter account to demonstrate multi-account support per platform.
+
+![Main window with the emoji picker open](docs/images/main-window.png)
+
+### Settings
+
+Manage app credentials and per-platform accounts, including multiple accounts
+for platforms that support them (Twitter shown here).
+
+![Settings dialog, Twitter accounts page](docs/images/settings-dialog.png)
+
+### Setup wizard
+
+A guided first-run wizard walks through connecting each platform.
+
+![Setup wizard, Bluesky step](docs/images/setup-wizard.png)
+
+### Post results
+
+After posting, see per-platform results with direct links to each post.
+
+![Post results dialog](docs/images/results-dialog.png)
 
 ## Trademark Notice
 

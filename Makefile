@@ -46,15 +46,15 @@ deps: venv version-file  ## Install all dependencies into .venv
 	$(PIP) install -r requirements-dev.txt
 
 lint: ## Run ruff, mypy, and shellcheck
-	$(PY) -m ruff check src/ tests/ infrastructure/ scripts/ tools/oauth/ tools/validate_import_file.py
-	$(PY) -m ruff format --check src/ tests/ infrastructure/ scripts/ tools/oauth/ tools/validate_import_file.py
+	$(PY) -m ruff check src/ tests/ infrastructure/ scripts/ tools/oauth/ tools/validate_import_file.py tools/screenshots/
+	$(PY) -m ruff format --check src/ tests/ infrastructure/ scripts/ tools/oauth/ tools/validate_import_file.py tools/screenshots/
 	$(PY) -m mypy src/ scripts/release_info.py scripts/write_version.py
 	shellcheck infrastructure/deploy.sh build/linux/appimage/AppRun $(DESKTOP_SESSION_RUNNER)
 	shellcheck -x tools/windows-vm/*.sh
 
 lintfix: ## Auto-fix lint issues and format code
-	$(PY) -m ruff check --fix src/ tests/ infrastructure/ scripts/ tools/oauth/ tools/validate_import_file.py
-	$(PY) -m ruff format src/ tests/ infrastructure/ scripts/ tools/oauth/ tools/validate_import_file.py
+	$(PY) -m ruff check --fix src/ tests/ infrastructure/ scripts/ tools/oauth/ tools/validate_import_file.py tools/screenshots/
+	$(PY) -m ruff format src/ tests/ infrastructure/ scripts/ tools/oauth/ tools/validate_import_file.py tools/screenshots/
 
 format: lintfix  ## Alias for lintfix
 

@@ -240,7 +240,11 @@ class ResultsDialog(QDialog):
             copy_btn.setMaximumWidth(100)
             post_url = result.post_url
             copy_btn.clicked.connect(lambda _, url=post_url: self._copy_text(url))
-            content_layout.addWidget(copy_btn)
+            # Without an explicit alignment, this button's maximumWidth becomes
+            # content_layout's own maximumWidth (a QVBoxLayout's max width is the
+            # min of its children's), which starves its stretch=1 share in
+            # row_layout and pushes the badge out of its flush-left position.
+            content_layout.addWidget(copy_btn, alignment=Qt.AlignmentFlag.AlignLeft)
 
         row_layout.addLayout(content_layout, 1)
         layout.addLayout(row_layout)

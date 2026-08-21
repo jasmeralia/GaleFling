@@ -175,10 +175,19 @@ Three channels, none of which need a service worker or a notification model:
 
 **Startup reconciliation** covers the adjacent correctness problem — not losing work when
 the app restarts. On launch the queue is re-examined and anything whose due time passed
-while the app was down is resolved rather than silently skipped. Open design question:
-whether to post it late, or past some staleness threshold to mark it missed and notify
-instead. A caption tied to a specific time or event is worse posted three days late than
-not posted at all, so the threshold should probably be short and configurable.
+while the app was down is resolved rather than silently skipped.
+
+**Resolved 2026-08-21 (Jas): no automatic staleness threshold — a missed-post dialog, every
+time.** For each pending item whose due time has passed, GaleFling shows a dialog with a
+preview of the post (text, media, target platform(s)) and three explicit choices: **Post
+now**, **Delete**, or **Edit** (reopens the composer pre-filled with this item's content,
+so Rin can adjust the caption before posting immediately or re-scheduling). No
+automatically-computed threshold decides this on her behalf — a caption tied to a specific
+date or event is genuinely rare in practice, but guessing wrong either way (posting stale
+content silently, or discarding something she still wanted) is worse than asking, so this
+is left to her judgment every time rather than automated. If several items are missed at
+once (e.g. the machine was off for a stretch), present them one at a time so each gets its
+own explicit decision rather than a single bulk action.
 
 Delegated posts (OnlyFans and Fansly while paused — their UI-automation delegation model is
 unaffected by the 2026-08-21 no-Facebook-delegation decision) sidestep this entirely — the
@@ -350,8 +359,10 @@ is tracked as one item rather than duplicated.
 
 ## Phase 1 — Scheduler in the desktop app (~2–3 weeks)
 
-Schedule queue, due-time poller, background/tray operation, missed-window handling, the
-Windows shutdown-block prompt (see [Shutdown awareness](#shutdown-awareness-r4)), and the
+Schedule queue, due-time poller, background/tray operation, the missed-post reconciliation
+dialog (post now / delete / edit — see
+[Not failing silently](#not-failing-silently-r4)), the Windows shutdown-block prompt (see
+[Shutdown awareness](#shutdown-awareness-r4)), and the
 [start-at-login setting](#start-at-login) — one uniform path for every schedulable platform,
 no delegated-vs-local routing to build for the active platform set (OnlyFans/Fansly's
 separate UI-automation delegation stays dormant while paused). Deliverable: **a post
@@ -382,13 +393,15 @@ Windows drift, mDNS failure, and the mobile-specific risks live in
 
 ## Open questions
 
-1. What staleness threshold should startup reconciliation use before marking a due post
-   missed rather than posting it late?
-2. Can GaleFling reliably distinguish a restart from a full shutdown at
+1. Can GaleFling reliably distinguish a restart from a full shutdown at
    `WM_QUERYENDSESSION` time, well enough to skip the block/prompt on restarts
    specifically? See [Shutdown awareness](#shutdown-awareness-r4) — needs a spike before
    Phase 1 build-out; the pragmatic fallback (prompt uniformly, lean on autologon +
    startup reconciliation for restarts) doesn't need this answered first.
+
+The staleness-threshold question this section used to list is resolved — see
+[Not failing silently (R4)](#not-failing-silently-r4): no automatic threshold, a
+missed-post dialog every time instead.
 
 Rin's autologon state and mDNS resolution are mobile/LAN-access open questions — see
 [MOBILE_LAN_ACCESS.md#open-questions](MOBILE_LAN_ACCESS.md#open-questions). Her sleep
@@ -412,6 +425,7 @@ settings are resolved above (Phase 0.1) — not configured, not a risk.
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | Resolved the startup-reconciliation staleness-threshold open question (Jas): no automatic threshold. Instead, a missed-post dialog on launch for every item whose due time passed, showing a preview and offering **Post now / Delete / Edit** — left to Rin's judgment rather than guessed automatically, since captions referencing a specific date/time are rare but wrong either way (silent stale post, or silently discarded content) is worse than asking. Multiple missed items are presented one at a time. Added to Phase 1 scope; the open-questions list updated to drop the now-resolved threshold question. |
 | 2026-08-21 | Added [Start at login](#start-at-login) (Jas): scheduling only works if GaleFling is actually running, a failure mode distinct from sleep or shutdown — the machine can be on and Rin logged in with the app simply never launched, or closed via the tray icon. A real Settings toggle (not just an installer default), offered proactively the first time she schedules a post while it's off, using a per-user autostart mechanism on each platform (Windows Registry `Run` key or Startup folder shortcut; Linux XDG autostart entry). Added to Phase 1 scope and the risk register; `MOBILE_LAN_ACCESS.md`'s Phase 3 installer-default language updated to build on this setting rather than introduce autostart fresh. |
 | 2026-08-21 | Resolved Phase 0.1 (Jas): Rin does not have sleep configured, retiring that risk, but she does routinely fully shut down the machine when not in active use — a bigger risk than sleep would have been, since it doesn't self-heal the way a reboot does. Added [Shutdown awareness](#shutdown-awareness-r4): a composer-time warning plus a Windows `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt while a post is pending, added to Phase 1 scope. Flagged reboot-vs-shutdown detection as an open technical question (`ENDSESSION_CRITICAL` shutdowns can't be blocked by any app regardless), with a pragmatic fallback that doesn't depend on resolving it before Phase 1. |
 | 2026-08-21 | Split out of `docs/plans/SCHEDULING_AND_MULTI_CLIENT.md` into this scheduling-only document (Jas): scheduling and mobile/LAN access are handled in entirely different phases and no longer need one shared file. Content carried over verbatim from the combined plan's scheduling-relevant sections; mobile/LAN content moved to `docs/plans/MOBILE_LAN_ACCESS.md`. |

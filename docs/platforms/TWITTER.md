@@ -84,9 +84,10 @@ GaleFling exchanges the PIN for a permanent access token and stores it securely 
 
 GaleFling supports up to 2 Twitter accounts.
 
-1. Before clicking "Start PIN Flow" for Account 2, **log out of your first Twitter account in your browser** (or use a different browser profile).
-2. Log into your second Twitter account.
-3. Click **Start PIN Flow** for Account 2 and follow Steps 7-9 above.
+1. Before clicking "Start PIN Flow" for Account 2, make sure the second account is the **active** one in your browser. Two ways to get there:
+   - Log out of the first account and log into the second, or use a different browser profile.
+   - Or, if you're already logged into both accounts, switch to the second one with Twitter's own account switcher.
+2. Click **Start PIN Flow** for Account 2 and follow Steps 7-9 above.
 
 The PIN you receive is tied to whichever Twitter account is logged in when you authorize.
 
@@ -109,7 +110,7 @@ The Free tier is sufficient for most personal use. Check your current usage at [
 |---|---|
 | "Failed to start PIN flow" | Check that the API key and secret are correct. |
 | PIN is rejected | Make sure you copied all 7 digits. PINs expire after a few minutes -- try again. |
-| Wrong account authorized | Log out of Twitter in your browser, log into the correct account, and re-run the PIN flow. |
+| Wrong account authorized | Switch to the correct account (via Twitter's account switcher, or log out and log into the correct account) and re-run the PIN flow. |
 | `TW-AUTH-EXPIRED` | Your access token may have been revoked. Log out in Settings and re-authorize via PIN flow. |
 | `TW-RATE-LIMIT` | Twitter rate limits apply. Wait a few minutes before posting again. |
 | "403 Forbidden" when posting | Your app may lack Read and Write permissions. Check Step 3 and regenerate tokens after changing permissions. |

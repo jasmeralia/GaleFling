@@ -373,9 +373,11 @@ class TwitterSetupPage(QWizardPage):
 
         hint = QLabel(
             '<i>Each account is authorized separately. Before clicking '
-            '"Start PIN Flow", make sure you are logged into the correct '
-            'Twitter account in your web browser. To add a second account, '
-            'log out of the first account in your browser first.<br><br>'
+            '"Start PIN Flow", make sure the correct Twitter account is '
+            'active in your web browser — either log out of the first '
+            'account and log into the second, or if you’re already '
+            'logged into both, switch to the correct one with Twitter’s '
+            'account switcher.<br><br>'
             '"Start PIN Flow" opens Twitter’s authorization page in your '
             'browser. Click <b>Authorize app</b> there — Twitter will show '
             'you a 7-digit PIN. Copy it into the PIN field below and click '

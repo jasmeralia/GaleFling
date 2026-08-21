@@ -190,12 +190,18 @@ is left to her judgment every time rather than automated.
 **Multiple missed items — one window, stepped through, not one popup per item.** If the
 machine was off for a stretch and several posts came due, GaleFling does not spawn a
 separate dialog per item; that stacks or tiles N windows on launch, which is the opposite
-of graceful. Each item still gets its own explicit decision (no bulk "post all" / "delete
-all" shortcut — the reasoning above for treating this as genuine per-post judgment applies
-per item, not per batch), but through a single reconciliation window that steps to the
-next pending item after each decision, showing progress (e.g. "Post 2 of 4"). This is the
-same shape as the existing results dialog handling multiple platform outcomes in one
-window rather than one per platform.
+of graceful. A single reconciliation window steps to the next pending item after each
+decision, showing progress (e.g. "Post 2 of 4") — the same shape as the existing results
+dialog handling multiple platform outcomes in one window rather than one per platform.
+
+**Bulk "Post all" is offered alongside the per-item flow.** When there's more than one
+missed item, the window also exposes a "Post all" action that fires every remaining item
+immediately without stepping through each one — useful when Rin just wants everything out
+and isn't worried about staleness for any of them. This sits next to, not instead of, the
+per-item Post now/Delete/Edit choices; she can still step through individually if she wants
+to review or edit specific items. No equivalent bulk shortcut for Delete or Edit — deleting
+everything unreviewed risks losing something she wanted, and bulk-editing doesn't make
+sense when each caption differs, so those stay per-item.
 
 Delegated posts (OnlyFans and Fansly while paused — their UI-automation delegation model is
 unaffected by the 2026-08-21 no-Facebook-delegation decision) sidestep this entirely — the
@@ -433,7 +439,8 @@ settings are resolved above (Phase 0.1) — not configured, not a risk.
 
 | Date | Change |
 |------|--------|
-| 2026-08-21 | Clarified multiple-missed-posts handling in startup reconciliation (Jas): one reconciliation window stepping through each missed item in turn (progress like "Post 2 of 4"), not a separate popup dialog per item — spawning N windows on launch is the opposite of graceful. Cited `ResultsDialog` (`src/gui/results_dialog.py`) as existing precedent for one window handling multiple items. Each item still gets its own explicit Post now/Delete/Edit decision — no bulk shortcut. |
+| 2026-08-21 | Added a bulk "Post all" action to the missed-post reconciliation window (Jas), offered alongside the per-item Post now/Delete/Edit flow rather than replacing it — for when Rin just wants everything out without stepping through each one. No bulk Delete or Edit: deleting unreviewed risks losing something wanted, and bulk-editing doesn't make sense across differing captions. |
+| 2026-08-21 | Clarified multiple-missed-posts handling in startup reconciliation (Jas): one reconciliation window stepping through each missed item in turn (progress like "Post 2 of 4"), not a separate popup dialog per item — spawning N windows on launch is the opposite of graceful. Cited `ResultsDialog` (`src/gui/results_dialog.py`) as existing precedent for one window handling multiple items. |
 | 2026-08-21 | Resolved the startup-reconciliation staleness-threshold open question (Jas): no automatic threshold. Instead, a missed-post dialog on launch for every item whose due time passed, showing a preview and offering **Post now / Delete / Edit** — left to Rin's judgment rather than guessed automatically, since captions referencing a specific date/time are rare but wrong either way (silent stale post, or silently discarded content) is worse than asking. Added to Phase 1 scope; the open-questions list updated to drop the now-resolved threshold question. |
 | 2026-08-21 | Added [Start at login](#start-at-login) (Jas): scheduling only works if GaleFling is actually running, a failure mode distinct from sleep or shutdown — the machine can be on and Rin logged in with the app simply never launched, or closed via the tray icon. A real Settings toggle (not just an installer default), offered proactively the first time she schedules a post while it's off, using a per-user autostart mechanism on each platform (Windows Registry `Run` key or Startup folder shortcut; Linux XDG autostart entry). Added to Phase 1 scope and the risk register; `MOBILE_LAN_ACCESS.md`'s Phase 3 installer-default language updated to build on this setting rather than introduce autostart fresh. |
 | 2026-08-21 | Resolved Phase 0.1 (Jas): Rin does not have sleep configured, retiring that risk, but she does routinely fully shut down the machine when not in active use — a bigger risk than sleep would have been, since it doesn't self-heal the way a reboot does. Added [Shutdown awareness](#shutdown-awareness-r4): a composer-time warning plus a Windows `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt while a post is pending, added to Phase 1 scope. Flagged reboot-vs-shutdown detection as an open technical question (`ENDSESSION_CRITICAL` shutdowns can't be blocked by any app regardless), with a pragmatic fallback that doesn't depend on resolving it before Phase 1. |

@@ -107,8 +107,9 @@ _META_TESTER_INVITE_HTML: dict[str, str] = {
     'meta_facebook_page': (
         'The Facebook account must accept this app’s <b>Tester</b> or '
         '<b>Developer</b> role invitation before it can connect. Accept it via the '
-        'notification in the Facebook app, or under Facebook → Settings → '
-        'Business Integrations.'
+        'notification in the Facebook app, or at '
+        '<a href="https://www.facebook.com/settings/?tab=business_tools">'
+        'facebook.com/settings → Business Integrations</a>.'
     ),
 }
 

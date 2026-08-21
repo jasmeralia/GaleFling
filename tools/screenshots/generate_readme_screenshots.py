@@ -103,6 +103,9 @@ def build_auth_manager(*, with_ready_accounts: bool = False) -> AuthManager:
 
 def capture_main_window(app: QApplication) -> None:
     config = ConfigManager()
+    # Toggle on a subset of the "Ready" accounts so the screenshot shows all
+    # three states: ready+enabled, ready-but-not-selected, and unavailable.
+    config.last_selected_platforms = ['bluesky_1', 'twitter_1']
     auth_manager = build_auth_manager(with_ready_accounts=True)
 
     window = MainWindow(config, auth_manager)

@@ -24,10 +24,13 @@ since none exist) but styled with the app's real theme and tokens
 (`src/utils/theme.py`, `src/utils/tokens.py`) and real platform/UI icon assets
 (`src/resources/icons/`), the same way
 `tools/screenshots/generate_readme_screenshots.py` renders the README's
-screenshots — offscreen, fake data only, isolated scratch `HOME`. The one
-exception is [Start at login](#4-start-at-login-toggle-settings--advanced), which
-goes a step further and injects its new control into the real, running
-`SettingsDialog`, so it sits next to controls that exist today.
+screenshots — offscreen, fake data only, isolated scratch `HOME`. Two
+mockups go a step further and inject their new control into a real, running
+production widget instead of a from-scratch replica, so they sit next to
+controls that exist today: the [Schedule dialog](#1-schedule-dialog)'s
+composer calendar icon (real `PostComposer`) and
+[Start at login](#4-start-at-login-toggle-settings--advanced) (real
+`SettingsDialog`).
 
 Re-run after this document's design changes:
 
@@ -41,7 +44,7 @@ Re-run after this document's design changes:
 
 | # | Screen | Satisfies | New or existing surface |
 |---|--------|-----------|--------------------------|
-| 1 | [Schedule dialog](#1-schedule-dialog) | R2 (schedule a post) | New — opened from the composer |
+| 1 | [Schedule dialog](#1-schedule-dialog) | R2 (schedule a post) | New — opened via a new calendar icon button in the composer, beside the emoji picker |
 | 2 | [Scheduled Posts queue](#2-scheduled-posts-queue) | R2 (see/edit/cancel pending) | New — opened from a new menu bar entry |
 | 3 | [Missed Scheduled Posts reconciliation](#3-missed-scheduled-posts-reconciliation) | R4 (startup reconciliation) | New — modal, shown on launch when applicable |
 | 4 | [Start at login toggle](#4-start-at-login-toggle-settings--advanced) | R4 (start-at-login mitigation) | Extends existing `SettingsDialog` → Advanced |
@@ -54,14 +57,24 @@ Not mocked, and explained instead of drawn — see
 
 ## 1. Schedule dialog
 
-![Schedule dialog](../images/scheduling/schedule-dialog.png)
+![Composer — calendar icon](../images/scheduling/composer-schedule-icon.png)
 
-Opened by a new **Schedule…** button placed beside the composer's existing
-**Post Now** button in `src/gui/main_window.py`'s button row (`_init_ui`,
-around `main_window.py:522-552`) and `src/gui/post_composer.py`. Secondary
-button styling (not the primary style `_post_btn` uses, built from the
-`SUCCESS` token — a blue/indigo `#5C7CFA` despite the name, not green) —
-scheduling is not the default action.
+Opened by a new calendar icon button in the composer itself
+(`src/gui/post_composer.py`), not a separate button in `main_window.py`'s
+button row. Placed immediately to the left of the existing emoji picker
+button, in the same `emoji_row` (`post_composer.py:305-313`) — a
+`QToolButton` matching `EmojiPickerButton`'s sizing (20×20 icon) and
+tooltip convention (`'Schedule this post for a later time'`, next to
+`EmojiPickerButton`'s `'Insert emoji'`). Clicking it opens the dialog below.
+
+**Icon note:** the mockup's calendar glyph is hand-drawn by the mockup
+script (`_calendar_icon` in `generate_scheduling_mockups.py`) because no
+calendar/event icon exists yet under `src/resources/icons/ui/` — the
+existing set (`mood.svg`, `history.svg`, etc.) has nothing that fits.
+Implementation should source a real one from the same Material Symbols set
+(e.g. `calendar_month` or `event`), not ship the hand-drawn approximation.
+
+![Schedule dialog](../images/scheduling/schedule-dialog.png)
 
 Contents, top to bottom:
 
@@ -144,7 +157,7 @@ Each row (styled like `ResultsDialog`'s per-result `QFrame` rows in
   confirmation before removing an item with real content in it).
 
 Footer: **New Scheduled Post…** (equivalent to closing this dialog and
-clicking the composer's Schedule… button, offered here too since Rin might
+clicking the composer's calendar icon, offered here too since Rin might
 open this dialog first) and **Close**.
 
 **Empty state, not mocked as a separate image, described here instead:** when
@@ -273,7 +286,7 @@ version lands, based on the codebase's existing per-dialog file convention
 
 | Screen | New file (proposed) | Touches |
 |--------|----------------------|---------|
-| Schedule dialog | `src/gui/schedule_dialog.py` | `main_window.py` (new button, wiring), `post_composer.py` (summary data the dialog reads) |
+| Schedule dialog | `src/gui/schedule_dialog.py` | `post_composer.py` (new calendar `QToolButton` in `emoji_row`, a new `schedule_requested` signal following the existing `preview_requested`/`media_changed` pattern), `main_window.py` (connects the signal to open the dialog, reading composer/platform-selector state the same way `_do_post` already does) |
 | Scheduled Posts queue | `src/gui/scheduled_posts_dialog.py` | `main_window.py` (`_create_menu_bar`, new `Scheduled` menu) |
 | Missed-post reconciliation | `src/gui/reconciliation_dialog.py` | `main_window.py` (shown on startup, after `_check_first_run`) |
 | Start at login | — (extends `_create_advanced_tab`) | `settings_dialog.py`, `config_manager.py` (new setting), platform-specific autostart module (new — Windows `Run` key / Linux XDG autostart, per `SCHEDULING.md`) |
@@ -321,6 +334,7 @@ None outstanding. All three questions this section originally listed are resolve
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | Changed the Schedule dialog's entry point (Jas): a calendar icon `QToolButton` in the composer's `emoji_row`, immediately left of the emoji picker, instead of a separate "Schedule…" button in `main_window.py`'s button row. Added `composer-schedule-icon.png`, generated by injecting into the real `PostComposer` (same technique the Settings mockup already used). No calendar/event icon exists in `src/resources/icons/ui/` yet, so the mockup hand-draws one (`_calendar_icon` in the generator script) — flagged as needing a real Material Symbols icon at implementation time. Updated [Screen inventory](#screen-inventory), [Component / file mapping](#component--file-mapping), and the queue's "New Scheduled Post…" footer wording accordingly. |
 | 2026-08-22 | Removed the "How these mockups were made" section's `results_dialog.py` badge-rendering bug callout (Jas: already addressed) — it was fixed and merged (#69) shortly after this document's initial draft flagged it, so the standing "flagged, not fixed here" note was stale. The 2026-08-21 changelog entry that first flagged it is left as-is (historical record). |
 | 2026-08-22 | Resolved the last two open questions (Jas). Schedule confirmation UX: a toast, plus clearing the composer the same way a fully successful `Post Now` does (`main_window.py`'s `_on_api_post_finished` clear sequence) — added a new `src/gui/toast.py` row to [Component / file mapping](#component--file-mapping) since no toast widget exists in the codebase yet. Minimum lead time: 5 minutes from now — moved the actual decision to `SCHEDULING.md`'s [Local queue](SCHEDULING.md#local-queue) section as the mechanism-level canonical source, since it's a poller constraint rather than a GUI one; this document's [Schedule dialog](#1-schedule-dialog) section now just links to it. Open Questions is empty. |
 | 2026-08-22 | Added Check for Updates and About to the [Tray context menu](#5-tray-context-menu) (Jas) — reused from `main_window.py`'s existing `Help` menu handlers rather than duplicated, since they're the only reachable copies of those actions while minimized to tray. Regenerated `tray-context-menu.png`. Also updated [Deliberately not mocked](#deliberately-not-mocked) to reflect the Windows shutdown-block dialog being deferred out of Phase 1 entirely, not just excluded from mockups — see `SCHEDULING.md`'s 2026-08-22 changelog entry. |

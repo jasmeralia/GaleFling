@@ -37,8 +37,8 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from PIL import Image
-from PyQt6.QtCore import QDate, QDateTime, Qt, QTime
-from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap
+from PyQt6.QtCore import QDate, QDateTime, QPoint, QSize, Qt, QTime
+from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -52,12 +52,14 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QMenu,
     QPushButton,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
+from src.gui.post_composer import PostComposer
 from src.gui.results_dialog import _render_svg_colored
 from src.gui.settings_dialog import SettingsDialog
 from src.utils import tokens
@@ -142,6 +144,86 @@ def _status_pill(text: str, color: str) -> QLabel:
         'border-radius: 8px; padding: 2px 10px; font-weight: 600; }'
     )
     return label
+
+
+def _calendar_icon(size: int, color: str) -> QIcon:
+    """Hand-drawn calendar glyph -- no calendar/event icon exists in
+
+    src/resources/icons/ui/ yet (checked: none of the Material Symbols
+    already in the set fit). A real implementation should source one from
+    the same Material Symbols set the rest of the icon set uses, not ship
+    this approximation.
+    """
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor(color))
+    pen.setWidthF(max(1.0, size * 0.09))
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    margin = size * 0.12
+    body_top = size * 0.24
+    painter.drawRoundedRect(
+        int(margin), int(body_top), int(size - 2 * margin), int(size - body_top - margin), 2, 2
+    )
+    painter.drawLine(int(margin), int(size * 0.4), int(size - margin), int(size * 0.4))
+    for x_frac in (0.32, 0.68):
+        x = round(size * x_frac)
+        painter.drawLine(x, round(size * 0.04), x, round(body_top) + 2)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _find_containing_layout(layout, widget):
+    """Locate the nested QLayout that directly holds `widget`, and its index."""
+    for i in range(layout.count()):
+        item = layout.itemAt(i)
+        if item.widget() is widget:
+            return layout, i
+        nested = item.layout()
+        if nested is not None:
+            found = _find_containing_layout(nested, widget)
+            if found is not None:
+                return found
+    return None
+
+
+def capture_composer_schedule_icon(app: QApplication) -> None:
+    """Composer: a new calendar icon button, immediately left of the emoji picker.
+
+    Injects into the real, running `PostComposer` (`post_composer.py:305-313`'s
+    `emoji_row`), the same technique `capture_settings_start_at_login` uses for
+    `SettingsDialog` -- not a from-scratch replica.
+    """
+    composer = PostComposer()
+    apply_theme(app, composer)
+    composer.set_text('Trying out scheduled posts today ✨')
+
+    calendar_btn = QToolButton()
+    calendar_btn.setIcon(_calendar_icon(20, tokens.TEXT))
+    calendar_btn.setIconSize(QSize(20, 20))
+    calendar_btn.setToolTip('Schedule this post for a later time')
+
+    found = _find_containing_layout(composer.layout(), composer._emoji_button)
+    assert found is not None, 'post_composer.py restructured -- update this mockup'
+    emoji_row, index = found
+    emoji_row.insertWidget(index, calendar_btn)
+
+    composer.show()
+    composer.resize(560, 420)
+    QApplication.processEvents()
+
+    top = composer._text_label.mapTo(composer, QPoint(0, 0)).y() - 6
+    bottom = (
+        composer._emoji_button.mapTo(composer, QPoint(0, composer._emoji_button.height())).y() + 6
+    )
+    full = _grab(composer)
+    crop = full.crop((0, top, full.width, bottom))
+    _save(crop, 'composer-schedule-icon.png')
+    composer.close()
 
 
 def build_schedule_dialog() -> QDialog:
@@ -420,6 +502,8 @@ def capture_tray_menu(app: QApplication) -> None:
 def main() -> None:
     app = QApplication(sys.argv)
     apply_theme(app)
+
+    capture_composer_schedule_icon(app)
 
     schedule_dialog = build_schedule_dialog()
     apply_theme(app, schedule_dialog)

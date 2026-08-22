@@ -2,15 +2,16 @@
 
 ## Status
 
-**Implemented.** Companion to
-[docs/plans/SCHEDULING.md](SCHEDULING.md), which owns the scheduling-mechanism
+**Implemented.** Moved to `docs/plans/completed/` on 2026-08-22 after the
+design was implemented in PR #68. Companion to
+[docs/plans/SCHEDULING.md](../SCHEDULING.md), which owns the scheduling-mechanism
 decisions (local queue for every schedulable platform, R2/R4, email notifications,
 shutdown awareness, start-at-login). This document owns the screens: what Rin
 actually sees and clicks through for each of those decisions, with mockups.
 
 Tracked in Odoo **#450**, same as `SCHEDULING.md`.
 
-Canonical repo path: `docs/plans/SCHEDULING_UI_DESIGN.md`
+Canonical repo path: `docs/plans/completed/SCHEDULING_UI_DESIGN.md`
 
 ---
 
@@ -55,7 +56,7 @@ Not mocked, and explained instead of drawn — see
 
 ## 1. Schedule dialog
 
-![Composer — calendar icon](../images/scheduling/composer-schedule-icon.png)
+![Composer — calendar icon](../../images/scheduling/composer-schedule-icon.png)
 
 Opened by a new calendar icon button in the composer itself
 (`src/gui/post_composer.py`), not a separate button in `main_window.py`'s
@@ -75,13 +76,13 @@ Apache 2.0 license. The composer button and date/time picker's adjacent
 calendar button reuse this one asset; `tinted_icon` applies the
 theme-appropriate tint to the picker button.
 
-![Schedule dialog](../images/scheduling/schedule-dialog.png)
+![Schedule dialog](../../images/scheduling/schedule-dialog.png)
 
 Contents, top to bottom:
 
 - **Persistent warning banner** (`WARNING` token colors) — always shown, not
   conditional on anything, per
-  [SCHEDULING.md's composer-time warning](SCHEDULING.md#shutdown-awareness-r4):
+  [SCHEDULING.md's composer-time warning](../SCHEDULING.md#shutdown-awareness-r4):
   "Scheduled posts require this computer to stay on, logged in, and running
   GaleFling until the post fires."
 - **Target platforms row** — the same account badges the platform selector
@@ -100,7 +101,7 @@ Contents, top to bottom:
 - **Start GaleFling automatically when I log in** checkbox, checked by
   default — shown only the first time Rin schedules a post while autostart is
   off, per
-  [SCHEDULING.md's Start at login](SCHEDULING.md#start-at-login). Every
+  [SCHEDULING.md's Start at login](../SCHEDULING.md#start-at-login). Every
   subsequent Schedule dialog omits it once the setting is on.
 - **Cancel / Schedule Post** — Schedule Post uses the same primary button
   style as Post Now. Once clicked, it: (a) writes a `pending` row to the
@@ -114,7 +115,7 @@ Contents, top to bottom:
   `ResultsDialog`, since nothing was actually posted yet.
 
 **Validation not shown in the mockup:** the due-time picker rejects anything
-less than [5 minutes from now](SCHEDULING.md#local-queue) — see
+less than [5 minutes from now](../SCHEDULING.md#local-queue) — see
 `SCHEDULING.md` for the mechanism-level decision; this dialog is just where
 Rin encounters it.
 
@@ -122,7 +123,7 @@ Rin encounters it.
 
 ## 2. Scheduled Posts queue
 
-![Scheduled Posts queue](../images/scheduling/scheduled-posts-queue.png)
+![Scheduled Posts queue](../../images/scheduling/scheduled-posts-queue.png)
 
 Opened via a new top-level **Scheduled** menu in `main_window.py`'s
 `_create_menu_bar` (`main_window.py:559-623`), alongside File/Settings/Help,
@@ -173,10 +174,10 @@ list with just a header, which would look broken rather than intentional.
 
 ## 3. Missed Scheduled Posts reconciliation
 
-![Missed Scheduled Posts reconciliation](../images/scheduling/missed-post-reconciliation.png)
+![Missed Scheduled Posts reconciliation](../../images/scheduling/missed-post-reconciliation.png)
 
 Modal, shown on launch per
-[SCHEDULING.md's startup reconciliation](SCHEDULING.md#not-failing-silently-r4),
+[SCHEDULING.md's startup reconciliation](../SCHEDULING.md#not-failing-silently-r4),
 **only when at least one pending item's due time has passed.** One window for
 every missed item, stepping to the next after each decision — not one popup
 per item.
@@ -189,7 +190,7 @@ per item.
   **"Was due: `<date>` — `<relative>` ago"** line in `DANGER` red, so the
   staleness is visually unmistakable before Rin decides.
 - **Post Now / Edit / Delete** — the three choices
-  [SCHEDULING.md settled on](SCHEDULING.md#not-failing-silently-r4), left to
+  [SCHEDULING.md settled on](../SCHEDULING.md#not-failing-silently-r4), left to
   right in that order (least destructive first is the usual convention, but
   here "Post Now" is the default/likely action, so it leads). Edit reopens
   the composer exactly like [the queue's Edit](#2-scheduled-posts-queue).
@@ -198,7 +199,7 @@ per item.
   undecided items pending for the next launch; this prevents a later Edit
   choice from overwriting the first item in the composer.
 - **Post All Remaining (N)** — footer, separated by a divider, per
-  [SCHEDULING.md's bulk action](SCHEDULING.md#not-failing-silently-r4). Only
+  [SCHEDULING.md's bulk action](../SCHEDULING.md#not-failing-silently-r4). Only
   appears when more than one item remains. No equivalent bulk Delete or Edit.
 
 **Resolved (Jas): closing the window (titlebar X) without deciding on every
@@ -213,7 +214,7 @@ here or edits/cancels it directly from the
 
 ## 4. Startup settings (Settings → Advanced)
 
-![Settings — Start at login](../images/scheduling/settings-start-at-login.png)
+![Settings — Start at login](../../images/scheduling/settings-start-at-login.png)
 
 A new **Startup** `QGroupBox`, styled and structured exactly like every
 other section in `settings_dialog.py`'s `_create_advanced_tab`
@@ -232,7 +233,7 @@ post fires at all).
   isn't about presence at all (a post fires whether or not Rin is at the
   machine, as long as GaleFling is running); it's specifically about
   surviving a reboot, per
-  [SCHEDULING.md's Start at login](SCHEDULING.md#start-at-login): "the
+  [SCHEDULING.md's Start at login](../SCHEDULING.md#start-at-login): "the
   machine can be on and Rin logged in, with GaleFling simply never launched
   since the last boot."
 - **Automatic launch mode**: a selector labeled "When started automatically:"
@@ -254,11 +255,11 @@ where Rin turns autostart back off or changes how an automatic launch appears.
 
 ## 5. Tray context menu
 
-![Tray context menu](../images/scheduling/tray-context-menu.png)
+![Tray context menu](../../images/scheduling/tray-context-menu.png)
 
 GaleFling's system tray presence is implemented for
-[SCHEDULING.md's background/tray operation](SCHEDULING.md#phase-1--scheduler-in-the-desktop-app-23-weeks)
-and [Start at login's configurable launch mode](SCHEDULING.md#start-at-login),
+[SCHEDULING.md's background/tray operation](../SCHEDULING.md#phase-1--scheduler-in-the-desktop-app-23-weeks)
+and [Start at login's configurable launch mode](../SCHEDULING.md#start-at-login),
 not something this document invents independently.
 
 Menu, top to bottom: **Show GaleFling** (restores the main window), a
@@ -285,7 +286,7 @@ menu action in the app already follows.
 
 ## Deliberately not mocked
 
-- **Windows shutdown-block dialog** ([SCHEDULING.md](SCHEDULING.md#shutdown-awareness-r4))
+- **Windows shutdown-block dialog** ([SCHEDULING.md](../SCHEDULING.md#shutdown-awareness-r4))
   — **deferred out of Phase 1 entirely** (2026-08-22, Jas: "leave out the reboot
   blocking, may revisit in the future"), not merely a native-chrome mockup exclusion.
   Noted here for whoever revisits it: it would have been native Windows chrome
@@ -299,7 +300,7 @@ menu action in the app already follows.
   failed**; the body names the failed platform account(s), and clicking it opens
   the existing results UI with the failure details. Multi-platform failures are
   consolidated into one toast per scheduled item, not one interruption per
-  platform. See [SCHEDULING.md](SCHEDULING.md#not-failing-silently-r4).
+  platform. See [SCHEDULING.md](../SCHEDULING.md#not-failing-silently-r4).
 
 ---
 
@@ -319,7 +320,7 @@ The implemented component mapping is:
 
 The local queue itself (SQLite-backed, due-time poller) is core/back-end
 work, not GUI — out of scope for this document; see
-[SCHEDULING.md's Local queue section](SCHEDULING.md#local-queue).
+[SCHEDULING.md's Local queue section](../SCHEDULING.md#local-queue).
 
 ---
 
@@ -342,6 +343,7 @@ work, not GUI — out of scope for this document; see
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | Moved this implemented design from `docs/plans/` to `docs/plans/completed/` and updated its relative links. |
 | 2026-08-22 | Hardened Linux automatic launches after desktop-environment review: a requested minimized launch now falls back to the visible main window whenever Qt reports no usable tray; AppImage autostart entries use the persistent `$APPIMAGE` file path rather than `sys.executable` inside the temporary mount; Desktop Entry `Exec` arguments use the freedesktop quoting rules; and source-checkout entries use an absolute `src/main.py` path rather than depending on the login session's working directory. Added regression coverage and validated a generated entry with `desktop-file-validate`. |
 | 2026-08-21 | Implemented the design: SQLite queue and owned media copies, 30×30 composer calendar/emoji controls, combined date/time editor with a separate tinted calendar popup button, queue management, missed-item reconciliation, due-time posting through the existing `PostWorker`, Windows/Linux autostart, configurable automatic-launch display mode, tray menu/count, in-app confirmation toast, system failure notification, and SMTP failure email. Added unit coverage and `docs/SCHEDULING.md`; updated this document's status and component mapping to the shipped files. |
 | 2026-08-22 | Replaced the hand-drawn calendar mockup glyph with the real `calendar_month.svg` from Google's official Material Symbols repository, covered by the icon set's existing Apache 2.0 license. The composer calendar button and `QDateTimeEdit` now reuse that asset. Restyled the date/time control's native trailing chevron as a distinct `ACCENT` calendar button so the combined control reads as a picker rather than a generic dropdown; regenerated `composer-schedule-icon.png` and `schedule-dialog.png`. |
@@ -350,7 +352,7 @@ work, not GUI — out of scope for this document; see
 | 2026-08-22 | Enlarged both the composer's calendar and emoji icons to 30×30 (Jas), up from `EmojiPickerButton`'s current 20×20 — a real change to the existing emoji button too, not just the new calendar icon's size. Regenerated `composer-schedule-icon.png`; the mockup script now overrides the real `PostComposer` instance's emoji button icon size before capturing, alongside the new calendar button. |
 | 2026-08-22 | Changed the Schedule dialog's entry point (Jas): a calendar icon `QToolButton` in the composer's `emoji_row`, immediately left of the emoji picker, instead of a separate "Schedule…" button in `main_window.py`'s button row. Added `composer-schedule-icon.png`, generated by injecting into the real `PostComposer` (same technique the Settings mockup already used). No calendar/event icon exists in `src/resources/icons/ui/` yet, so the mockup hand-draws one (`_calendar_icon` in the generator script) — flagged as needing a real Material Symbols icon at implementation time. Updated [Screen inventory](#screen-inventory), [Component / file mapping](#component--file-mapping), and the queue's "New Scheduled Post…" footer wording accordingly. |
 | 2026-08-22 | Removed the "How these mockups were made" section's `results_dialog.py` badge-rendering bug callout (Jas: already addressed) — it was fixed and merged (#69) shortly after this document's initial draft flagged it, so the standing "flagged, not fixed here" note was stale. The 2026-08-21 changelog entry that first flagged it is left as-is (historical record). |
-| 2026-08-22 | Resolved the last two open questions (Jas). Schedule confirmation UX: a toast, plus clearing the composer the same way a fully successful `Post Now` does (`main_window.py`'s `_on_api_post_finished` clear sequence) — added a new `src/gui/toast.py` row to [Component / file mapping](#component--file-mapping) since no toast widget exists in the codebase yet. Minimum lead time: 5 minutes from now — moved the actual decision to `SCHEDULING.md`'s [Local queue](SCHEDULING.md#local-queue) section as the mechanism-level canonical source, since it's a poller constraint rather than a GUI one; this document's [Schedule dialog](#1-schedule-dialog) section now just links to it. The now-empty Open questions section was subsequently removed. |
+| 2026-08-22 | Resolved the last two open questions (Jas). Schedule confirmation UX: a toast, plus clearing the composer the same way a fully successful `Post Now` does (`main_window.py`'s `_on_api_post_finished` clear sequence) — added a new `src/gui/toast.py` row to [Component / file mapping](#component--file-mapping) since no toast widget exists in the codebase yet. Minimum lead time: 5 minutes from now — moved the actual decision to `SCHEDULING.md`'s [Local queue](../SCHEDULING.md#local-queue) section as the mechanism-level canonical source, since it's a poller constraint rather than a GUI one; this document's [Schedule dialog](#1-schedule-dialog) section now just links to it. The now-empty Open questions section was subsequently removed. |
 | 2026-08-22 | Added Check for Updates and About to the [Tray context menu](#5-tray-context-menu) (Jas) — reused from `main_window.py`'s existing `Help` menu handlers rather than duplicated, since they're the only reachable copies of those actions while minimized to tray. Regenerated `tray-context-menu.png`. Also updated [Deliberately not mocked](#deliberately-not-mocked) to reflect the Windows shutdown-block dialog being deferred out of Phase 1 entirely, not just excluded from mockups — see `SCHEDULING.md`'s 2026-08-22 changelog entry. |
 | 2026-08-22 | Resolved the reconciliation window's close-without-deciding open question (Jas): closing the window without deciding on every item leaves undecided items pending in the queue, and the window asks again on the next launch — nothing lost or auto-resolved by default. Updated the [Missed Scheduled Posts reconciliation](#3-missed-scheduled-posts-reconciliation) section and dropped the resolved item from Open Questions. |
 | 2026-08-21 | Corrected the Schedule dialog's button-color description: `tokens.SUCCESS` is `#5C7CFA`, a blue/indigo, not green, despite the token's name. The mockup image already rendered it correctly; only the prose was wrong. |

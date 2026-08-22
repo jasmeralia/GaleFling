@@ -126,6 +126,38 @@ def test_autostart_launch_mode_stays_configurable_while_disabled(qtbot, tmp_path
     assert dialog._autostart_mode_combo.isEnabled()
 
 
+def test_settings_dialog_reports_autostart_error_without_persisting_choice(
+    qtbot, tmp_path, monkeypatch
+):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    warnings = []
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.set_autostart',
+        lambda *_a, **_k: (_ for _ in ()).throw(OSError('permission denied')),
+    )
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.QMessageBox.warning',
+        lambda _parent, title, message: warnings.append((title, message)),
+    )
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+    dialog._autostart_cb.setChecked(True)
+    dialog._autostart_mode_combo.setCurrentIndex(dialog._autostart_mode_combo.findData('window'))
+
+    dialog._save_and_close()
+
+    assert warnings == [
+        (
+            'Start at Login',
+            'GaleFling could not update the start-at-login setting:\npermission denied',
+        )
+    ]
+    assert config.autostart_enabled is False
+    assert config.autostart_launch_mode == 'tray'
+    assert dialog.result() == 0
+
+
 def test_settings_dialog_does_not_save_incomplete_twitter(qtbot, tmp_path, monkeypatch):
     config = _make_config(tmp_path, monkeypatch)
     auth = _make_auth(tmp_path, monkeypatch)

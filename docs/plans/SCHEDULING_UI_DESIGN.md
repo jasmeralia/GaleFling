@@ -76,8 +76,9 @@ Not mocked, and explained instead of drawn — see
 Opened by a new **Schedule…** button placed beside the composer's existing
 **Post Now** button in `src/gui/main_window.py`'s button row (`_init_ui`,
 around `main_window.py:522-552`) and `src/gui/post_composer.py`. Secondary
-button styling (not the green primary style `_post_btn` uses) — scheduling is
-not the default action.
+button styling (not the primary style `_post_btn` uses, built from the
+`SUCCESS` token — a blue/indigo `#5C7CFA` despite the name, not green) —
+scheduling is not the default action.
 
 Contents, top to bottom:
 
@@ -101,10 +102,10 @@ Contents, top to bottom:
   off, per
   [SCHEDULING.md's Start at login](SCHEDULING.md#start-at-login). Every
   subsequent Schedule dialog omits it once the setting is on.
-- **Cancel / Schedule Post** — Schedule Post uses the same primary green
-  button style as Post Now once clicked, it: (a) writes a `pending` row to
-  the local queue, (b) turns on the start-at-login setting if the checkbox
-  was shown and checked, (c) closes the dialog, and (d) shows a brief
+- **Cancel / Schedule Post** — Schedule Post uses the same primary button
+  style as Post Now. Once clicked, it: (a) writes a `pending` row to the
+  local queue, (b) turns on the start-at-login setting if the checkbox was
+  shown and checked, (c) closes the dialog, and (d) shows a brief
   confirmation (toast or status-bar message — TBD alongside the queue's
   empty/non-empty state, not decided here) rather than the full
   `ResultsDialog`, since nothing was actually posted yet.

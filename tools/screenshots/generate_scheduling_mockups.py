@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from PIL import Image
 from PyQt6.QtCore import QDate, QDateTime, QPoint, QSize, Qt, QTime
-from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPen, QPixmap
+from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -60,6 +60,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
+from src.gui.icon_utils import tinted_icon
 from src.gui.post_composer import PostComposer
 from src.gui.results_dialog import _render_svg_colored
 from src.gui.settings_dialog import SettingsDialog
@@ -148,34 +149,8 @@ def _status_pill(text: str, color: str) -> QLabel:
 
 
 def _calendar_icon(size: int, color: str) -> QIcon:
-    """Hand-drawn calendar glyph -- no calendar/event icon exists in
-
-    src/resources/icons/ui/ yet (checked: none of the Material Symbols
-    already in the set fit). A real implementation should source one from
-    the same Material Symbols set the rest of the icon set uses, not ship
-    this approximation.
-    """
-    pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    pen = QPen(QColor(color))
-    pen.setWidthF(max(1.0, size * 0.09))
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    painter.setPen(pen)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-
-    margin = size * 0.12
-    body_top = size * 0.24
-    painter.drawRoundedRect(
-        int(margin), int(body_top), int(size - 2 * margin), int(size - body_top - margin), 2, 2
-    )
-    painter.drawLine(int(margin), int(size * 0.4), int(size - margin), int(size * 0.4))
-    for x_frac in (0.32, 0.68):
-        x = round(size * x_frac)
-        painter.drawLine(x, round(size * 0.04), x, round(body_top) + 2)
-    painter.end()
-    return QIcon(pixmap)
+    """Render the repo's Material Symbols calendar asset in the requested color."""
+    return tinted_icon(_ICONS_DIR / 'ui' / 'calendar_month.svg', color, size)
 
 
 def _find_containing_layout(layout, widget):
@@ -234,7 +209,7 @@ def capture_composer_schedule_icon(app: QApplication) -> None:
 
 
 def build_schedule_dialog() -> QDialog:
-    """Schedule picker: opened via a new 'Schedule...' button beside 'Post Now'."""
+    """Schedule picker opened by the composer's new calendar icon button."""
     dialog = QDialog()
     dialog.setWindowTitle('Schedule Post')
     dialog.setMinimumWidth(440)
@@ -269,6 +244,19 @@ def build_schedule_dialog() -> QDialog:
     date_edit.setCalendarPopup(True)
     date_edit.setDateTime(QDateTime(QDate(2026, 8, 22), QTime(9, 0)))
     date_edit.setDisplayFormat('MMM d, yyyy  h:mm AP')
+    calendar_path = (_ICONS_DIR / 'ui' / 'calendar_month.svg').as_posix()
+    date_edit.setStyleSheet(
+        f'QDateTimeEdit {{ background-color: {tokens.SURFACE_INSET}; color: {tokens.TEXT}; '
+        f'border: 1px solid {tokens.BORDER}; border-radius: 4px; '
+        f'padding: 5px 40px 5px 8px; selection-background-color: {tokens.ACCENT}; '
+        f'selection-color: {tokens.CANVAS}; }} '
+        f'QDateTimeEdit:focus {{ border-color: {tokens.ACCENT}; }} '
+        'QDateTimeEdit::drop-down { subcontrol-origin: padding; '
+        'subcontrol-position: top right; width: 34px; '
+        f'background-color: {tokens.ACCENT}; border-left: 1px solid {tokens.BORDER}; '
+        'border-top-right-radius: 3px; border-bottom-right-radius: 3px; } '
+        f'QDateTimeEdit::down-arrow {{ image: url({calendar_path}); width: 18px; height: 18px; }}'
+    )
     form.addRow('Post at:', date_edit)
     layout.addLayout(form)
 

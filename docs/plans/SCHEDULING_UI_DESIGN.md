@@ -74,12 +74,11 @@ the same, slightly more prominent scale. Implementation should bump
 `EmojiPickerButton.__init__`'s `setIconSize(QSize(20, 20))` alongside
 adding the calendar button, not leave the two mismatched.
 
-**Icon note:** the mockup's calendar glyph is hand-drawn by the mockup
-script (`_calendar_icon` in `generate_scheduling_mockups.py`) because no
-calendar/event icon exists yet under `src/resources/icons/ui/` — the
-existing set (`mood.svg`, `history.svg`, etc.) has nothing that fits.
-Implementation should source a real one from the same Material Symbols set
-(e.g. `calendar_month` or `event`), not ship the hand-drawn approximation.
+**Icon asset:** `src/resources/icons/ui/calendar_month.svg`, sourced from
+Google's official Material Symbols repository under the icon set's existing
+Apache 2.0 license. The composer button and date/time picker's trailing
+calendar button reuse this one asset; `_calendar_icon` only applies the
+theme-appropriate tint.
 
 ![Schedule dialog](../images/scheduling/schedule-dialog.png)
 
@@ -99,7 +98,10 @@ Contents, top to bottom:
   to schedule without the dialog re-rendering the full composer.
 - **Post at** — a `QDateTimeEdit` with `setCalendarPopup(True)`. No separate
   date and time fields; one control, matching how the rest of the app avoids
-  splitting single concepts across widgets.
+  splitting single concepts across widgets. Its native chevron is replaced
+  with a 34 px `ACCENT` calendar button using `calendar_month.svg`, so it
+  reads as a date/time picker rather than a generic dropdown while preserving
+  direct keyboard editing.
 - **Start GaleFling automatically when I log in** checkbox, checked by
   default — shown only the first time Rin schedules a post while autostart is
   off, per
@@ -343,6 +345,7 @@ work, not GUI — out of scope for this document; see
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | Replaced the hand-drawn calendar mockup glyph with the real `calendar_month.svg` from Google's official Material Symbols repository, covered by the icon set's existing Apache 2.0 license. The composer calendar button and `QDateTimeEdit` now reuse that asset. Restyled the date/time control's native trailing chevron as a distinct `ACCENT` calendar button so the combined control reads as a picker rather than a generic dropdown; regenerated `composer-schedule-icon.png` and `schedule-dialog.png`. |
 | 2026-08-22 | Added an automatic-launch display-mode setting (Jas): **Open the main window** or **Start minimized to the system tray**, defaulting to the tray. It applies only to login/autostart launches; manual launches still open normally. Updated the [Startup settings](#4-startup-settings-settings--advanced) design, component mapping, and `settings-start-at-login.png`. Also confirmed scheduled-post failures use both durable email and a transient system toast: one consolidated `QSystemTrayIcon.showMessage` notification per scheduled item, visible while minimized and opening the existing results UI when clicked. Updated [Deliberately not mocked](#deliberately-not-mocked) and the queue-state description. |
 | 2026-08-22 | Corrected the [Start at login](#4-startup-settings-settings--advanced) hint text (Jas): "required... while you're away from the computer" was wrong — the setting isn't about presence, a scheduled post fires either way as long as GaleFling is running. It's specifically for surviving a reboot, so GaleFling relaunches instead of Rin having to notice and reopen it herself. New text: "Keeps scheduled posts firing after a reboot — GaleFling launches automatically instead of waiting for you to reopen it." Regenerated `settings-start-at-login.png`. |
 | 2026-08-22 | Enlarged both the composer's calendar and emoji icons to 30×30 (Jas), up from `EmojiPickerButton`'s current 20×20 — a real change to the existing emoji button too, not just the new calendar icon's size. Regenerated `composer-schedule-icon.png`; the mockup script now overrides the real `PostComposer` instance's emoji button icon size before capturing, alongside the new calendar button. |

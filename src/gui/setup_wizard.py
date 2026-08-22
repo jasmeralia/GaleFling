@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.auth_manager import AuthManager
+from src.core.config_manager import ConfigManager
 from src.core.credential_importer import import_credentials
 from src.core.logger import get_logger
 from src.gui.icon_utils import tinted_pixmap
@@ -272,9 +273,10 @@ class CredentialImportPage(QWizardPage):
     they need before the user tries to connect accounts.
     """
 
-    def __init__(self, auth_manager: AuthManager, parent=None):
+    def __init__(self, auth_manager: AuthManager, config_manager: ConfigManager, parent=None):
         super().__init__(parent)
         self._auth_manager = auth_manager
+        self._config_manager = config_manager
         self.setAutoFillBackground(True)
 
         self.setTitle('Setup - App Credentials')
@@ -284,8 +286,8 @@ class CredentialImportPage(QWizardPage):
 
         info = QLabel(
             'GaleFling requires app-level credentials for Meta (Threads, Instagram, Facebook), '
-            'Twitter, and AWS media staging. These are provided as a JSON file by your '
-            'administrator.<br><br>'
+            'Twitter, AWS media staging, and SMTP (email notifications). These are provided as '
+            'a JSON file by your administrator.<br><br>'
             '<i>If you have a credentials JSON file, import it now so the platform '
             'pages that follow can use it. You can also import later via '
             'Settings → Advanced → Import Credentials from JSON.</i>'
@@ -302,6 +304,22 @@ class CredentialImportPage(QWizardPage):
         self._status_label = QLabel('')
         self._status_label.setWordWrap(True)
         layout.addWidget(self._status_label)
+
+        layout.addSpacing(16)
+
+        notification_form = QFormLayout()
+        self._notification_email_edit = QLineEdit(config_manager.notification_email)
+        self._notification_email_edit.setPlaceholderText('you@example.com')
+        notification_form.addRow('Notification email:', self._notification_email_edit)
+        layout.addLayout(notification_form)
+
+        notification_hint = QLabel(
+            '<i>GaleFling will email this address if a scheduled post ever fails to send — '
+            'scheduling is not available yet, but you can set this up now so it’s ready '
+            'later. Optional — leave blank and set it anytime in Settings → Advanced.</i>'
+        )
+        notification_hint.setWordWrap(True)
+        layout.addWidget(notification_hint)
 
         layout.addStretch()
 
@@ -342,6 +360,7 @@ class CredentialImportPage(QWizardPage):
         )
 
     def validatePage(self) -> bool:  # noqa: N802
+        self._config_manager.notification_email = self._notification_email_edit.text()
         return True
 
 
@@ -1198,7 +1217,7 @@ class WebViewLoginDialog(QDialog):
 class SetupWizard(QWizard):
     """First-run setup wizard."""
 
-    def __init__(self, auth_manager: AuthManager, parent=None):
+    def __init__(self, auth_manager: AuthManager, config_manager: ConfigManager, parent=None):
         super().__init__(parent)
         logger = get_logger()
         logger.info('Setup wizard init starting')
@@ -1217,7 +1236,7 @@ class SetupWizard(QWizard):
 
         page_id = self.addPage(WelcomePage())
         steps.append((_FIXED_WIZARD_STEP_LABELS[0], page_id))
-        page_id = self.addPage(CredentialImportPage(auth_manager))
+        page_id = self.addPage(CredentialImportPage(auth_manager, config_manager))
         steps.append((_FIXED_WIZARD_STEP_LABELS[1], page_id))
         page_id = self.addPage(TwitterSetupPage(auth_manager))
         steps.append((_FIXED_WIZARD_STEP_LABELS[2], page_id))

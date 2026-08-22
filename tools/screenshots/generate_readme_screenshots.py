@@ -163,8 +163,9 @@ def _select_settings_nav_item(dialog, label: str) -> None:
 
 def capture_setup_wizard(app: QApplication) -> None:
     auth_manager = AuthManager()  # deliberately empty -- this is the fresh-setup flow
+    config_manager = ConfigManager()
 
-    wizard = SetupWizard(auth_manager)
+    wizard = SetupWizard(auth_manager, config_manager)
     apply_theme(app, wizard)
     wizard.resize(640, 780)
     wizard.show()

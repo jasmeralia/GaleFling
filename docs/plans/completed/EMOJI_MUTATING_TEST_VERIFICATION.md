@@ -1,7 +1,9 @@
 # Emoji Verification in Mutating Functional Tests — Design Spec
 
-Status: locked for implementation. Follow-up to `docs/plans/EMOJI_PICKER.md`
-(already implemented, PR #57, not yet merged). That PR added non-mutating
+**Status: Implemented.** Moved to `docs/plans/completed/` on 2026-08-21 — the
+mutating-test emoji assertions described below are present in all 7 target
+functional test files. Follow-up to `docs/plans/completed/EMOJI_PICKER.md`
+(implemented, PR #57, merged). That PR added non-mutating
 emoji coverage only (text-injection round-trip on Fansly, mocked adapter
 text on Bluesky). This spec extends the **mutating** functional tests — the
 ones that publish real content to live production social accounts — so each

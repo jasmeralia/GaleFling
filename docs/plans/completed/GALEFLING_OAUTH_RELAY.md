@@ -1,11 +1,17 @@
 # GaleFling OAuth Relay — Context for Claude CLI
 
+**Status: Implemented.** Moved to `docs/plans/completed/` on 2026-08-21 — the
+`GET /oauth/callback` route exists in `infrastructure/galefling-log-upload.yaml`
+and is handled in `infrastructure/lambda_function.py`; the Meta connect flow
+it unblocks is fully built (`src/gui/meta_connect_dialog.py`, all three
+platforms). Kept for historical context.
+
 ## Summary
 
 Meta's Threads use case settings panel now enforces HTTPS on all redirect callback URLs,
 including localhost. The `http://localhost` exemption that the plan assumed no longer
 works, and neither does `http://127.0.0.1`. This means the localhost HTTP redirect
-strategy described in `docs/plans/META_REFACTORING.md` cannot be used as written.
+strategy described in `docs/plans/completed/META_REFACTORING.md` cannot be used as written.
 
 The fix is an HTTPS relay endpoint added to the **existing** log-upload Lambda and API
 Gateway stack (`infrastructure/galefling-log-upload.yaml` /

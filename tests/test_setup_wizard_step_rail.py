@@ -10,11 +10,11 @@ from src.gui.setup_wizard import (
     _available_webview_platform_defs,
 )
 from src.utils import tokens
-from tests.test_setup_wizard_theme import DummyAuthManager
+from tests.test_setup_wizard_theme import DummyAuthManager, DummyConfigManager
 
 
 def test_step_rail_matches_registered_pages(qtbot):
-    wizard = SetupWizard(DummyAuthManager())
+    wizard = SetupWizard(DummyAuthManager(), DummyConfigManager())
     qtbot.addWidget(wizard)
 
     expected_labels = (
@@ -41,7 +41,7 @@ def test_step_rail_is_reparented_into_the_current_page_and_full_width(qtbot):
     though every purely-internal-state assertion still passed. Assert real
     geometry, not just _step_rail's own tracked state.
     """
-    wizard = SetupWizard(DummyAuthManager())
+    wizard = SetupWizard(DummyAuthManager(), DummyConfigManager())
     qtbot.addWidget(wizard)
     wizard.show()
     qtbot.waitExposed(wizard)
@@ -62,7 +62,7 @@ def test_step_rail_is_reparented_into_the_current_page_and_full_width(qtbot):
 
 
 def test_step_rail_updates_on_current_id_changed(qtbot):
-    wizard = SetupWizard(DummyAuthManager())
+    wizard = SetupWizard(DummyAuthManager(), DummyConfigManager())
     qtbot.addWidget(wizard)
     wizard.show()
     qtbot.waitExposed(wizard)
@@ -88,6 +88,6 @@ def test_step_rail_updates_on_current_id_changed(qtbot):
 
 
 def test_setup_wizard_still_uses_modern_style(qtbot):
-    wizard = SetupWizard(DummyAuthManager())
+    wizard = SetupWizard(DummyAuthManager(), DummyConfigManager())
     qtbot.addWidget(wizard)
     assert wizard.wizardStyle() == QWizard.WizardStyle.ModernStyle

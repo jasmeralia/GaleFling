@@ -361,8 +361,11 @@ def test_settings_dialog_has_grouped_sidebar_sections(qtbot, tmp_path, monkeypat
         dialog._settings_sidebar.item(i).text() for i in range(dialog._settings_sidebar.count())
     ]
 
-    assert sidebar_names[:3] == ['App', 'General', 'Advanced']
-    assert sidebar_names[3:9] == [
+    # Advanced trails every account section under its own "More" header — not
+    # grouped with General under "App" — so browsing accounts never scrolls
+    # past it first.
+    assert sidebar_names[:2] == ['App', 'General']
+    assert sidebar_names[2:8] == [
         'Accounts',
         'Twitter',
         'Bluesky',
@@ -376,8 +379,8 @@ def test_settings_dialog_has_grouped_sidebar_sections(qtbot, tmp_path, monkeypat
     assert 'Snapchat' not in sidebar_names
     assert 'OnlyFans' not in sidebar_names
     assert 'Fansly' not in sidebar_names
-    assert sidebar_names[9:] == ['FetLife']
-    for row in (1, 2, 4, 5, 6, 7, 8, 9):
+    assert sidebar_names[8:] == ['FetLife', 'More', 'Advanced']
+    for row in (1, 3, 4, 5, 6, 7, 8, 10):
         assert not dialog._settings_sidebar.item(row).icon().isNull()
 
 
@@ -591,6 +594,105 @@ def test_settings_dialog_meta_app_credentials_load_and_save(qtbot, tmp_path, mon
     th = auth.get_meta_threads_app_credentials()
     assert ig == {'app_id': 'ig_id', 'app_secret': 'ig_secret'}
     assert th == {'app_id': 'saved_th', 'app_secret': 'saved_secret'}
+
+
+def test_settings_dialog_smtp_display_after_import(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    auth.save_smtp_credentials('smtp.gmail.com', 587, 'galefling@rin-city.com', 'app-password')
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    assert dialog._smtp_host_label.text() == 'smtp.gmail.com'
+    assert dialog._smtp_port_label.text() == '587'
+    assert dialog._smtp_username_label.text() == 'galefling@rin-city.com'
+    assert dialog._smtp_app_password_label.text() != 'app-password'
+    assert dialog._smtp_app_password_label.text().endswith('word')  # masked, last 4 chars visible
+
+
+def test_settings_dialog_smtp_not_configured_shows_placeholder(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    assert dialog._smtp_host_label.text() == '(not configured)'
+    assert dialog._smtp_username_label.text() == '(not configured)'
+    assert dialog._smtp_app_password_label.text() == '(not configured)'
+
+
+def test_settings_dialog_notification_email_load_and_save(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    config.notification_email = 'rin@example.com'
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    assert dialog._notification_email_edit.text() == 'rin@example.com'
+
+    dialog._notification_email_edit.setText('jas@example.com')
+    dialog._save_and_close()
+
+    assert config.notification_email == 'jas@example.com'
+
+
+def test_settings_dialog_test_smtp_connection_requires_notification_email(
+    qtbot, tmp_path, monkeypatch
+):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    auth.save_smtp_credentials('smtp.gmail.com', 587, 'galefling@rin-city.com', 'app-pw')
+    warnings = []
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.QMessageBox.warning',
+        lambda *args, **_kwargs: warnings.append(args),
+    )
+    called = []
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.check_smtp_connection',
+        lambda **kwargs: called.append(kwargs),
+    )
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+    dialog._notification_email_edit.setText('')
+
+    dialog._test_smtp_connection()
+
+    assert not called
+    assert warnings
+
+
+def test_settings_dialog_test_smtp_connection_success(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    auth.save_smtp_credentials('smtp.gmail.com', 587, 'galefling@rin-city.com', 'app-pw')
+    info_calls = []
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.QMessageBox.information',
+        lambda *args, **_kwargs: info_calls.append(args),
+    )
+    test_calls = []
+
+    def _fake_check(**kwargs):
+        test_calls.append(kwargs)
+        return True, ''
+
+    monkeypatch.setattr('src.gui.settings_dialog.check_smtp_connection', _fake_check)
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+    dialog._notification_email_edit.setText('rin@example.com')
+
+    dialog._test_smtp_connection()
+
+    assert len(test_calls) == 1
+    assert test_calls[0]['recipient'] == 'rin@example.com'
+    assert test_calls[0]['host'] == 'smtp.gmail.com'
+    assert info_calls
 
 
 def test_settings_dialog_meta_app_credentials_clear_one_provider(qtbot, tmp_path, monkeypatch):

@@ -30,6 +30,7 @@ DEFAULT_CONFIG = {
     'draft_auto_save_interval_seconds': 30,
     'remote_debug_enabled': False,
     'remote_debug_port': 9222,
+    'notification_email': '',
 }
 
 
@@ -108,6 +109,15 @@ class ConfigManager:
     @property
     def log_upload_endpoint(self) -> str:
         return self._config.get('log_upload_endpoint', LOG_UPLOAD_ENDPOINT)
+
+    @property
+    def notification_email(self) -> str:
+        """Address to email if a scheduled post fails. Empty until scheduling ships."""
+        return self._config.get('notification_email', '')
+
+    @notification_email.setter
+    def notification_email(self, value: str) -> None:
+        self.set('notification_email', value.strip())
 
     @property
     def log_upload_enabled(self) -> bool:

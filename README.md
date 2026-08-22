@@ -96,7 +96,9 @@ for platforms that support them (Twitter shown here).
 
 ### Setup wizard
 
-A guided first-run wizard walks through connecting each platform.
+A guided first-run wizard walks through connecting each platform. See
+[docs/SETUP_WIZARD.md](docs/SETUP_WIZARD.md) for a full step-by-step
+walkthrough with a screenshot of every step.
 
 ![Setup wizard, Bluesky step](docs/images/setup-wizard.png)
 

@@ -327,6 +327,42 @@ class AuthManager:
     def has_aws_media_staging_credentials(self) -> bool:
         return self.get_aws_media_staging_credentials() is not None
 
+    # ── SMTP notification credentials ───────────────────────────────
+
+    def get_smtp_credentials(self) -> dict[str, Any] | None:
+        """Return the SMTP credentials used for scheduled-post failure emails."""
+        data = self._load_json('smtp_auth.json')
+        if data and all(k in data for k in ('host', 'port', 'username', 'app_password')):
+            return data
+        return None
+
+    def save_smtp_credentials(
+        self,
+        host: str,
+        port: int,
+        username: str,
+        app_password: str,
+    ) -> None:
+        """Persist SMTP credentials."""
+        self._save_json(
+            'smtp_auth.json',
+            {
+                'host': host,
+                'port': port,
+                'username': username,
+                'app_password': app_password,
+            },
+        )
+
+    def has_smtp_credentials(self) -> bool:
+        return self.get_smtp_credentials() is not None
+
+    def clear_smtp_credentials(self) -> None:
+        """Remove stored SMTP credentials."""
+        path = self._auth_dir / 'smtp_auth.json'
+        if path.exists():
+            path.unlink()
+
     # ── Low-level JSON I/O ──────────────────────────────────────────
 
     def _load_json(self, filename: str) -> dict[str, Any] | None:

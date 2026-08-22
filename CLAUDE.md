@@ -1,8 +1,8 @@
 # GaleFling - Claude Code Context
 
 ## Mandatory Agent Rules
-1. After any code or docs change, run the full Release Checklist unless the user explicitly says not to.
-2. Do not skip linting or tests.
+1. After any code change, run the full Release Checklist (`make lint` + `make test-cov`) unless the user explicitly says not to. After a **docs-only change** — no files under `src/`, `tests/`, `tools/`, `scripts/`, `infrastructure/`, or `build/` touched; only documentation such as `README.md`, `CHANGELOG.md`, `AGENTS.md`/`CLAUDE.md`, or `docs/**` — run `make lint` only. Skip `make test-cov`: nothing under test can be affected by a docs-only change, so running the full suite is pure overhead.
+2. Do not skip linting. Do not skip tests for a code change — the docs-only exception in rule 1 is the only case where `make test-cov` may be skipped.
 3. If lint/tests fail, fix them before concluding.
 4. Make the smallest effective change unless the user requests a broader refactor.
 5. If project knowledge changes materially, update `AGENTS.md` and/or docs in `docs/`.
@@ -47,8 +47,11 @@ See [AGENTS.md](AGENTS.md) for project structure, architecture, and conventions.
 | File | Contents |
 |------|----------|
 | [docs/ARCHITECTURE_OVERVIEW.md](docs/ARCHITECTURE_OVERVIEW.md) | Subsystem architecture and behavior |
+| [docs/CREDENTIALS.md](docs/CREDENTIALS.md) | Full credential import JSON schema (meta/twitter/aws/smtp), partial imports, versioning |
+| [docs/EMAIL_NOTIFICATIONS.md](docs/EMAIL_NOTIFICATIONS.md) | SMTP credential import, notification email setup, testing |
 | [docs/MEDIA_PROCESSING.md](docs/MEDIA_PROCESSING.md) | Image/video processing and conversion |
 | [docs/BUILD_AND_RELEASE.md](docs/BUILD_AND_RELEASE.md) | Build tooling, packaging, release mechanics |
+| [docs/SETUP_WIZARD.md](docs/SETUP_WIZARD.md) | Full setup wizard walkthrough, one screenshot per step |
 | [docs/platforms/PLATFORM_SPECS.md](docs/platforms/PLATFORM_SPECS.md) | Platform limits, account caps, posting constraints |
 | [docs/platforms/](docs/platforms/) | Per-platform setup guides (credentials, limits, quirks) |
 | [docs/testing/RELEASE_TESTING.md](docs/testing/RELEASE_TESTING.md) | Manual pre-release testing scenarios |

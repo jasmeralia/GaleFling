@@ -59,3 +59,16 @@ def test_recent_emoji_default_get_set_and_cap(tmp_path, monkeypatch):
 
     manager._config['recent_emoji'] = 'not-a-list'
     assert manager.recent_emoji == []
+
+
+def test_notification_email_default_get_set_and_strips_whitespace(tmp_path, monkeypatch):
+    monkeypatch.setattr('src.core.config_manager.get_app_data_dir', lambda: tmp_path)
+    manager = ConfigManager()
+
+    assert manager.notification_email == ''
+
+    manager.notification_email = '  rin@example.com  '
+    assert manager.notification_email == 'rin@example.com'
+
+    saved = json.loads((tmp_path / 'app_config.json').read_text())
+    assert saved['notification_email'] == 'rin@example.com'

@@ -165,8 +165,12 @@ class ResultsDialog(QDialog):
         for result in results:
             frame = QFrame()
             frame.setFrameShape(QFrame.Shape.StyledPanel)
-            frame.setStyleSheet('QFrame { padding: 8px; margin: 4px; }')
             frame_layout = QVBoxLayout(frame)
+            # Contents margins, not frame.setStyleSheet('QFrame { padding; margin }') --
+            # that combination corrupts this frame's descendant layout under the
+            # offscreen Qt platform, shrinking the platform badge to a few px with no
+            # icon detail (see docs/images/results-dialog.png before this fix).
+            frame_layout.setContentsMargins(8, 8, 8, 8)
 
             if result.success:
                 self._add_success_row(frame_layout, result)

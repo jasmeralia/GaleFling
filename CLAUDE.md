@@ -51,6 +51,7 @@ See [AGENTS.md](AGENTS.md) for project structure, architecture, and conventions.
 | [docs/EMAIL_NOTIFICATIONS.md](docs/EMAIL_NOTIFICATIONS.md) | SMTP credential import, notification email setup, testing |
 | [docs/MEDIA_PROCESSING.md](docs/MEDIA_PROCESSING.md) | Image/video processing and conversion |
 | [docs/BUILD_AND_RELEASE.md](docs/BUILD_AND_RELEASE.md) | Build tooling, packaging, release mechanics |
+| [docs/SETUP_WIZARD.md](docs/SETUP_WIZARD.md) | Full setup wizard walkthrough, one screenshot per step |
 | [docs/platforms/PLATFORM_SPECS.md](docs/platforms/PLATFORM_SPECS.md) | Platform limits, account caps, posting constraints |
 | [docs/platforms/](docs/platforms/) | Per-platform setup guides (credentials, limits, quirks) |
 | [docs/testing/RELEASE_TESTING.md](docs/testing/RELEASE_TESTING.md) | Manual pre-release testing scenarios |

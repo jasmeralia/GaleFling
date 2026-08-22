@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
-"""Generate one screenshot per setup wizard step, for visual review.
+"""Generate one screenshot per setup wizard step.
 
-Runs GaleFling's real SetupWizard against a throwaway AuthManager pointed at
-an isolated temp HOME (offscreen-rendered, no real credentials), and grabs a
-PNG of every page in wizard order -- this is a review tool, not part of the
-README screenshot set in docs/images/.
+Runs GaleFling's real SetupWizard against a throwaway AuthManager/ConfigManager
+pointed at an isolated temp HOME (offscreen-rendered, no real credentials),
+and grabs a PNG of every page in wizard order.
+
+Powers docs/SETUP_WIZARD.md's step-by-step walkthrough (not the smaller
+README screenshot set in docs/images/, which generate_readme_screenshots.py
+covers). Re-run after a wizard UI change:
+
+    .venv/bin/python tools/screenshots/generate_wizard_step_screenshots.py docs/images/wizard-steps
 
 Usage:
     .venv/bin/python tools/screenshots/generate_wizard_step_screenshots.py [out_dir]
 
 Defaults to writing into a fresh temp directory (printed on completion) if
-out_dir is omitted.
+out_dir is omitted -- useful for a one-off visual review without touching
+the repo.
 """
 
 # The HOME/QT_QPA_PLATFORM env vars below must be set before importing

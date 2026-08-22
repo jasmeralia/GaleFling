@@ -114,6 +114,20 @@ def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
     assert bluesky_alt['identifier'] == 'alt.bsky.social'
 
 
+def test_twitter_guidance_matches_setup_wizard_account_switching(qtbot, tmp_path, monkeypatch):
+    from PyQt6.QtWidgets import QLabel
+
+    dialog = SettingsDialog(
+        _make_config(tmp_path, monkeypatch),
+        _make_auth(tmp_path, monkeypatch),
+    )
+    qtbot.addWidget(dialog)
+
+    label_text = ' '.join(label.text() for label in dialog.findChildren(QLabel))
+    assert 'if you’re already logged in to both' in label_text
+    assert 'Twitter’s account switcher' in label_text
+
+
 def test_autostart_launch_mode_stays_configurable_while_disabled(qtbot, tmp_path, monkeypatch):
     dialog = SettingsDialog(
         _make_config(tmp_path, monkeypatch),

@@ -284,9 +284,10 @@ class SettingsDialog(QDialog):
         # Hint
         tw_hint = QLabel(
             '<i>Each account is authorized separately. Before clicking '
-            '"Start PIN Flow", make sure you are logged into the correct '
-            'Twitter account in your web browser. To add a second account, '
-            'log out of the first account in your browser first.</i>'
+            '"Start PIN Flow", make sure the correct Twitter account is active '
+            'in your web browser — either log out of the first account and log '
+            'in to the second, or, if you’re already logged in to both, switch '
+            'to the correct one with Twitter’s account switcher.</i>'
         )
         tw_hint.setWordWrap(True)
         layout.addWidget(tw_hint)

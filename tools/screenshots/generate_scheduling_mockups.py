@@ -202,9 +202,15 @@ def capture_composer_schedule_icon(app: QApplication) -> None:
     apply_theme(app, composer)
     composer.set_text('Trying out scheduled posts today ✨')
 
+    # Both icons at 30x30 -- up from EmojiPickerButton's real 20x20
+    # (emoji_picker.py), a design change this mockup applies to the live
+    # instance rather than a size the production button already has.
+    icon_size = 30
+    composer._emoji_button.setIconSize(QSize(icon_size, icon_size))
+
     calendar_btn = QToolButton()
-    calendar_btn.setIcon(_calendar_icon(20, tokens.TEXT))
-    calendar_btn.setIconSize(QSize(20, 20))
+    calendar_btn.setIcon(_calendar_icon(icon_size, tokens.TEXT))
+    calendar_btn.setIconSize(QSize(icon_size, icon_size))
     calendar_btn.setToolTip('Schedule this post for a later time')
 
     found = _find_containing_layout(composer.layout(), composer._emoji_button)

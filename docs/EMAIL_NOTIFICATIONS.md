@@ -10,7 +10,7 @@ dialog. See [Scheduling](SCHEDULING.md#failures) for the complete failure flow.
 - **SMTP sending credentials** (host, port, username, app password) — a
   secret, provided by whoever administers GaleFling's SMTP account (currently
   `galefling@rin-city.com`, a dedicated mailbox with 2FA and an app password —
-  see [docs/plans/SCHEDULING.md#email-configuration](plans/SCHEDULING.md#email-configuration)
+  see [docs/plans/completed/SCHEDULING.md#email-configuration](plans/completed/SCHEDULING.md#email-configuration)
   for why a dedicated account rather than a personal one). Arrives via the
   same [credential import JSON](CREDENTIALS.md) mechanism as Meta,
   Twitter, and AWS credentials — never hand-typed.
@@ -93,5 +93,5 @@ If the SMTP account is a Google Workspace / Gmail mailbox:
 - `src/core/smtp_utils.py` — `check_smtp_connection()` and the shared email sender
 - `src/core/auth_manager.py` — `get_smtp_credentials()` / `save_smtp_credentials()`
 - `src/core/credential_importer.py` — the `smtp` import section
-- `docs/plans/SCHEDULING.md#email-configuration` — the design rationale (SMTP
+- `docs/plans/completed/SCHEDULING.md#email-configuration` — the design rationale (SMTP
   over SES, dedicated mailbox, per-host App Passwords)

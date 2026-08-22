@@ -5,7 +5,7 @@
 **Implemented — Phase 1 shipped on the scheduling feature branch.** Split out of the combined
 `SCHEDULING_AND_MULTI_CLIENT.md` plan on 2026-08-21 (Jas) — scheduling and mobile/LAN
 access are handled in entirely different phases and no longer need to share one
-document. See [docs/plans/MOBILE_LAN_ACCESS.md](MOBILE_LAN_ACCESS.md) for the mobile
+document. See [docs/plans/MOBILE_LAN_ACCESS.md](../MOBILE_LAN_ACCESS.md) for the mobile
 client / embedded server work; that document remains the canonical source for the
 overall desktop-resident-server architecture, the IP-identity rationale for why posting
 never leaves Rin's machine, and R1/R5/R6/R7. This document owns scheduling only: R2,
@@ -21,9 +21,9 @@ targets is historical: if reactivated, they would delegate via UI automation (dr
 composer once, set a future time) — a different mechanism from the API-scheduling
 question this document resolves, and unaffected by the decision below.
 
-Canonical repo path: `docs/plans/SCHEDULING.md`
+Canonical repo path: `docs/plans/completed/SCHEDULING.md`
 
-The user-facing guide is [docs/SCHEDULING.md](../SCHEDULING.md). This document remains
+The user-facing guide is [docs/SCHEDULING.md](../../SCHEDULING.md). This document remains
 the rationale and requirements record.
 
 ---
@@ -34,8 +34,8 @@ Rin asked for scheduled posts: hold several drafts, pick a future time for each,
 able to see, edit, or cancel anything still pending. The scheduler that fires those
 posts has to be **something that is already always-on** — Rin's desktop, powered 24×7 —
 because scheduled posting cannot run on a phone (see
-[MOBILE_LAN_ACCESS.md](MOBILE_LAN_ACCESS.md#executive-summary) for why) and cannot run
-server-side (see [Why the poster stays on her machine](MOBILE_LAN_ACCESS.md#why-the-poster-stays-on-her-machine)
+[MOBILE_LAN_ACCESS.md](../MOBILE_LAN_ACCESS.md#executive-summary) for why) and cannot run
+server-side (see [Why the poster stays on her machine](../MOBILE_LAN_ACCESS.md#why-the-poster-stays-on-her-machine)
 for the IP-identity reasoning).
 
 The scheduling-specific design question this document resolves is narrower: **for each
@@ -60,10 +60,10 @@ Derived:
 - **R4** — When GaleFling attempts a scheduled post and it fails, that failure must be
   reported, not swallowed. Scope is GaleFling reporting its own failures; the health of
   the machine it runs on is out of scope (see
-  [MOBILE_LAN_ACCESS.md](MOBILE_LAN_ACCESS.md#explicitly-not-in-scope-monitoring-rins-machine)).
+  [MOBILE_LAN_ACCESS.md](../MOBILE_LAN_ACCESS.md#explicitly-not-in-scope-monitoring-rins-machine)).
 
 R3 (posting must continue to originate from Rin's own machine and network) is defined in
-[MOBILE_LAN_ACCESS.md](MOBILE_LAN_ACCESS.md#why-the-poster-stays-on-her-machine) and
+[MOBILE_LAN_ACCESS.md](../MOBILE_LAN_ACCESS.md#why-the-poster-stays-on-her-machine) and
 applies here without restatement: the local queue's due-time poller runs in the same
 process, on the same machine, under the same IP-identity constraint as interactive
 posting.
@@ -154,7 +154,7 @@ confirm in a WebView tab and cannot run headless against Cloudflare.
 **Queue management is part of R2, not a later nicety.** Several posts may be pending at
 once, and Rin must be able to see the queue, edit a pending item, and cancel one — from
 the desktop GUI and, once it exists, from the mobile client (see
-[MOBILE_LAN_ACCESS.md](MOBILE_LAN_ACCESS.md)) alike. With the no-delegation decision above,
+[MOBILE_LAN_ACCESS.md](../MOBILE_LAN_ACCESS.md)) alike. With the no-delegation decision above,
 every schedulable platform's pending items are held identically, so this editing/cancelling
 behavior is symmetric across platforms — there is no platform whose pending item lives in a
 remote scheduler instead of this queue.
@@ -227,7 +227,7 @@ platform, Facebook included, now goes through startup reconciliation like the re
 local queue.
 
 A Windows Update reboot is a common way for the desktop to miss a due time unattended; see
-[MOBILE_LAN_ACCESS.md#windows-session-constraints](MOBILE_LAN_ACCESS.md#windows-session-constraints)
+[MOBILE_LAN_ACCESS.md#windows-session-constraints](../MOBILE_LAN_ACCESS.md#windows-session-constraints)
 for why the poster can't be installed as a Windows service and what that implies for
 autologon and session restore. Startup reconciliation, above, is what catches anything
 whose due time passed during that kind of outage.
@@ -235,7 +235,7 @@ whose due time passed during that kind of outage.
 #### Email configuration
 
 **Implemented 2026-08-21, ahead of the rest of scheduling** — see
-[docs/EMAIL_NOTIFICATIONS.md](../EMAIL_NOTIFICATIONS.md) for the user-facing setup guide.
+[docs/EMAIL_NOTIFICATIONS.md](../../EMAIL_NOTIFICATIONS.md) for the user-facing setup guide.
 SMTP credentials (host, port, username, app password) import the same way as `meta`,
 `twitter`, and `aws` via `src/core/credential_importer.py`'s versioned, partial-import-safe
 `smtp` section, and are stored through `AuthManager` (`smtp_auth.json`, file-per-credential
@@ -293,7 +293,7 @@ sometimes fully shut down the machine when not in active use.** This retires the
 sleeps despite being powered" risk — nothing to mitigate there — but surfaces a more
 consequential one: unlike sleep, a full shutdown doesn't self-heal on its own the way
 autologon + session restore handles a Windows Update reboot (see
-[MOBILE_LAN_ACCESS.md#windows-session-constraints](MOBILE_LAN_ACCESS.md#windows-session-constraints));
+[MOBILE_LAN_ACCESS.md#windows-session-constraints](../MOBILE_LAN_ACCESS.md#windows-session-constraints));
 the machine stays off until Rin manually turns it back on, so a scheduled post's window can
 pass with nobody around to notice. This is routine behavior for her, not an edge case.
 
@@ -333,7 +333,7 @@ first post is scheduled rather than buried as an opt-in nobody finds. Concretely
 
 - **The setting is a real, user-visible toggle**, not just an installer-time default.
   Installer defaults (see
-  [MOBILE_LAN_ACCESS.md Phase 3](MOBILE_LAN_ACCESS.md#phase-3--onboarding-r5-1-week))
+  [MOBILE_LAN_ACCESS.md Phase 3](../MOBILE_LAN_ACCESS.md#phase-3--onboarding-r5-1-week))
   don't help if she reinstalls, resets the machine, or the setting gets toggled off some
   other way — the app needs to be able to set and query this itself.
 - **Offer to turn it on at the moment it starts mattering.** When Rin schedules her first
@@ -382,7 +382,7 @@ if more platforms gain real API scheduling later.
 
 Phase 0.1 (confirm Rin's sleep + autologon settings) and 0.4 (mDNS + media upload spike)
 are mobile/LAN-access items — see
-[MOBILE_LAN_ACCESS.md#phase-0--spike-and-confirmation](MOBILE_LAN_ACCESS.md). 0.1 also
+[MOBILE_LAN_ACCESS.md#phase-0--spike-and-confirmation](../MOBILE_LAN_ACCESS.md). 0.1 also
 matters here, since the scheduler needs the desktop actually awake to fire on time, but it
 is tracked as one item rather than duplicated.
 
@@ -394,7 +394,7 @@ dialog (post now / delete / edit — see
 [Shutdown awareness](#shutdown-awareness-r4) — the Windows shutdown-block prompt itself is
 deferred, not part of this phase), and the
 [start-at-login setting](#start-at-login) — see
-[docs/plans/completed/SCHEDULING_UI_DESIGN.md](completed/SCHEDULING_UI_DESIGN.md) for mockups of every screen
+[docs/plans/completed/SCHEDULING_UI_DESIGN.md](SCHEDULING_UI_DESIGN.md) for mockups of every screen
 this phase delivers. One uniform path for every schedulable platform,
 no delegated-vs-local routing to build for the active platform set (OnlyFans/Fansly's
 separate UI-automation delegation stays dormant while paused). Deliverable: **a post
@@ -402,7 +402,7 @@ scheduled from the existing desktop GUI fires correctly with the app minimized**
 Windows and Linux. No phone involved yet. This alone satisfies R2.
 
 This is the entire scheduling-side deliverable; mobile client work is
-[Phase 2](MOBILE_LAN_ACCESS.md#phase-2--embedded-server--mobile-client-34-weeks) and does not
+[Phase 2](../MOBILE_LAN_ACCESS.md#phase-2--embedded-server--mobile-client-34-weeks) and does not
 block it.
 
 ---
@@ -419,7 +419,7 @@ block it.
 | Cloudflare behavior changes on Fansly/OnlyFans | Medium | High | Unchanged from today; posting stays on her machine and IP. Not a scheduling risk per se — those platforms are paused — but retained here since a reactivation would restore their delegated-scheduling model. |
 
 Windows drift, mDNS failure, and the mobile-specific risks live in
-[MOBILE_LAN_ACCESS.md#risk-register](MOBILE_LAN_ACCESS.md#risk-register).
+[MOBILE_LAN_ACCESS.md#risk-register](../MOBILE_LAN_ACCESS.md#risk-register).
 
 ---
 
@@ -442,6 +442,7 @@ Windows drift, mDNS failure, and the mobile-specific risks live in
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | Moved this implemented scheduling plan from `docs/plans/` to `docs/plans/completed/` and updated repository references and relative links. |
 | 2026-08-22 | Hardened Linux start-at-login behavior after reviewing KDE/GNOME integration: a requested minimized launch falls back to the visible main window if Qt reports no usable tray; AppImage entries use the persistent `$APPIMAGE` path rather than a temporary mounted executable; Desktop Entry `Exec` values use freedesktop quoting instead of shell quoting; and source-checkout entries use an absolute entry point. Added regression tests and validated the generated XDG entry with `desktop-file-validate`. |
 | 2026-08-21 | Implemented Phase 1: local SQLite queue with owned media copies, atomic due claims and interrupted-item recovery; composer calendar action and five-minute picker floor; pending queue edit/cancel UI; missed-item startup reconciliation; existing `PostWorker` execution path; Windows/Linux per-user autostart with window/tray launch choice; tray controls/live count; in-app confirmation toast; consolidated clickable system failure notification; and best-effort SMTP failure email. Added `docs/SCHEDULING.md`, unit tests, and architecture/user documentation. The deferred Windows shutdown-block prompt remains out of scope. |
 | 2026-08-22 | Added a configurable automatic-launch display mode (Jas): **Open the main window** or **Start minimized to the system tray**, defaulting to the tray. This affects only login/autostart launches; manual launches still show the normal window. Also expanded scheduled-post failure reporting to include a consolidated system toast through `QSystemTrayIcon.showMessage` alongside the already-required SMTP email, persistent GUI failure state, and logs. The toast is best-effort/transient, remains visible while the app is minimized, and opens the existing results UI when clicked. |

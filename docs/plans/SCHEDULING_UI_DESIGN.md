@@ -29,7 +29,7 @@ mockups go a step further and inject their new control into a real, running
 production widget instead of a from-scratch replica, so they sit next to
 controls that exist today: the [Schedule dialog](#1-schedule-dialog)'s
 composer calendar icon (real `PostComposer`) and
-[Start at login](#4-start-at-login-toggle-settings--advanced) (real
+[Startup settings](#4-startup-settings-settings--advanced) (real
 `SettingsDialog`).
 
 Re-run after this document's design changes:
@@ -47,7 +47,7 @@ Re-run after this document's design changes:
 | 1 | [Schedule dialog](#1-schedule-dialog) | R2 (schedule a post) | New — opened via a new calendar icon button in the composer, beside the emoji picker |
 | 2 | [Scheduled Posts queue](#2-scheduled-posts-queue) | R2 (see/edit/cancel pending) | New — opened from a new menu bar entry |
 | 3 | [Missed Scheduled Posts reconciliation](#3-missed-scheduled-posts-reconciliation) | R4 (startup reconciliation) | New — modal, shown on launch when applicable |
-| 4 | [Start at login toggle](#4-start-at-login-toggle-settings--advanced) | R4 (start-at-login mitigation) | Extends existing `SettingsDialog` → Advanced |
+| 4 | [Startup settings](#4-startup-settings-settings--advanced) | R4 (start-at-login mitigation) | Extends existing `SettingsDialog` → Advanced |
 | 5 | [Tray context menu](#5-tray-context-menu) | R4 (background/tray operation) | New — requires tray support, which doesn't exist yet either |
 
 Not mocked, and explained instead of drawn — see
@@ -150,8 +150,8 @@ Each row (styled like `ResultsDialog`'s per-result `QFrame` rows in
   glance.
 - **Pending status pill** — `ACCENT` token color. `failed` items don't
   appear here; a failed scheduled post is a R4 notification event (email +
-  GUI failure state), not a queue-management concern, and a `posted` item
-  leaves the queue entirely once it fires.
+  system toast + GUI failure state), not a queue-management concern, and a
+  `posted` item leaves the queue entirely once it fires.
 - **Edit** — reopens the composer pre-filled with this item's text, media,
   platforms, and due time, the same composer instance/pattern the
   [reconciliation dialog's Edit](#3-missed-scheduled-posts-reconciliation)
@@ -212,7 +212,7 @@ here or edits/cancels it directly from the
 
 ---
 
-## 4. Start at login toggle (Settings → Advanced)
+## 4. Startup settings (Settings → Advanced)
 
 ![Settings — Start at login](../images/scheduling/settings-start-at-login.png)
 
@@ -227,8 +227,8 @@ post fires at all).
 - **Checkbox**: "Start GaleFling automatically when I log in."
 - **Hint text** (italic, muted, matching every other group's hint label
   convention): "Keeps scheduled posts firing after a reboot — GaleFling
-  launches automatically instead of waiting for you to reopen it. Launches
-  to the tray, not the visible window." Corrected (Jas) from an earlier
+  launches automatically instead of waiting for you to reopen it." Corrected
+  (Jas) from an earlier
   draft's "required... while you're away from the computer" — the setting
   isn't about presence at all (a post fires whether or not Rin is at the
   machine, as long as GaleFling is running); it's specifically about
@@ -236,11 +236,18 @@ post fires at all).
   [SCHEDULING.md's Start at login](SCHEDULING.md#start-at-login): "the
   machine can be on and Rin logged in, with GaleFling simply never launched
   since the last boot."
+- **Automatic launch mode**: a selector labeled "When started automatically:"
+  with two explicit choices: **Open the main window** and **Start minimized to
+  the system tray**. The tray choice is the default. This setting applies only
+  to a login/autostart launch; opening GaleFling manually continues to show the
+  normal window. The selector stays configurable while autostart is off so Rin
+  can choose the behavior before enabling it.
 
 This is the durable, always-available control. The
 [Schedule dialog's inline checkbox](#1-schedule-dialog) is the proactive
-one-time prompt; this is where Rin finds it again if she ever turns it off,
-or if she wants to turn it on before scheduling anything.
+one-time prompt; enabling autostart there uses the saved automatic-launch
+mode (the tray default if it has never been changed). This Settings group is
+where Rin turns autostart back off or changes how an automatic launch appears.
 
 ---
 
@@ -250,8 +257,8 @@ or if she wants to turn it on before scheduling anything.
 
 GaleFling has no system tray presence today — this is new surface required by
 [SCHEDULING.md's background/tray operation](SCHEDULING.md#phase-1--scheduler-in-the-desktop-app-23-weeks)
-and [Start at login's "launches to tray"](SCHEDULING.md#start-at-login)
-behavior, not something this document invents independently.
+and [Start at login's configurable launch mode](SCHEDULING.md#start-at-login),
+not something this document invents independently.
 
 Menu, top to bottom: **Show GaleFling** (restores the main window), a
 separator, **Scheduled Posts (N)** (opens the
@@ -265,7 +272,7 @@ icon asset needed.
 
 Check for Updates and About matter here specifically because the main window
 may not be visible — Rin could be running for days with GaleFling minimized
-to the tray (that's the point of [Start at login](#4-start-at-login-toggle-settings--advanced)),
+to the tray (when that [startup mode](#4-startup-settings-settings--advanced) is selected),
 so the tray menu is the only reachable surface for them at that point, not a
 convenience duplicate of the Help menu.
 
@@ -284,12 +291,14 @@ menu action in the app already follows.
   (`ShutdownBlockReasonCreate`'s "this app is preventing shutdown" dialog) rendered
   by the OS, not by GaleFling, with a single reason string as its only content — no
   layout decision to make even if it comes back.
-- **Native OS notification/toast for a failed scheduled post.** R4's actual
-  failure channel is email plus the existing GUI failure state
-  (`_on_api_post_finished` → `ResultsDialog`), not a new toast system — see
-  [SCHEDULING.md](SCHEDULING.md#not-failing-silently-r4). Nothing new to
-  design here; a failed scheduled post surfaces through
-  `ResultsDialog`, unchanged.
+- **System toast for a failed scheduled post.** This is required alongside
+  email, but not mocked because it is OS-rendered chrome rather than a GaleFling
+  window. The tray icon calls `QSystemTrayIcon.showMessage` once all platform
+  attempts for the scheduled item settle. The title is **Scheduled post
+  failed**; the body names the failed platform account(s), and clicking it opens
+  the existing results UI with the failure details. Multi-platform failures are
+  consolidated into one toast per scheduled item, not one interruption per
+  platform. See [SCHEDULING.md](SCHEDULING.md#not-failing-silently-r4).
 
 ---
 
@@ -304,9 +313,10 @@ version lands, based on the codebase's existing per-dialog file convention
 | Schedule dialog | `src/gui/schedule_dialog.py` | `post_composer.py` (new calendar `QToolButton` in `emoji_row`, a new `schedule_requested` signal following the existing `preview_requested`/`media_changed` pattern), `main_window.py` (connects the signal to open the dialog, reading composer/platform-selector state the same way `_do_post` already does) |
 | Scheduled Posts queue | `src/gui/scheduled_posts_dialog.py` | `main_window.py` (`_create_menu_bar`, new `Scheduled` menu) |
 | Missed-post reconciliation | `src/gui/reconciliation_dialog.py` | `main_window.py` (shown on startup, after `_check_first_run`) |
-| Start at login | — (extends `_create_advanced_tab`) | `settings_dialog.py`, `config_manager.py` (new setting), platform-specific autostart module (new — Windows `Run` key / Linux XDG autostart, per `SCHEDULING.md`) |
+| Startup settings | — (extends `_create_advanced_tab`) | `settings_dialog.py`, `config_manager.py` (autostart enabled + automatic-launch display mode), platform-specific autostart module (new — Windows `Run` key / Linux XDG autostart, with the minimized-start argument synchronized to the selected mode, per `SCHEDULING.md`) |
 | Tray context menu | `src/gui/tray_icon.py` (new — doesn't exist) | `main_window.py` (`closeEvent`, minimize-to-tray behavior; wires Check for Updates / About to the existing `_manual_update_check`/`_show_about` handlers rather than duplicating them), app entry point |
 | Schedule-confirmation toast | `src/gui/toast.py` (new — no toast widget exists in the codebase today; the app's only transient-message precedent is `QStatusBar.showMessage`, e.g. `main_window.py`'s `'Ready'`/`'Opening WebView panel...'`) | `main_window.py` or `schedule_dialog.py`, wherever Schedule Post's success handler lands |
+| Scheduled-failure system toast | — (uses `QSystemTrayIcon.showMessage`, not the in-app confirmation-toast widget) | scheduler completion path consolidates failed platform result(s); `tray_icon.py` displays the toast and opens the existing results UI when clicked |
 
 The local queue itself (SQLite-backed, due-time poller) is core/back-end
 work, not GUI — out of scope for this document; see
@@ -349,7 +359,8 @@ None outstanding. All three questions this section originally listed are resolve
 
 | Date | Change |
 |------|--------|
-| 2026-08-22 | Corrected the [Start at login](#4-start-at-login-toggle-settings--advanced) hint text (Jas): "required... while you're away from the computer" was wrong — the setting isn't about presence, a scheduled post fires either way as long as GaleFling is running. It's specifically for surviving a reboot, so GaleFling relaunches instead of Rin having to notice and reopen it herself. New text: "Keeps scheduled posts firing after a reboot — GaleFling launches automatically instead of waiting for you to reopen it." Regenerated `settings-start-at-login.png`. |
+| 2026-08-22 | Added an automatic-launch display-mode setting (Jas): **Open the main window** or **Start minimized to the system tray**, defaulting to the tray. It applies only to login/autostart launches; manual launches still open normally. Updated the [Startup settings](#4-startup-settings-settings--advanced) design, component mapping, and `settings-start-at-login.png`. Also confirmed scheduled-post failures use both durable email and a transient system toast: one consolidated `QSystemTrayIcon.showMessage` notification per scheduled item, visible while minimized and opening the existing results UI when clicked. Updated [Deliberately not mocked](#deliberately-not-mocked) and the queue-state description. |
+| 2026-08-22 | Corrected the [Start at login](#4-startup-settings-settings--advanced) hint text (Jas): "required... while you're away from the computer" was wrong — the setting isn't about presence, a scheduled post fires either way as long as GaleFling is running. It's specifically for surviving a reboot, so GaleFling relaunches instead of Rin having to notice and reopen it herself. New text: "Keeps scheduled posts firing after a reboot — GaleFling launches automatically instead of waiting for you to reopen it." Regenerated `settings-start-at-login.png`. |
 | 2026-08-22 | Enlarged both the composer's calendar and emoji icons to 30×30 (Jas), up from `EmojiPickerButton`'s current 20×20 — a real change to the existing emoji button too, not just the new calendar icon's size. Regenerated `composer-schedule-icon.png`; the mockup script now overrides the real `PostComposer` instance's emoji button icon size before capturing, alongside the new calendar button. |
 | 2026-08-22 | Changed the Schedule dialog's entry point (Jas): a calendar icon `QToolButton` in the composer's `emoji_row`, immediately left of the emoji picker, instead of a separate "Schedule…" button in `main_window.py`'s button row. Added `composer-schedule-icon.png`, generated by injecting into the real `PostComposer` (same technique the Settings mockup already used). No calendar/event icon exists in `src/resources/icons/ui/` yet, so the mockup hand-draws one (`_calendar_icon` in the generator script) — flagged as needing a real Material Symbols icon at implementation time. Updated [Screen inventory](#screen-inventory), [Component / file mapping](#component--file-mapping), and the queue's "New Scheduled Post…" footer wording accordingly. |
 | 2026-08-22 | Removed the "How these mockups were made" section's `results_dialog.py` badge-rendering bug callout (Jas: already addressed) — it was fixed and merged (#69) shortly after this document's initial draft flagged it, so the standing "flagged, not fixed here" note was stale. The 2026-08-21 changelog entry that first flagged it is left as-is (historical record). |

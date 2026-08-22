@@ -9,7 +9,7 @@ script rather than driven from production classes. They use the app's real
 theme, tokens, and icon assets (`apply_theme`, `src/utils/tokens.py`,
 `src/resources/icons/`) so they read as GaleFling rather than a generic
 wireframe, and the settings mockup goes one step further by injecting its
-new control into the real `SettingsDialog` so it sits alongside controls
+new controls into the real `SettingsDialog` so they sit alongside controls
 that do exist today.
 
 All data below (captions, handles, dates) is fabricated -- no resemblance to
@@ -42,6 +42,7 @@ from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QDateTimeEdit,
     QDialog,
     QFormLayout,
@@ -452,8 +453,8 @@ def _select_settings_nav_item(dialog, label: str) -> None:
 def capture_settings_start_at_login(app: QApplication) -> None:
     """Settings > Advanced: the real SettingsDialog with a mockup 'Startup' group
 
-    inserted above its real 'WebView' group, in the same QGroupBox style as
-    every other Advanced-tab section.
+    and launch-mode selector inserted above its real 'WebView' group, in the
+    same QGroupBox style as every other Advanced-tab section.
     """
     config = ConfigManager()
     auth_manager = AuthManager()
@@ -467,11 +468,18 @@ def capture_settings_start_at_login(app: QApplication) -> None:
     startup_layout.addWidget(autostart_cb)
     hint = QLabel(
         '<i>Keeps scheduled posts firing after a reboot — GaleFling launches '
-        'automatically instead of waiting for you to reopen it. Launches to '
-        'the tray, not the visible window.</i>'
+        'automatically instead of waiting for you to reopen it.</i>'
     )
     hint.setWordWrap(True)
     startup_layout.addWidget(hint)
+
+    launch_mode_row = QHBoxLayout()
+    launch_mode_row.addWidget(QLabel('When started automatically:'))
+    launch_mode = QComboBox()
+    launch_mode.addItems(['Open the main window', 'Start minimized to the system tray'])
+    launch_mode.setCurrentIndex(1)
+    launch_mode_row.addWidget(launch_mode, 1)
+    startup_layout.addLayout(launch_mode_row)
 
     webview_group = next(g for g in dialog.findChildren(QGroupBox) if g.title() == 'WebView')
     parent_layout = webview_group.parentWidget().layout()

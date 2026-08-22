@@ -35,23 +35,6 @@ Re-run after this document's design changes:
 .venv/bin/python tools/screenshots/generate_scheduling_mockups.py
 ```
 
-**A real bug surfaced while building these — flagged, not fixed here.**
-`results_dialog.py`'s `ResultsDialog._add_badge` composites a circular platform
-badge inside a `QFrame` styled via
-`frame.setStyleSheet('QFrame { padding: 8px; margin: 2px; }')`. Under the
-offscreen Qt platform (used by both screenshot scripts, and by `make test-cov`'s
-`QT_QPA_PLATFORM=offscreen`), setting both `padding` and `margin` in one QSS
-block on a styled `QFrame` corrupts descendant layout: child widgets report
-correct `size()`/`geometry()`/pixmap content via the Qt API, but the actual
-rendered/grabbed pixels shrink to a few px with no icon detail. The checked-in
-`docs/images/results-dialog.png` already shows this — its platform badges are
-small solid-color squares, not the intended circular icons. Whether this also
-reproduces under a real (non-offscreen) display hasn't been checked. This
-document's own mockups avoid the pattern (contents margins on the layout
-instead of QSS `padding`/`margin` on the frame); the production bug in
-`results_dialog.py` is unrelated to scheduling and is not fixed as part of this
-design doc — worth its own task.
-
 ---
 
 ## Screen inventory
@@ -105,17 +88,18 @@ Contents, top to bottom:
 - **Cancel / Schedule Post** — Schedule Post uses the same primary button
   style as Post Now. Once clicked, it: (a) writes a `pending` row to the
   local queue, (b) turns on the start-at-login setting if the checkbox was
-  shown and checked, (c) closes the dialog, and (d) shows a brief
-  confirmation (toast or status-bar message — TBD alongside the queue's
-  empty/non-empty state, not decided here) rather than the full
+  shown and checked, (c) closes the dialog, (d) **clears the composer**, the
+  same as a fully successful `Post Now` does (`main_window.py`'s
+  `_on_api_post_finished`: `_clear_draft()`, `_composer.clear()`,
+  `_cleanup_processed_media()`, `_clear_format_restriction()`) — scheduling
+  is a completed action for this composer session, not a pending one — and
+  (e) shows a **toast** confirming the post was scheduled, not the full
   `ResultsDialog`, since nothing was actually posted yet.
 
-**Validation not shown in the mockup, but required at implementation time:**
-the due-time picker must reject a moment in the past. `SCHEDULING.md` did not
-settle on a minimum lead time (Facebook's own scheduler enforces a 10-minute
-floor per its docs, but GaleFling's local queue isn't bound by that) — treat
-"strictly after now" as the only implementation-time floor unless Phase 1
-work turns up a reason for more.
+**Validation not shown in the mockup:** the due-time picker rejects anything
+less than [5 minutes from now](SCHEDULING.md#local-queue) — see
+`SCHEDULING.md` for the mechanism-level decision; this dialog is just where
+Rin encounters it.
 
 ---
 
@@ -134,8 +118,7 @@ item, visible in one place, editable or cancellable without waiting for its
 due time.
 
 Each row (styled like `ResultsDialog`'s per-result `QFrame` rows in
-`results_dialog.py`, **using contents-margins, not the buggy QSS `padding` +
-`margin` combination flagged above**):
+`results_dialog.py`):
 
 - **Platform badge(s)** — one circular badge per target platform, reusing
   `_build_result_badge`'s visual language (brand icon over the platform's
@@ -295,6 +278,7 @@ version lands, based on the codebase's existing per-dialog file convention
 | Missed-post reconciliation | `src/gui/reconciliation_dialog.py` | `main_window.py` (shown on startup, after `_check_first_run`) |
 | Start at login | — (extends `_create_advanced_tab`) | `settings_dialog.py`, `config_manager.py` (new setting), platform-specific autostart module (new — Windows `Run` key / Linux XDG autostart, per `SCHEDULING.md`) |
 | Tray context menu | `src/gui/tray_icon.py` (new — doesn't exist) | `main_window.py` (`closeEvent`, minimize-to-tray behavior; wires Check for Updates / About to the existing `_manual_update_check`/`_show_about` handlers rather than duplicating them), app entry point |
+| Schedule-confirmation toast | `src/gui/toast.py` (new — no toast widget exists in the codebase today; the app's only transient-message precedent is `QStatusBar.showMessage`, e.g. `main_window.py`'s `'Ready'`/`'Opening WebView panel...'`) | `main_window.py` or `schedule_dialog.py`, wherever Schedule Post's success handler lands |
 
 The local queue itself (SQLite-backed, due-time poller) is core/back-end
 work, not GUI — out of scope for this document; see
@@ -304,18 +288,17 @@ work, not GUI — out of scope for this document; see
 
 ## Open questions
 
-1. **Schedule confirmation UX** — toast vs. status-bar message vs. something
-   else, once a post is successfully queued from the
-   [Schedule dialog](#1-schedule-dialog). Not a `ResultsDialog` (nothing
-   posted yet), but not decided further than that here.
-2. **Minimum lead time for the due-time picker** — "strictly after now" is
-   the floor assumed above; confirm this is sufficient or whether a small
-   buffer (e.g. 1 minute) is needed to avoid a race with the due-time poller
-   at save time.
+None outstanding. All three questions this section originally listed are resolved:
 
-The close-without-deciding question this section used to list is resolved —
-see [Missed Scheduled Posts reconciliation](#3-missed-scheduled-posts-reconciliation):
-undecided items stay pending and are asked about again next launch.
+- **Close-without-deciding behavior for the reconciliation window** — see
+  [Missed Scheduled Posts reconciliation](#3-missed-scheduled-posts-reconciliation):
+  undecided items stay pending and are asked about again next launch.
+- **Schedule confirmation UX** — see [Schedule dialog](#1-schedule-dialog): a
+  toast, plus clearing the composer the same way a fully successful `Post Now`
+  does.
+- **Minimum lead time for the due-time picker** — see
+  [SCHEDULING.md's Local queue section](SCHEDULING.md#local-queue): 5 minutes
+  from now.
 
 ---
 
@@ -338,6 +321,8 @@ undecided items stay pending and are asked about again next launch.
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | Removed the "How these mockups were made" section's `results_dialog.py` badge-rendering bug callout (Jas: already addressed) — it was fixed and merged (#69) shortly after this document's initial draft flagged it, so the standing "flagged, not fixed here" note was stale. The 2026-08-21 changelog entry that first flagged it is left as-is (historical record). |
+| 2026-08-22 | Resolved the last two open questions (Jas). Schedule confirmation UX: a toast, plus clearing the composer the same way a fully successful `Post Now` does (`main_window.py`'s `_on_api_post_finished` clear sequence) — added a new `src/gui/toast.py` row to [Component / file mapping](#component--file-mapping) since no toast widget exists in the codebase yet. Minimum lead time: 5 minutes from now — moved the actual decision to `SCHEDULING.md`'s [Local queue](SCHEDULING.md#local-queue) section as the mechanism-level canonical source, since it's a poller constraint rather than a GUI one; this document's [Schedule dialog](#1-schedule-dialog) section now just links to it. Open Questions is empty. |
 | 2026-08-22 | Added Check for Updates and About to the [Tray context menu](#5-tray-context-menu) (Jas) — reused from `main_window.py`'s existing `Help` menu handlers rather than duplicated, since they're the only reachable copies of those actions while minimized to tray. Regenerated `tray-context-menu.png`. Also updated [Deliberately not mocked](#deliberately-not-mocked) to reflect the Windows shutdown-block dialog being deferred out of Phase 1 entirely, not just excluded from mockups — see `SCHEDULING.md`'s 2026-08-22 changelog entry. |
 | 2026-08-22 | Resolved the reconciliation window's close-without-deciding open question (Jas): closing the window without deciding on every item leaves undecided items pending in the queue, and the window asks again on the next launch — nothing lost or auto-resolved by default. Updated the [Missed Scheduled Posts reconciliation](#3-missed-scheduled-posts-reconciliation) section and dropped the resolved item from Open Questions. |
 | 2026-08-21 | Corrected the Schedule dialog's button-color description: `tokens.SUCCESS` is `#5C7CFA`, a blue/indigo, not green, despite the token's name. The mockup image already rendered it correctly; only the prose was wrong. |

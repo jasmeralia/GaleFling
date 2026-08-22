@@ -466,8 +466,9 @@ def capture_settings_start_at_login(app: QApplication) -> None:
     autostart_cb.setChecked(True)
     startup_layout.addWidget(autostart_cb)
     hint = QLabel(
-        '<i>Required for scheduled posts to fire while you’re away from the '
-        'computer. Launches to the tray, not the visible window.</i>'
+        '<i>Keeps scheduled posts firing after a reboot — GaleFling launches '
+        'automatically instead of waiting for you to reopen it. Launches to '
+        'the tray, not the visible window.</i>'
     )
     hint.setWordWrap(True)
     startup_layout.addWidget(hint)

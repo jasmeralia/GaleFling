@@ -242,22 +242,37 @@ GaleFling has no system tray presence today — this is new surface required by
 and [Start at login's "launches to tray"](SCHEDULING.md#start-at-login)
 behavior, not something this document invents independently.
 
-Minimum viable menu: **Show GaleFling** (restores the main window), a
+Menu, top to bottom: **Show GaleFling** (restores the main window), a
 separator, **Scheduled Posts (N)** (opens the
 [queue dialog](#2-scheduled-posts-queue) directly — the count updates live as
-items are added/fire/cancelled), a separator, **Exit**. `QSystemTrayIcon`
-using the existing app icon (`resources/icon.ico`); no new icon asset needed.
+items are added/fire/cancelled), a separator, **Check for Updates** and
+**About** (the same actions as `main_window.py`'s `Help` menu, reused rather
+than reimplemented — see
+[Component / file mapping](#component--file-mapping)), a separator, **Exit**.
+`QSystemTrayIcon` using the existing app icon (`resources/icon.ico`); no new
+icon asset needed.
+
+Check for Updates and About matter here specifically because the main window
+may not be visible — Rin could be running for days with GaleFling minimized
+to the tray (that's the point of [Start at login](#4-start-at-login-toggle-settings--advanced)),
+so the tray menu is the only reachable surface for them at that point, not a
+convenience duplicate of the Help menu.
+
+Per AGENTS.md rule 6, each tray menu action logs
+`User selected Tray > <Action>` on trigger, the same convention every other
+menu action in the app already follows.
 
 ---
 
 ## Deliberately not mocked
 
-- **Windows shutdown-block dialog** ([SCHEDULING.md](SCHEDULING.md#shutdown-awareness-r4)).
-  This is native Windows chrome (`ShutdownBlockReasonCreate`'s "this app is
-  preventing shutdown" dialog) rendered by the OS, not by GaleFling — a Qt
-  mockup of it would misrepresent what Rin actually sees. Its content is a
-  single reason string GaleFling supplies (naming the pending post(s)); no
-  layout decision to make here.
+- **Windows shutdown-block dialog** ([SCHEDULING.md](SCHEDULING.md#shutdown-awareness-r4))
+  — **deferred out of Phase 1 entirely** (2026-08-22, Jas: "leave out the reboot
+  blocking, may revisit in the future"), not merely a native-chrome mockup exclusion.
+  Noted here for whoever revisits it: it would have been native Windows chrome
+  (`ShutdownBlockReasonCreate`'s "this app is preventing shutdown" dialog) rendered
+  by the OS, not by GaleFling, with a single reason string as its only content — no
+  layout decision to make even if it comes back.
 - **Native OS notification/toast for a failed scheduled post.** R4's actual
   failure channel is email plus the existing GUI failure state
   (`_on_api_post_finished` → `ResultsDialog`), not a new toast system — see
@@ -279,7 +294,7 @@ version lands, based on the codebase's existing per-dialog file convention
 | Scheduled Posts queue | `src/gui/scheduled_posts_dialog.py` | `main_window.py` (`_create_menu_bar`, new `Scheduled` menu) |
 | Missed-post reconciliation | `src/gui/reconciliation_dialog.py` | `main_window.py` (shown on startup, after `_check_first_run`) |
 | Start at login | — (extends `_create_advanced_tab`) | `settings_dialog.py`, `config_manager.py` (new setting), platform-specific autostart module (new — Windows `Run` key / Linux XDG autostart, per `SCHEDULING.md`) |
-| Tray context menu | `src/gui/tray_icon.py` (new — doesn't exist) | `main_window.py` (`closeEvent`, minimize-to-tray behavior), app entry point |
+| Tray context menu | `src/gui/tray_icon.py` (new — doesn't exist) | `main_window.py` (`closeEvent`, minimize-to-tray behavior; wires Check for Updates / About to the existing `_manual_update_check`/`_show_about` handlers rather than duplicating them), app entry point |
 
 The local queue itself (SQLite-backed, due-time poller) is core/back-end
 work, not GUI — out of scope for this document; see
@@ -323,6 +338,7 @@ undecided items stay pending and are asked about again next launch.
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | Added Check for Updates and About to the [Tray context menu](#5-tray-context-menu) (Jas) — reused from `main_window.py`'s existing `Help` menu handlers rather than duplicated, since they're the only reachable copies of those actions while minimized to tray. Regenerated `tray-context-menu.png`. Also updated [Deliberately not mocked](#deliberately-not-mocked) to reflect the Windows shutdown-block dialog being deferred out of Phase 1 entirely, not just excluded from mockups — see `SCHEDULING.md`'s 2026-08-22 changelog entry. |
 | 2026-08-22 | Resolved the reconciliation window's close-without-deciding open question (Jas): closing the window without deciding on every item leaves undecided items pending in the queue, and the window asks again on the next launch — nothing lost or auto-resolved by default. Updated the [Missed Scheduled Posts reconciliation](#3-missed-scheduled-posts-reconciliation) section and dropped the resolved item from Open Questions. |
 | 2026-08-21 | Corrected the Schedule dialog's button-color description: `tokens.SUCCESS` is `#5C7CFA`, a blue/indigo, not green, despite the token's name. The mockup image already rendered it correctly; only the prose was wrong. |
 | 2026-08-21 | Initial draft (Jas): five mockups (Schedule dialog, Scheduled Posts queue, Missed Scheduled Posts reconciliation, Start at login toggle, Tray context menu) covering R2 and R4's GUI surface, generated via a new `tools/screenshots/generate_scheduling_mockups.py`. Flagged a real rendering bug found while building the queue/reconciliation mockups: `results_dialog.py`'s badge `QFrame` styling corrupts descendant layout under the offscreen Qt platform, already visible in the checked-in `docs/images/results-dialog.png`; worked around here, not fixed (separate task). |

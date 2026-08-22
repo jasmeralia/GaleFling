@@ -279,53 +279,30 @@ consequential one: unlike sleep, a full shutdown doesn't self-heal on its own th
 autologon + session restore handles a Windows Update reboot (see
 [MOBILE_LAN_ACCESS.md#windows-session-constraints](MOBILE_LAN_ACCESS.md#windows-session-constraints));
 the machine stays off until Rin manually turns it back on, so a scheduled post's window can
-pass with nobody around to notice. This is routine behavior for her, not an edge case, so it
-needs a real mitigation rather than just startup reconciliation catching it after the fact.
+pass with nobody around to notice. This is routine behavior for her, not an edge case.
 
-Two pieces, both scoped to Windows (Rin's platform — see the Linux note below):
+**Composer-time warning.** The schedule picker shows a persistent reminder that
+scheduled posts require the computer to stay on and logged in, and that shutting down
+will prevent them from firing on time. Static, not conditional on anything — she should
+see this every time she schedules, not just when something is already pending.
 
-1. **Composer-time warning.** The schedule picker shows a persistent reminder that
-   scheduled posts require the computer to stay on and logged in, and that shutting down
-   will prevent them from firing on time. Static, not conditional on anything — she should
-   see this every time she schedules, not just when something is already pending.
-2. **Shutdown-block prompt while a post is pending.** While the local queue holds ≥1
-   pending item, the poster process (running as the tray/background entry point — see
-   [MOBILE_LAN_ACCESS.md#windows-session-constraints](MOBILE_LAN_ACCESS.md#windows-session-constraints))
-   handles `WM_QUERYENDSESSION` and calls `ShutdownBlockReasonCreate` with a reason string
-   naming the pending post(s), so Windows shows its native "this app is preventing
-   shutdown" dialog instead of GaleFling silently losing the window. Rin can proceed with
-   the shutdown from that dialog if she means to — this is a courtesy prompt, not a lock.
+**Shutdown-block prompt — deferred, 2026-08-22 (Jas): leave it out of Phase 1, may
+revisit later.** A Windows `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt —
+blocking shutdown while the local queue holds ≥1 pending item, with a reason string
+naming the pending post(s), so Windows shows its native "this app is preventing
+shutdown" dialog — was designed for this phase but isn't being built now. Startup
+reconciliation is the actual mitigation either way: nothing is silently lost, since a
+missed post is caught and surfaced next launch regardless of whether shutdown was
+blocked or not — the prompt would only have been a courtesy heads-up at shutdown time
+itself, not a safety net. Deferring it also moots the reboot-vs-shutdown detection
+question it would have needed (`WM_QUERYENDSESSION`'s `lParam` doesn't cleanly
+distinguish a restart from a full power-off, and `ENDSESSION_CRITICAL` shutdowns can't
+be blocked by any app regardless) — revisit alongside the prompt if it comes back.
 
-**Reboot vs. shutdown — open technical question, needs a Phase 0/1 spike before relying on
-it.** The ask is that a restart shouldn't trigger the same prompt, since autologon +
-session restore already means a restart self-heals. But `WM_QUERYENDSESSION`'s `lParam`
-does not cleanly expose "this is a restart" vs. "this is a full power-off" to a listening
-application — only `ENDSESSION_LOGOFF`, `ENDSESSION_CRITICAL`, and `ENDSESSION_CLOSEAPP`
-are documented flags, none of which distinguish reboot from shutdown. Two candidate
-approaches:
-
-   - **Query the System event log for Event ID 1074** (logged by the component that
-     requested the shutdown/restart, with a human-readable reason that does distinguish
-     them) shortly after the query fires. Fragile: needs Event Log read permissions, and
-     there's no guarantee the 1074 entry is written and readable before GaleFling has to
-     decide whether to return `FALSE` from the handler.
-   - **Don't try to distinguish upfront.** Show the block/prompt on every
-     `WM_QUERYENDSESSION` uniformly, and satisfy "reboots shouldn't need the same prompt"
-     through the already-planned autologon + startup reconciliation making a restart
-     self-heal quickly — so in practice a restart costs Rin, at worst, one extra dialog
-     dismissal rather than a real failure. This is the pragmatic default unless the spike
-     finds event-log detection reliable enough to trust.
-
-Either way, **`ENDSESSION_CRITICAL` shutdowns cannot be blocked by any app** — some
-Windows-Update-forced restarts fall into this category, and the OS proceeds regardless of
-what the handler returns. The block/prompt is a best-effort courtesy on top of startup
-reconciliation, which remains the actual safety net for anything that gets through
-unprompted.
-
-**Linux note:** this entire mechanism is Windows-specific because Rin's machine is
-Windows. Linux has an analogous inhibitor-lock mechanism (`systemd-logind`'s `Inhibit()`
-D-Bus call, or the `systemd-inhibit` CLI wrapper) if parity is ever wanted for R6, but it
-is not scoped now — nothing in this design requires it to ship.
+**Linux note:** the deferred mechanism above would have been Windows-specific
+regardless, since Rin's machine is Windows. Linux has an analogous inhibitor-lock
+mechanism (`systemd-logind`'s `Inhibit()` D-Bus call, or the `systemd-inhibit` CLI
+wrapper) if parity is ever wanted for R6, but neither is scoped now.
 
 ### Start at login
 
@@ -389,8 +366,9 @@ is tracked as one item rather than duplicated.
 
 Schedule queue, due-time poller, background/tray operation, the missed-post reconciliation
 dialog (post now / delete / edit — see
-[Not failing silently](#not-failing-silently-r4)), the Windows shutdown-block prompt (see
-[Shutdown awareness](#shutdown-awareness-r4)), and the
+[Not failing silently](#not-failing-silently-r4)), the composer-time shutdown warning (see
+[Shutdown awareness](#shutdown-awareness-r4) — the Windows shutdown-block prompt itself is
+deferred, not part of this phase), and the
 [start-at-login setting](#start-at-login) — see
 [docs/plans/SCHEDULING_UI_DESIGN.md](SCHEDULING_UI_DESIGN.md) for mockups of every screen
 this phase delivers. One uniform path for every schedulable platform,
@@ -411,7 +389,7 @@ block it.
 |------|------------|--------|------------|
 | Windows Update reboot strands the poster at the lock screen | Medium | High | Autologon + session restore; startup reconciliation posts anything missed during the outage, late and flagged |
 | ~~Desktop sleeps despite being powered~~ | — | — | **Resolved 2026-08-21 (Phase 0.1):** confirmed Rin does not have sleep configured. Not a real risk; nothing to mitigate. |
-| Rin manually shuts down the machine when not in active use, silently dropping pending scheduled posts | **High** — confirmed routine behavior, not an edge case | High | See [Shutdown awareness](#shutdown-awareness-r4): composer-time warning plus a `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt while a post is pending, backstopped by startup reconciliation for anything that still gets through |
+| Rin manually shuts down the machine when not in active use, silently dropping pending scheduled posts | **High** — confirmed routine behavior, not an edge case | High | See [Shutdown awareness](#shutdown-awareness-r4): composer-time warning, backstopped by startup reconciliation for anything that gets through. The `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt that would have added a shutdown-time courtesy heads-up is deferred, not part of this mitigation for now. |
 | Machine is on and Rin is logged in, but GaleFling itself isn't running (never launched since boot, or closed via the tray icon's Exit) | Medium | High | See [Start at login](#start-at-login): a real Settings toggle, offered proactively the first time she schedules a post while it's off |
 | Local-queue posting breaks when a platform's API changes | Medium | Medium | Same fragility as posting today; reconcile after the fact |
 | Cloudflare behavior changes on Fansly/OnlyFans | Medium | High | Unchanged from today; posting stays on her machine and IP. Not a scheduling risk per se — those platforms are paused — but retained here since a reactivation would restore their delegated-scheduling model. |
@@ -423,11 +401,9 @@ Windows drift, mDNS failure, and the mobile-specific risks live in
 
 ## Open questions
 
-1. Can GaleFling reliably distinguish a restart from a full shutdown at
-   `WM_QUERYENDSESSION` time, well enough to skip the block/prompt on restarts
-   specifically? See [Shutdown awareness](#shutdown-awareness-r4) — needs a spike before
-   Phase 1 build-out; the pragmatic fallback (prompt uniformly, lean on autologon +
-   startup reconciliation for restarts) doesn't need this answered first.
+The restart-vs-shutdown detection question this section used to list is moot for now —
+see [Shutdown awareness](#shutdown-awareness-r4): the shutdown-block prompt that would
+have needed it is deferred out of Phase 1. Revisit alongside the prompt if it comes back.
 
 The staleness-threshold question this section used to list is resolved — see
 [Not failing silently (R4)](#not-failing-silently-r4): no automatic threshold, a
@@ -458,6 +434,7 @@ settings are resolved above (Phase 0.1) — not configured, not a risk.
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | Deferred the Windows shutdown-block prompt out of Phase 1 (Jas): "leave out the reboot blocking, may revisit in the future." [Shutdown awareness](#shutdown-awareness-r4) keeps only the composer-time warning for now; the `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` mechanism and its reboot-vs-shutdown detection question are both dropped from scope rather than needing a spike. Startup reconciliation remains the actual safety net either way — the deferred prompt would only have added a shutdown-time courtesy heads-up, not a correctness guarantee. Updated Phase 1 scope, the risk register's shutdown-risk mitigation, and Open Questions accordingly. |
 | 2026-08-21 | Added `docs/plans/SCHEDULING_UI_DESIGN.md` (Jas): a full screen-by-screen design for Phase 1's GUI surface — Schedule dialog, Scheduled Posts queue, missed-post reconciliation window, the start-at-login toggle's placement in Settings → Advanced, and the (currently nonexistent) tray context menu — with mockups generated by a new `tools/screenshots/generate_scheduling_mockups.py`, styled with the app's real theme/tokens/icons rather than generic wireframes. Building the mockups surfaced a real rendering bug in `results_dialog.py`'s badge compositing (a QSS `padding`+`margin` combination on a styled `QFrame` corrupts descendant layout under the offscreen Qt platform); flagged in the new document and worked around there, left unfixed here as it's unrelated to scheduling. |
 | 2026-08-21 | Implemented SMTP credential import + notification email setup ahead of the rest of scheduling (Jas): `smtp` credential import section, `AuthManager` storage, a Settings → Advanced → Email Notifications section with a real test-email button, and a Setup Wizard field for the notification address. See `docs/EMAIL_NOTIFICATIONS.md`. Corrected two assumptions this section had made: storage is plain-file via `AuthManager` (matching every other credential), not `keyring`; and the notification address is a single field, not the "recipients" plural originally assumed. Sending an actual notification on a failed/blocked post is still Phase 1 work, pending the rest of scheduling. |
 | 2026-08-21 | Added a bulk "Post all" action to the missed-post reconciliation window (Jas), offered alongside the per-item Post now/Delete/Edit flow rather than replacing it — for when Rin just wants everything out without stepping through each one. No bulk Delete or Edit: deleting unreviewed risks losing something wanted, and bulk-editing doesn't make sense across differing captions. |

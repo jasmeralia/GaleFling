@@ -327,7 +327,20 @@ def test_qt_message_handler_logs_and_writes_fatal_marker(monkeypatch: pytest.Mon
     assert len(previous_calls) == 2
 
 
-def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize(
+    ('arguments', 'tray_available', 'expected_shown'),
+    [
+        (['galefling'], False, True),
+        (['galefling', '--autostart', '--start-minimized'], True, False),
+        (['galefling', '--autostart', '--start-minimized'], False, True),
+    ],
+)
+def test_main_bootstrap_flow(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: list[str],
+    tray_available: bool,
+    expected_shown: bool,
+):
     class DummyConfig:
         debug_mode = True
         webview_compatibility_mode = False
@@ -368,6 +381,11 @@ def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(main_module, 'ConfigManager', lambda: DummyConfig())
     monkeypatch.setattr(main_module, 'GaleFlingApplication', DummyApp)
+    monkeypatch.setattr(
+        main_module,
+        'QSystemTrayIcon',
+        types.SimpleNamespace(isSystemTrayAvailable=lambda: tray_available),
+    )
     monkeypatch.setattr(main_module, 'AuthManager', lambda: object())
     monkeypatch.setattr(main_module, 'MainWindow', lambda *_a, **_k: window)
     monkeypatch.setattr(
@@ -387,7 +405,7 @@ def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         main_module, 'apply_theme', lambda *_a: calls['theme_calls'].append(tuple(_a))
     )
-    monkeypatch.setattr(main_module.sys, 'argv', ['galefling'])
+    monkeypatch.setattr(main_module.sys, 'argv', arguments)
     monkeypatch.setattr(
         main_module.sys, 'exit', lambda code=0: (_ for _ in ()).throw(SystemExit(code))
     )
@@ -400,11 +418,24 @@ def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
     assert calls.get('installed') is True
     assert calls.get('abort_checked') is True
     assert calls.get('icon_applied') is True
-    assert window.shown is True
+    assert window.shown is expected_shown
     assert window.restored is True
     assert window.checked is True
     assert [len(call) for call in calls['theme_calls']] == [1, 2]
     assert calls['theme_calls'][1][1] is window
+
+
+@pytest.mark.parametrize(
+    ('arguments', 'tray_available', 'expected'),
+    [
+        (['galefling', '--autostart', '--start-minimized'], True, True),
+        (['galefling', '--autostart', '--start-minimized'], False, False),
+        (['galefling'], True, False),
+        (['galefling', '--start-minimized'], True, False),
+    ],
+)
+def test_should_start_minimized(arguments, tray_available, expected):
+    assert main_module._should_start_minimized(arguments, tray_available=tray_available) is expected
 
 
 def test_apply_webview_compatibility_flags_enabled(monkeypatch: pytest.MonkeyPatch):

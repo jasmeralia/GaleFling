@@ -240,7 +240,9 @@ post fires at all).
   the system tray**. The tray choice is the default. This setting applies only
   to a login/autostart launch; opening GaleFling manually continues to show the
   normal window. The selector stays configurable while autostart is off so Rin
-  can choose the behavior before enabling it.
+  can choose the behavior before enabling it. If Qt reports that the desktop
+  has no usable system tray, GaleFling ignores the minimized choice for that
+  launch and opens the main window so the running app cannot become unreachable.
 
 This is the durable, always-available control. The
 [Schedule dialog's inline checkbox](#1-schedule-dialog) is the proactive
@@ -340,6 +342,7 @@ work, not GUI — out of scope for this document; see
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | Hardened Linux automatic launches after desktop-environment review: a requested minimized launch now falls back to the visible main window whenever Qt reports no usable tray; AppImage autostart entries use the persistent `$APPIMAGE` file path rather than `sys.executable` inside the temporary mount; Desktop Entry `Exec` arguments use the freedesktop quoting rules; and source-checkout entries use an absolute `src/main.py` path rather than depending on the login session's working directory. Added regression coverage and validated a generated entry with `desktop-file-validate`. |
 | 2026-08-21 | Implemented the design: SQLite queue and owned media copies, 30×30 composer calendar/emoji controls, combined date/time editor with a separate tinted calendar popup button, queue management, missed-item reconciliation, due-time posting through the existing `PostWorker`, Windows/Linux autostart, configurable automatic-launch display mode, tray menu/count, in-app confirmation toast, system failure notification, and SMTP failure email. Added unit coverage and `docs/SCHEDULING.md`; updated this document's status and component mapping to the shipped files. |
 | 2026-08-22 | Replaced the hand-drawn calendar mockup glyph with the real `calendar_month.svg` from Google's official Material Symbols repository, covered by the icon set's existing Apache 2.0 license. The composer calendar button and `QDateTimeEdit` now reuse that asset. Restyled the date/time control's native trailing chevron as a distinct `ACCENT` calendar button so the combined control reads as a picker rather than a generic dropdown; regenerated `composer-schedule-icon.png` and `schedule-dialog.png`. |
 | 2026-08-22 | Added an automatic-launch display-mode setting (Jas): **Open the main window** or **Start minimized to the system tray**, defaulting to the tray. It applies only to login/autostart launches; manual launches still open normally. Updated the [Startup settings](#4-startup-settings-settings--advanced) design, component mapping, and `settings-start-at-login.png`. Also confirmed scheduled-post failures use both durable email and a transient system toast: one consolidated `QSystemTrayIcon.showMessage` notification per scheduled item, visible while minimized and opening the existing results UI when clicked. Updated [Deliberately not mocked](#deliberately-not-mocked) and the queue-state description. |

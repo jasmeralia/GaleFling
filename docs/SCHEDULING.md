@@ -34,7 +34,10 @@ GaleFling has to be running at the due time. Under **Settings → Advanced → S
 enable **Start GaleFling automatically when I log in** and choose whether that automatic
 launch opens the main window or starts minimized in the tray. This setting is specifically
 for recovering after a reboot; being away from a still-running computer does not prevent
-the scheduler from working. A manual launch always opens normally.
+the scheduler from working. A manual launch always opens normally. If the selected desktop
+does not provide a usable system tray, GaleFling opens its main window instead of starting
+invisibly. Linux AppImage launches store the persistent AppImage file path in the login
+entry rather than its temporary mounted executable path.
 
 If a pending item's due time passed while GaleFling was closed, startup reconciliation
 offers **Post Now**, **Edit**, or **Delete**, plus **Post All Remaining** when applicable.

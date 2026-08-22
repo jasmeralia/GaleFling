@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import importlib
 import os
-import shlex
 import sys
 from pathlib import Path
 
@@ -15,9 +14,13 @@ _AUTOSTART_FILENAME = 'galefling.desktop'
 
 def _launch_arguments(start_minimized: bool) -> list[str]:
     if getattr(sys, 'frozen', False):
-        arguments = [sys.executable]
+        # sys.executable points inside an AppImage's temporary mount. APPIMAGE is
+        # the persistent path to the AppImage file and remains valid after logout.
+        executable = os.environ.get('APPIMAGE') if sys.platform.startswith('linux') else None
+        arguments = [executable or sys.executable]
     else:
-        arguments = [sys.executable, '-m', 'src.main']
+        entrypoint = Path(__file__).resolve().parents[1] / 'main.py'
+        arguments = [sys.executable, str(entrypoint)]
     arguments.append('--autostart')
     if start_minimized:
         arguments.append('--start-minimized')
@@ -32,7 +35,9 @@ def _windows_command(start_minimized: bool) -> str:
 
 
 def _linux_desktop_entry(start_minimized: bool) -> str:
-    command = ' '.join(shlex.quote(argument) for argument in _launch_arguments(start_minimized))
+    command = ' '.join(
+        _desktop_exec_argument(argument) for argument in _launch_arguments(start_minimized)
+    )
     return (
         '[Desktop Entry]\n'
         'Type=Application\n'
@@ -41,6 +46,14 @@ def _linux_desktop_entry(start_minimized: bool) -> str:
         'Terminal=false\n'
         'X-GNOME-Autostart-enabled=true\n'
     )
+
+
+def _desktop_exec_argument(argument: str) -> str:
+    """Quote one Desktop Entry Exec argument using the freedesktop rules."""
+    escaped = argument.replace('%', '%%').replace('\\', '\\' * 4)
+    for character in ('"', '`', '$'):
+        escaped = escaped.replace(character, '\\' * 2 + character)
+    return f'"{escaped}"'
 
 
 def set_autostart(enabled: bool, *, start_minimized: bool) -> None:

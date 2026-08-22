@@ -354,6 +354,10 @@ first post is scheduled rather than buried as an opt-in nobody finds. Concretely
   still opens the main window normally. The Windows `Run` value / Startup shortcut and the
   Linux XDG autostart entry should include a dedicated startup argument (for example,
   `--start-minimized`) only for the tray choice, and be rewritten when this setting changes.
+  If Qt reports that no system tray is available, the automatic launch must show the main
+  window instead of leaving GaleFling running invisibly. For AppImage builds, the XDG entry
+  must use the persistent `$APPIMAGE` path, not `sys.executable` inside the temporary mount;
+  quote its `Exec` arguments using Desktop Entry rules rather than shell quoting.
 
 This belongs to **Phase 1** (the setting must exist before or alongside the first release
 that lets her schedule anything — it's not mobile-specific, so it doesn't wait for
@@ -438,6 +442,7 @@ Windows drift, mDNS failure, and the mobile-specific risks live in
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | Hardened Linux start-at-login behavior after reviewing KDE/GNOME integration: a requested minimized launch falls back to the visible main window if Qt reports no usable tray; AppImage entries use the persistent `$APPIMAGE` path rather than a temporary mounted executable; Desktop Entry `Exec` values use freedesktop quoting instead of shell quoting; and source-checkout entries use an absolute entry point. Added regression tests and validated the generated XDG entry with `desktop-file-validate`. |
 | 2026-08-21 | Implemented Phase 1: local SQLite queue with owned media copies, atomic due claims and interrupted-item recovery; composer calendar action and five-minute picker floor; pending queue edit/cancel UI; missed-item startup reconciliation; existing `PostWorker` execution path; Windows/Linux per-user autostart with window/tray launch choice; tray controls/live count; in-app confirmation toast; consolidated clickable system failure notification; and best-effort SMTP failure email. Added `docs/SCHEDULING.md`, unit tests, and architecture/user documentation. The deferred Windows shutdown-block prompt remains out of scope. |
 | 2026-08-22 | Added a configurable automatic-launch display mode (Jas): **Open the main window** or **Start minimized to the system tray**, defaulting to the tray. This affects only login/autostart launches; manual launches still show the normal window. Also expanded scheduled-post failure reporting to include a consolidated system toast through `QSystemTrayIcon.showMessage` alongside the already-required SMTP email, persistent GUI failure state, and logs. The toast is best-effort/transient, remains visible while the app is minimized, and opens the existing results UI when clicked. |
 | 2026-08-22 | Set the due-time picker's minimum lead time to 5 minutes (Jas), settling the open question `SCHEDULING_UI_DESIGN.md` had flagged. Not inherited from Facebook's own 10-minute API scheduler floor — GaleFling's poller enforces its own regardless of target platform. Added to [Local queue](#local-queue). |

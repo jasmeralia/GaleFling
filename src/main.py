@@ -21,7 +21,7 @@ disable_conditional_passkey_ui()
 
 from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
@@ -127,7 +127,16 @@ def main():
 
     # Create and show main window
     window = MainWindow(config, auth_manager)
-    start_minimized = '--autostart' in sys.argv and '--start-minimized' in sys.argv
+    requested_start_minimized = '--autostart' in sys.argv and '--start-minimized' in sys.argv
+    tray_available = QSystemTrayIcon.isSystemTrayAvailable() if requested_start_minimized else False
+    start_minimized = _should_start_minimized(
+        sys.argv,
+        tray_available=tray_available,
+    )
+    if requested_start_minimized and not start_minimized:
+        get_logger().warning(
+            'System tray unavailable; showing the main window instead of starting minimized'
+        )
     if not start_minimized:
         window.show()
     apply_theme(app, window)
@@ -153,6 +162,11 @@ def main():
             )
 
     sys.exit(app.exec())
+
+
+def _should_start_minimized(arguments: list[str], *, tray_available: bool) -> bool:
+    """Honor minimized autostart only when the window remains reachable from a tray."""
+    return '--autostart' in arguments and '--start-minimized' in arguments and tray_available
 
 
 def _apply_webview_compatibility_flags(enabled: bool) -> None:

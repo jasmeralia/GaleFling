@@ -13,7 +13,34 @@ def test_linux_autostart_entry_includes_minimized_flag(tmp_path, monkeypatch):
     autostart.set_autostart(True, start_minimized=True)
 
     entry = (tmp_path / 'autostart' / 'galefling.desktop').read_text()
-    assert "'/opt/Gale Fling/galefling' --autostart --start-minimized" in entry
+    assert 'Exec="/opt/Gale Fling/galefling" "--autostart" "--start-minimized"' in entry
+
+
+def test_linux_appimage_autostart_uses_persistent_image_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(autostart.sys, 'platform', 'linux')
+    monkeypatch.setattr(autostart.sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(autostart.sys, 'executable', '/tmp/.mount_Gale/usr/bin/galefling')
+    monkeypatch.setenv('APPIMAGE', '/home/rin/Applications/Gale Fling.AppImage')
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path))
+
+    autostart.set_autostart(True, start_minimized=True)
+
+    entry = (tmp_path / 'autostart' / 'galefling.desktop').read_text()
+    assert 'Exec="/home/rin/Applications/Gale Fling.AppImage"' in entry
+    assert '/tmp/.mount_Gale' not in entry
+
+
+def test_linux_source_autostart_uses_absolute_entrypoint(tmp_path, monkeypatch):
+    monkeypatch.setattr(autostart.sys, 'platform', 'linux')
+    monkeypatch.setattr(autostart.sys, 'frozen', False, raising=False)
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path))
+
+    autostart.set_autostart(True, start_minimized=False)
+
+    entry = (tmp_path / 'autostart' / 'galefling.desktop').read_text()
+    expected_entrypoint = Path(autostart.__file__).resolve().parents[1] / 'main.py'
+    assert f'"{expected_entrypoint}"' in entry
+    assert '"-m" "src.main"' not in entry
 
 
 def test_linux_autostart_regular_window_and_disable(tmp_path, monkeypatch):

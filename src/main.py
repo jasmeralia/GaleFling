@@ -127,7 +127,9 @@ def main():
 
     # Create and show main window
     window = MainWindow(config, auth_manager)
-    window.show()
+    start_minimized = '--autostart' in sys.argv and '--start-minimized' in sys.argv
+    if not start_minimized:
+        window.show()
     apply_theme(app, window)
 
     # Post-show actions

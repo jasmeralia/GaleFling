@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -28,10 +29,13 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.auth_manager import AuthManager
+from src.core.autostart import set_autostart
 from src.core.config_manager import ConfigManager
 from src.core.image_processor import is_animated_gif
 from src.core.log_uploader import LogUploader
 from src.core.logger import get_current_log_path, get_logger, reset_log_file
+from src.core.scheduled_post_queue import ScheduledPost, ScheduledPostQueue
+from src.core.smtp_utils import send_email
 from src.core.update_checker import check_for_updates
 from src.core.video_processor import (
     convert_image_to_video,
@@ -44,8 +48,11 @@ from src.gui.log_submit_dialog import LogSubmitDialog
 from src.gui.platform_selector import PlatformSelector
 from src.gui.post_composer import PostComposer
 from src.gui.results_dialog import ResultsDialog
+from src.gui.schedule_dialog import MissedPostDialog, ScheduleDialog, ScheduledPostsDialog
 from src.gui.settings_dialog import SettingsDialog
 from src.gui.setup_wizard import SetupWizard, WebViewLoginDialog
+from src.gui.toast import show_toast
+from src.gui.tray_icon import TrayIcon
 from src.gui.update_dialog import UpdateAvailableDialog
 from src.gui.webview_panel import WebViewPanel
 from src.platforms.base_webview import BaseWebViewPlatform
@@ -95,9 +102,47 @@ class PostWorker(QThread):
             group = self._platform_groups.get(name, name)
             raw_paths = self._processed_media.get(group) or []
             media_paths = [path for path in raw_paths if path and path.exists()] or None
-            result = platform.post(self._text, media_paths)
+            try:
+                result = platform.post(self._text, media_paths)
+            except Exception as exc:  # noqa: BLE001
+                get_logger().exception(
+                    'Platform post raised an exception',
+                    extra={'account_id': name, 'error': str(exc)},
+                )
+                result = PostResult(
+                    success=False,
+                    platform=platform.get_platform_name(),
+                    account_id=name,
+                    error_code='POST-UNEXPECTED',
+                    error_message=str(exc),
+                )
             results.append(result)
         self.finished.emit(results)
+
+
+class EmailNotificationWorker(QThread):
+    """Send a best-effort failure email without blocking the GUI."""
+
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, credentials: dict, recipient: str, subject: str, body: str):
+        super().__init__()
+        self._credentials = credentials
+        self._recipient = recipient
+        self._subject = subject
+        self._body = body
+
+    def run(self):
+        ok, message = send_email(
+            host=self._credentials['host'],
+            port=int(self._credentials['port']),
+            username=self._credentials['username'],
+            app_password=self._credentials['app_password'],
+            recipient=self._recipient,
+            subject=self._subject,
+            body=self._body,
+        )
+        self.finished.emit(ok, message)
 
 
 class UpdateDownloadWorker(QThread):
@@ -400,7 +445,12 @@ def _format_about_body(ffmpeg_version: str) -> str:
 class MainWindow(QMainWindow):
     """Main application window with composer, platform selection, and posting."""
 
-    def __init__(self, config: ConfigManager, auth_manager: AuthManager):
+    def __init__(
+        self,
+        config: ConfigManager,
+        auth_manager: AuthManager,
+        scheduled_queue: ScheduledPostQueue | None = None,
+    ):
         super().__init__()
         self._config = config
         self._auth_manager = auth_manager
@@ -413,6 +463,19 @@ class MainWindow(QMainWindow):
         self._pending_webview_platforms: list = []
         self._pending_text: str = ''
         self._pending_media_paths: list[Path] = []
+        self._scheduled_queue = scheduled_queue or ScheduledPostQueue()
+        recovered = self._scheduled_queue.reset_in_flight()
+        if recovered:
+            get_logger().warning(
+                'Recovered interrupted scheduled posts', extra={'count': recovered}
+            )
+        self._scheduled_worker: PostWorker | None = None
+        self._active_scheduled_post: ScheduledPost | None = None
+        self._editing_scheduled_post: ScheduledPost | None = None
+        self._deferred_missed_ids: set[str] = set()
+        self._email_workers: set[EmailNotificationWorker] = set()
+        self._last_scheduled_failure_results: list[PostResult] = []
+        self._allow_close = False
         self._build_platforms()
 
         self._init_ui()
@@ -420,6 +483,15 @@ class MainWindow(QMainWindow):
         self._setup_draft_timer()
         self._check_first_run()
         self._refresh_platform_state()
+        self._setup_tray()
+        self._scheduler_timer = QTimer(self)
+        self._scheduler_timer.setInterval(30_000)
+        self._scheduler_timer.timeout.connect(self._poll_scheduled_posts)
+        if self._auth_manager.get_accounts():
+            self._scheduler_bootstrap_timer = QTimer(self)
+            self._scheduler_bootstrap_timer.setSingleShot(True)
+            self._scheduler_bootstrap_timer.timeout.connect(self._start_scheduling)
+            self._scheduler_bootstrap_timer.start(250)
 
     # ── Platform factory ───────────────────────────────────────────
 
@@ -493,6 +565,7 @@ class MainWindow(QMainWindow):
         )
         self._composer.media_changed.connect(self._on_media_changed)
         self._composer.preview_requested.connect(self._on_preview_requested)
+        self._composer.schedule_requested.connect(self._schedule_current_post)
         self._composer.snapchat_landscape_mode_changed.connect(
             self._on_snapchat_landscape_mode_changed
         )
@@ -573,8 +646,15 @@ class MainWindow(QMainWindow):
         # File menu
         file_menu = menu_bar.addMenu('File')
         exit_action = QAction('Exit', self)
-        exit_action.triggered.connect(log_and_call('File > Exit', self.close))
+        exit_action.triggered.connect(log_and_call('File > Exit', self._exit_application))
         file_menu.addAction(exit_action)
+
+        scheduled_menu = menu_bar.addMenu('Scheduled')
+        view_scheduled = QAction('View Scheduled Posts...', self)
+        view_scheduled.triggered.connect(
+            log_and_call('Scheduled > View Scheduled Posts...', self._show_scheduled_posts)
+        )
+        scheduled_menu.addAction(view_scheduled)
 
         # Settings menu
         settings_menu = menu_bar.addMenu('Settings')
@@ -643,6 +723,34 @@ class MainWindow(QMainWindow):
             'height': rect.height(),
         }
 
+    def _setup_tray(self) -> None:
+        self._tray = TrayIcon(
+            self,
+            show_window=self._show_main_window,
+            show_scheduled=self._show_scheduled_posts,
+            check_updates=self._manual_update_check,
+            show_about=self._show_about,
+            exit_app=self._exit_application,
+        )
+        self._tray.show()
+        self._update_scheduled_count()
+
+    def _show_main_window(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _exit_application(self) -> None:
+        self._allow_close = True
+        self.close()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+
+    def _update_scheduled_count(self) -> None:
+        if hasattr(self, '_tray'):
+            self._tray.set_pending_count(len(self._scheduled_queue.list_pending()))
+
     def _setup_draft_timer(self):
         if self._config.auto_save_draft:
             self._draft_timer = QTimer(self)
@@ -686,6 +794,7 @@ class MainWindow(QMainWindow):
         get_logger().info('Setup wizard closed')
         self._setup_wizard = None
         self._refresh_platform_state()
+        self._start_scheduling()
 
     def _on_media_changed(self, media_paths):
         media_paths = list(media_paths)[:MAX_MEDIA_ATTACHMENTS]
@@ -1302,6 +1411,310 @@ class MainWindow(QMainWindow):
             return platform.get_platform_name()
         return account_id
 
+    def _schedule_current_post(self) -> None:
+        get_logger().info('User clicked Schedule Post')
+        text = self._composer.get_text()
+        if not text.strip():
+            self._show_message_box(
+                'Empty Post',
+                'Please enter some text before scheduling.',
+                QMessageBox.Icon.Warning,
+            )
+            return
+        selected = self._get_selected_enabled_platforms()
+        if not selected:
+            self._show_message_box(
+                'No Platforms',
+                'Please select at least one platform.',
+                QMessageBox.Icon.Warning,
+            )
+            return
+        schedulable_groups = {
+            'twitter',
+            'bluesky',
+            'meta_instagram',
+            'meta_threads',
+            'meta_facebook_page',
+        }
+        unsupported = [
+            account_id
+            for account_id in selected
+            if self._get_platform_group(account_id) not in schedulable_groups
+        ]
+        if unsupported:
+            names = ', '.join(self._get_platform_display_name(item) for item in unsupported)
+            self._show_message_box(
+                'Cannot Schedule Selected Platforms',
+                f'These platforms require you to be present and cannot be scheduled: {names}.',
+                QMessageBox.Icon.Warning,
+            )
+            return
+        for name in selected:
+            platform = self._platforms.get(name)
+            if platform:
+                specs = platform.get_specs()
+                if specs.max_text_length is not None and len(text) > specs.max_text_length:
+                    self._show_message_box(
+                        'Text Too Long',
+                        f'Your post is {len(text)} characters, but '
+                        f'{specs.platform_name} allows {specs.max_text_length}.',
+                        QMessageBox.Icon.Warning,
+                    )
+                    return
+
+        media_paths = self._composer.get_media_paths()
+        if media_paths:
+            missing = self._get_missing_processed_platforms(selected, len(media_paths))
+            if missing:
+                self._show_media_preview(media_paths, selected)
+                missing = self._get_missing_processed_platforms(selected, len(media_paths))
+                if missing:
+                    self._show_message_box(
+                        'Media Error',
+                        'Media could not be processed for all selected platforms.',
+                        QMessageBox.Icon.Warning,
+                    )
+                    return
+
+        editing = self._editing_scheduled_post
+        dialog = ScheduleDialog(
+            text=text,
+            account_names=[self._get_platform_display_name(name) for name in selected],
+            account_keys=[self._get_platform_group(name) for name in selected],
+            media_count=len(media_paths),
+            autostart_enabled=self._config.autostart_enabled,
+            due_at=editing.due_at if editing else None,
+            parent=self,
+        )
+        self._apply_dialog_theme(dialog)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        if dialog.enable_autostart:
+            try:
+                set_autostart(
+                    True,
+                    start_minimized=self._config.autostart_launch_mode == 'tray',
+                )
+            except OSError as exc:
+                self._show_message_box(
+                    'Start at Login',
+                    f'GaleFling could not enable start at login:\n{exc}',
+                    QMessageBox.Icon.Warning,
+                )
+                return
+            self._config.autostart_enabled = True
+
+        if editing:
+            post = self._scheduled_queue.update(
+                editing.id,
+                text=text,
+                account_ids=selected,
+                media_paths=media_paths,
+                processed_media=self._processed_media,
+                due_at=dialog.due_at,
+            )
+            self._deferred_missed_ids.discard(editing.id)
+            self._editing_scheduled_post = None
+            message = f'Post rescheduled for {post.due_at.astimezone():%b %d, %Y at %I:%M %p}.'
+        else:
+            post = self._scheduled_queue.add(
+                text=text,
+                account_ids=selected,
+                media_paths=media_paths,
+                processed_media=self._processed_media,
+                due_at=dialog.due_at,
+            )
+            message = f'Post scheduled for {post.due_at.astimezone():%b %d, %Y at %I:%M %p}.'
+        get_logger().info(
+            'Scheduled post saved',
+            extra={'scheduled_post_id': post.id, 'due_at': post.due_at.isoformat()},
+        )
+        self._clear_composer_after_success()
+        self._update_scheduled_count()
+        show_toast(self, message)
+
+    def _clear_composer_after_success(self) -> None:
+        self._clear_draft()
+        self._composer.clear()
+        self._cleanup_processed_media()
+        self._clear_format_restriction()
+        self._clear_count_restriction()
+
+    def _show_scheduled_posts(self) -> None:
+        dialog = ScheduledPostsDialog(
+            self._scheduled_queue,
+            self._get_platform_display_name,
+            self,
+            platform_key=self._get_platform_group,
+        )
+        self._apply_dialog_theme(dialog)
+
+        def edit(post: ScheduledPost) -> None:
+            dialog.accept()
+            self._load_scheduled_post_for_edit(post)
+
+        def create_new() -> None:
+            dialog.accept()
+            self._show_main_window()
+            if self._composer.get_text().strip():
+                self._schedule_current_post()
+
+        dialog.edit_requested.connect(edit)
+        dialog.new_requested.connect(create_new)
+        dialog.queue_changed.connect(self._update_scheduled_count)
+        dialog.exec()
+
+    def _load_scheduled_post_for_edit(self, post: ScheduledPost) -> None:
+        self._show_main_window()
+        self._editing_scheduled_post = post
+        self._composer.set_text(post.text)
+        self._composer.set_media_paths(list(post.media_paths))
+        self._processed_media = {
+            group: list(paths) for group, paths in post.processed_media.items()
+        }
+        self._platform_selector.set_selected(list(post.account_ids))
+        self._status_bar.showMessage('Editing scheduled post — use the calendar to reschedule it')
+
+    def _start_scheduling(self) -> None:
+        if getattr(self, '_scheduling_started', False):
+            return
+        self._scheduling_started = True
+        missed = self._scheduled_queue.list_missed()
+        for index, post in enumerate(missed, start=1):
+            dialog = MissedPostDialog(
+                post,
+                index=index,
+                total=len(missed),
+                display_name=self._get_platform_display_name,
+                platform_key=self._get_platform_group,
+                parent=self,
+            )
+            self._apply_dialog_theme(dialog)
+            dialog.exec()
+            if dialog.action == 'post_all':
+                break
+            if dialog.action == 'post':
+                continue
+            if dialog.action == 'delete':
+                self._scheduled_queue.delete(post.id)
+                continue
+            if dialog.action == 'edit':
+                self._deferred_missed_ids.add(post.id)
+                self._deferred_missed_ids.update(item.id for item in missed[index:])
+                self._load_scheduled_post_for_edit(post)
+                break
+            self._deferred_missed_ids.update(item.id for item in missed[index - 1 :])
+            break
+        self._update_scheduled_count()
+        self._scheduler_timer.start()
+        self._poll_scheduled_posts()
+
+    def _poll_scheduled_posts(self) -> None:
+        if self._scheduled_worker is not None and self._scheduled_worker.isRunning():
+            return
+        post = self._scheduled_queue.claim_due(exclude_ids=self._deferred_missed_ids)
+        if post is None:
+            return
+        self._active_scheduled_post = post
+        platforms = {}
+        preflight_results: list[PostResult] = []
+        for account_id in post.account_ids:
+            platform = self._platforms.get(account_id)
+            if platform is None:
+                preflight_results.append(
+                    PostResult(
+                        success=False,
+                        platform=self._get_platform_display_name(account_id),
+                        account_id=account_id,
+                        error_code='SCHEDULED-ACCOUNT-MISSING',
+                        error_message='This account is no longer configured.',
+                    )
+                )
+            else:
+                platforms[account_id] = platform
+        self._scheduled_preflight_results = preflight_results
+        if not platforms:
+            self._on_scheduled_post_finished([])
+            return
+        processed: dict[str, list[Path | None]] = {
+            group: list(paths) for group, paths in post.processed_media.items()
+        }
+        self._scheduled_worker = PostWorker(
+            platforms,
+            post.text,
+            processed,
+            self._platform_groups,
+        )
+        self._scheduled_worker.finished.connect(self._on_scheduled_post_finished)
+        self._scheduled_worker.start()
+
+    def _on_scheduled_post_finished(self, worker_results: list[PostResult]) -> None:
+        post = self._active_scheduled_post
+        if post is None:
+            return
+        results = self._scheduled_preflight_results + worker_results
+        saved = self._scheduled_queue.mark_results(post.id, [asdict(result) for result in results])
+        self._active_scheduled_post = None
+        self._scheduled_worker = None
+        self._update_scheduled_count()
+        if saved.state == 'failed':
+            self._handle_scheduled_failure(saved, results)
+        else:
+            get_logger().info('Scheduled post published', extra={'scheduled_post_id': saved.id})
+        QTimer.singleShot(0, self._poll_scheduled_posts)
+
+    def _handle_scheduled_failure(self, post: ScheduledPost, results: list[PostResult]) -> None:
+        failed = [result for result in results if not result.success]
+        failed_names = [
+            result.platform or self._get_platform_display_name(result.account_id or '')
+            for result in failed
+        ]
+        get_logger().error(
+            'Scheduled post failed',
+            extra={'scheduled_post_id': post.id, 'accounts': failed_names},
+        )
+        self._last_scheduled_failure_results = results
+        self._tray.show_failure(failed_names, self._show_last_scheduled_failure)
+        credentials = self._auth_manager.get_smtp_credentials()
+        recipient = self._config.notification_email
+        if not credentials or not recipient:
+            get_logger().warning(
+                'Scheduled failure email not configured',
+                extra={'scheduled_post_id': post.id},
+            )
+            return
+        details = '\n'.join(
+            f'- {name}: {result.error_message or result.error_code or "Unknown error"}'
+            for name, result in zip(failed_names, failed, strict=True)
+        )
+        worker = EmailNotificationWorker(
+            credentials,
+            recipient,
+            'GaleFling scheduled post failed',
+            'A scheduled post could not be published.\n\n'
+            f'Scheduled for: {post.due_at.astimezone():%b %d, %Y at %I:%M %p}\n'
+            f'Failed accounts:\n{details}\n\nOpen GaleFling for complete results.',
+        )
+        self._email_workers.add(worker)
+
+        def finished(ok: bool, message: str, item=worker) -> None:
+            self._email_workers.discard(item)
+            if not ok:
+                get_logger().error(
+                    'Scheduled failure email could not be sent', extra={'error': message}
+                )
+
+        worker.finished.connect(finished)
+        worker.start()
+
+    def _show_last_scheduled_failure(self) -> None:
+        if not self._last_scheduled_failure_results:
+            return
+        self._show_main_window()
+        dialog = ResultsDialog(self._last_scheduled_failure_results, self)
+        self._apply_dialog_theme(dialog)
+        dialog.exec()
+
     def _do_post(self):
         get_logger().info('User clicked Post Now')
         text = self._composer.get_text()
@@ -1433,11 +1846,7 @@ class MainWindow(QMainWindow):
 
         # Clear draft on full success
         if all(r.success for r in all_results):
-            self._clear_draft()
-            self._composer.clear()
-            self._cleanup_processed_media()
-            self._clear_format_restriction()
-            self._clear_count_restriction()
+            self._clear_composer_after_success()
 
     def _open_settings(self):
         dialog = SettingsDialog(self._config, self._auth_manager, self)
@@ -1607,6 +2016,9 @@ class MainWindow(QMainWindow):
 
         # Clear all credentials and reset config
         self._auth_manager.clear_all_credentials()
+        if self._config.autostart_enabled:
+            with contextlib.suppress(OSError):
+                set_autostart(False, start_minimized=False)
         self._config.reset_to_defaults()
 
         get_logger().info('Configuration reset to defaults')
@@ -1935,4 +2347,17 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):  # noqa: N802
         self._save_geometry()
         self._auto_save_draft()
+        if (
+            not self._allow_close
+            and hasattr(self, '_tray')
+            and self._tray.isVisible()
+            and self._tray.isSystemTrayAvailable()
+        ):
+            event.ignore()
+            self.hide()
+            self._tray.showMessage(
+                APP_NAME,
+                'GaleFling is still running in the system tray.',
+            )
+            return
         event.accept()

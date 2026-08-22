@@ -40,6 +40,23 @@ On first launch, the app walks you through adding credentials for each platform.
 - Select the platforms you want to post to.
 - Click **Post Now** to publish to all enabled platforms.
 
+### Scheduling
+
+- Click the **calendar icon** beside the emoji picker to schedule the current post at
+  least five minutes in the future. Scheduling is available for Twitter, Bluesky,
+  Instagram, Threads, and Facebook Page accounts.
+- Open **Scheduled → View Scheduled Posts…** to review, edit, or cancel pending posts.
+- GaleFling must be running when a post becomes due. **Settings → Advanced → Startup**
+  can start it automatically after login, either in the main window or minimized to
+  the system tray. Manual launches always open the main window.
+- If the computer was off when a post became due, GaleFling asks on the next launch
+  whether to post, edit, or delete it. Closing that prompt leaves it pending for the
+  next launch.
+- A failed scheduled post produces a system notification and, when SMTP is configured,
+  an email. Clicking the notification opens the normal per-platform results details.
+
+See [Scheduling](docs/SCHEDULING.md) for the complete workflow and failure behavior.
+
 ### Media Support
 
 GaleFling handles images and videos with automatic per-platform processing:

@@ -1,15 +1,9 @@
 # Email Notifications (SMTP)
 
-GaleFling can send email notifications over SMTP. As of this writing the only
-consumer of this is the **scheduling feature described in
-[docs/plans/SCHEDULING.md](plans/SCHEDULING.md)**, which is not implemented
-yet — see that document's "Not failing silently" and "Shutdown awareness"
-sections for what the notifications will eventually cover (a scheduled post
-failing to send, or a shutdown being blocked while one is pending).
-
-This document covers what's implemented today: importing the SMTP
-credentials and setting a notification email address, ahead of the rest of
-scheduling, so both are already in place once it ships.
+GaleFling sends email notifications over SMTP when a scheduled post fails.
+Each failed scheduled item produces one email naming its failed platform
+account(s), in addition to a system notification that opens the normal results
+dialog. See [Scheduling](SCHEDULING.md#failures) for the complete failure flow.
 
 ## Two separate pieces
 
@@ -96,9 +90,8 @@ If the SMTP account is a Google Workspace / Gmail mailbox:
 
 - `docs/CREDENTIALS.md` — the full credential import JSON schema (all sections, not
   just `smtp`), partial-import behavior, and versioning
-- `src/core/smtp_utils.py` — `check_smtp_connection()`, the test-email helper
+- `src/core/smtp_utils.py` — `check_smtp_connection()` and the shared email sender
 - `src/core/auth_manager.py` — `get_smtp_credentials()` / `save_smtp_credentials()`
 - `src/core/credential_importer.py` — the `smtp` import section
 - `docs/plans/SCHEDULING.md#email-configuration` — the design rationale (SMTP
-  over SES, dedicated mailbox, per-host App Passwords) and what the
-  notifications will actually report once scheduling ships
+  over SES, dedicated mailbox, per-host App Passwords)

@@ -12,6 +12,7 @@ from PyQt6.QtGui import QColor, QDesktopServices, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -31,6 +32,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.auth_manager import AuthManager
+from src.core.autostart import set_autostart
 from src.core.aws_utils import check_s3_connection
 from src.core.config_manager import ConfigManager
 from src.core.credential_importer import ImportResult, import_credentials
@@ -919,6 +921,33 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
+        startup_group = QGroupBox('Startup')
+        startup_layout = QFormLayout(startup_group)
+        self._autostart_cb = QCheckBox('Start GaleFling automatically when I log in')
+        self._autostart_cb.setChecked(getattr(self._config, 'autostart_enabled', False))
+        startup_layout.addRow(self._autostart_cb)
+        startup_hint = QLabel(
+            '<i>Keeps scheduled posts firing after a reboot — GaleFling launches '
+            'automatically instead of waiting for you to reopen it.</i>'
+        )
+        startup_hint.setWordWrap(True)
+        startup_layout.addRow(startup_hint)
+        self._autostart_mode_combo = QComboBox()
+        self._autostart_mode_combo.addItem('Open the main window', 'window')
+        self._autostart_mode_combo.addItem('Start minimized to the system tray', 'tray')
+        mode_index = self._autostart_mode_combo.findData(
+            getattr(self._config, 'autostart_launch_mode', 'tray')
+        )
+        self._autostart_mode_combo.setCurrentIndex(max(0, mode_index))
+        startup_layout.addRow('When started at login:', self._autostart_mode_combo)
+        mode_hint = QLabel(
+            '<i>This only affects automatic launches after login. Opening GaleFling '
+            'yourself always displays the main window.</i>'
+        )
+        mode_hint.setWordWrap(True)
+        startup_layout.addRow(mode_hint)
+        layout.addWidget(startup_group)
+
         # WebView compatibility
         webview_group = QGroupBox('WebView')
         webview_layout = QVBoxLayout(webview_group)
@@ -1053,8 +1082,8 @@ class SettingsDialog(QDialog):
         smtp_layout = QFormLayout(smtp_group)
 
         smtp_hint = QLabel(
-            '<i>Used to email a notification if a scheduled post ever fails to send '
-            '(scheduling is not available yet). SMTP credentials arrive via credential '
+            '<i>Used to email a notification if a scheduled post fails to send. '
+            'SMTP credentials arrive via credential '
             'import above; the notification address is yours to set.</i>'
         )
         smtp_hint.setWordWrap(True)
@@ -1111,6 +1140,19 @@ class SettingsDialog(QDialog):
         self._config.debug_mode = self._debug_cb.isChecked()
         self._config.set('log_upload_enabled', self._log_upload_cb.isChecked())
         self._config.set('log_upload_endpoint', self._endpoint_edit.text())
+        autostart_enabled = self._autostart_cb.isChecked()
+        autostart_mode = self._autostart_mode_combo.currentData()
+        try:
+            set_autostart(autostart_enabled, start_minimized=autostart_mode == 'tray')
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                'Start at Login',
+                f'GaleFling could not update the start-at-login setting:\n{exc}',
+            )
+            return
+        self._config.autostart_enabled = autostart_enabled
+        self._config.autostart_launch_mode = str(autostart_mode)
 
         # Remote debugging
         remote_debug_changed = (

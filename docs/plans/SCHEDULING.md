@@ -2,7 +2,7 @@
 
 ## Status
 
-**Draft — Phase 0 resolved, Phase 1 not started.** Split out of the combined
+**Implemented — Phase 1 shipped on the scheduling feature branch.** Split out of the combined
 `SCHEDULING_AND_MULTI_CLIENT.md` plan on 2026-08-21 (Jas) — scheduling and mobile/LAN
 access are handled in entirely different phases and no longer need to share one
 document. See [docs/plans/MOBILE_LAN_ACCESS.md](MOBILE_LAN_ACCESS.md) for the mobile
@@ -22,6 +22,9 @@ composer once, set a future time) — a different mechanism from the API-schedul
 question this document resolves, and unaffected by the decision below.
 
 Canonical repo path: `docs/plans/SCHEDULING.md`
+
+The user-facing guide is [docs/SCHEDULING.md](../SCHEDULING.md). This document remains
+the rationale and requirements record.
 
 ---
 
@@ -379,7 +382,7 @@ are mobile/LAN-access items — see
 matters here, since the scheduler needs the desktop actually awake to fire on time, but it
 is tracked as one item rather than duplicated.
 
-## Phase 1 — Scheduler in the desktop app (~2–3 weeks)
+## Phase 1 — Scheduler in the desktop app — implemented
 
 Schedule queue, due-time poller, background/tray operation, the missed-post reconciliation
 dialog (post now / delete / edit — see
@@ -435,6 +438,7 @@ Windows drift, mDNS failure, and the mobile-specific risks live in
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | Implemented Phase 1: local SQLite queue with owned media copies, atomic due claims and interrupted-item recovery; composer calendar action and five-minute picker floor; pending queue edit/cancel UI; missed-item startup reconciliation; existing `PostWorker` execution path; Windows/Linux per-user autostart with window/tray launch choice; tray controls/live count; in-app confirmation toast; consolidated clickable system failure notification; and best-effort SMTP failure email. Added `docs/SCHEDULING.md`, unit tests, and architecture/user documentation. The deferred Windows shutdown-block prompt remains out of scope. |
 | 2026-08-22 | Added a configurable automatic-launch display mode (Jas): **Open the main window** or **Start minimized to the system tray**, defaulting to the tray. This affects only login/autostart launches; manual launches still show the normal window. Also expanded scheduled-post failure reporting to include a consolidated system toast through `QSystemTrayIcon.showMessage` alongside the already-required SMTP email, persistent GUI failure state, and logs. The toast is best-effort/transient, remains visible while the app is minimized, and opens the existing results UI when clicked. |
 | 2026-08-22 | Set the due-time picker's minimum lead time to 5 minutes (Jas), settling the open question `SCHEDULING_UI_DESIGN.md` had flagged. Not inherited from Facebook's own 10-minute API scheduler floor — GaleFling's poller enforces its own regardless of target platform. Added to [Local queue](#local-queue). |
 | 2026-08-22 | Deferred the Windows shutdown-block prompt out of Phase 1 (Jas): "leave out the reboot blocking, may revisit in the future." [Shutdown awareness](#shutdown-awareness-r4) keeps only the composer-time warning for now; the `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` mechanism and its reboot-vs-shutdown detection question are both dropped from scope rather than needing a spike. Startup reconciliation remains the actual safety net either way — the deferred prompt would only have added a shutdown-time courtesy heads-up, not a correctness guarantee. Updated Phase 1 scope and the risk register's shutdown-risk mitigation; the now-empty Open questions section was subsequently removed. |

@@ -2,7 +2,7 @@
 
 ## Status
 
-**Draft — design only, no implementation yet.** Companion to
+**Implemented.** Companion to
 [docs/plans/SCHEDULING.md](SCHEDULING.md), which owns the scheduling-mechanism
 decisions (local queue for every schedulable platform, R2/R4, email notifications,
 shutdown awareness, start-at-login). This document owns the screens: what Rin
@@ -16,18 +16,16 @@ Canonical repo path: `docs/plans/SCHEDULING_UI_DESIGN.md`
 
 ## How these mockups were made
 
-Scheduling is Phase 1 work — nothing here exists in code yet, so these are not
-screenshots of real behavior. They're built by
+These design mockups predate the implementation, so they remain deterministic
+fake-data renders rather than screenshots of a live user queue. They're built by
 `tools/screenshots/generate_scheduling_mockups.py`, a standalone script that
-constructs the screens below out of plain Qt widgets (not production classes,
-since none exist) but styled with the app's real theme and tokens
+constructs the screens below with the app's real theme and tokens
 (`src/utils/theme.py`, `src/utils/tokens.py`) and real platform/UI icon assets
 (`src/resources/icons/`), the same way
 `tools/screenshots/generate_readme_screenshots.py` renders the README's
 screenshots — offscreen, fake data only, isolated scratch `HOME`. Two
 mockups go a step further and inject their new control into a real, running
-production widget instead of a from-scratch replica, so they sit next to
-controls that exist today: the [Schedule dialog](#1-schedule-dialog)'s
+production widget instead of a from-scratch replica: the [Schedule dialog](#1-schedule-dialog)'s
 composer calendar icon (real `PostComposer`) and
 [Startup settings](#4-startup-settings-settings--advanced) (real
 `SettingsDialog`).
@@ -48,7 +46,7 @@ Re-run after this document's design changes:
 | 2 | [Scheduled Posts queue](#2-scheduled-posts-queue) | R2 (see/edit/cancel pending) | New — opened from a new menu bar entry |
 | 3 | [Missed Scheduled Posts reconciliation](#3-missed-scheduled-posts-reconciliation) | R4 (startup reconciliation) | New — modal, shown on launch when applicable |
 | 4 | [Startup settings](#4-startup-settings-settings--advanced) | R4 (start-at-login mitigation) | Extends existing `SettingsDialog` → Advanced |
-| 5 | [Tray context menu](#5-tray-context-menu) | R4 (background/tray operation) | New — requires tray support, which doesn't exist yet either |
+| 5 | [Tray context menu](#5-tray-context-menu) | R4 (background/tray operation) | Implemented in `src/gui/tray_icon.py` |
 
 Not mocked, and explained instead of drawn — see
 [Deliberately not mocked](#deliberately-not-mocked).
@@ -67,18 +65,15 @@ button, in the same `emoji_row` (`post_composer.py:305-313`) — a
 (`'Schedule this post for a later time'`, next to `EmojiPickerButton`'s
 `'Insert emoji'`). Clicking it opens the dialog below.
 
-**Both icons enlarged to 30×30 (Jas).** Up from `EmojiPickerButton`'s
-current 20×20 (`emoji_picker.py`) — a real change to the existing emoji
-button, not just a size picked for the new calendar icon, so both read at
-the same, slightly more prominent scale. Implementation should bump
-`EmojiPickerButton.__init__`'s `setIconSize(QSize(20, 20))` alongside
-adding the calendar button, not leave the two mismatched.
+**Both icons are 30×30 (Jas).** The implementation enlarges the existing
+emoji button alongside adding the calendar button, so both read at the same,
+slightly more prominent scale.
 
 **Icon asset:** `src/resources/icons/ui/calendar_month.svg`, sourced from
 Google's official Material Symbols repository under the icon set's existing
-Apache 2.0 license. The composer button and date/time picker's trailing
-calendar button reuse this one asset; `_calendar_icon` only applies the
-theme-appropriate tint.
+Apache 2.0 license. The composer button and date/time picker's adjacent
+calendar button reuse this one asset; `tinted_icon` applies the
+theme-appropriate tint to the picker button.
 
 ![Schedule dialog](../images/scheduling/schedule-dialog.png)
 
@@ -96,12 +91,12 @@ Contents, top to bottom:
 - **Caption/media preview** — a single-line summary of the composer's current
   text and media count, muted text color, so Rin can confirm what she's about
   to schedule without the dialog re-rendering the full composer.
-- **Post at** — a `QDateTimeEdit` with `setCalendarPopup(True)`. No separate
-  date and time fields; one control, matching how the rest of the app avoids
-  splitting single concepts across widgets. Its native chevron is replaced
-  with a 34 px `ACCENT` calendar button using `calendar_month.svg`, so it
-  reads as a date/time picker rather than a generic dropdown while preserving
-  direct keyboard editing.
+- **Post at** — a combined `QDateTimeEdit` with its native spin/dropdown
+  buttons removed. No separate date and time fields; one control preserves
+  direct section-by-section keyboard editing. A distinct 38 px `QToolButton`
+  beside it uses the theme-tinted `calendar_month.svg` and opens a real
+  `QCalendarWidget`, so the row reads as a date/time picker rather than a
+  generic dropdown.
 - **Start GaleFling automatically when I log in** checkbox, checked by
   default — shown only the first time Rin schedules a post while autostart is
   off, per
@@ -198,8 +193,10 @@ per item.
   right in that order (least destructive first is the usual convention, but
   here "Post Now" is the default/likely action, so it leads). Edit reopens
   the composer exactly like [the queue's Edit](#2-scheduled-posts-queue).
-  Whichever is chosen, the window advances to the next missed item, or closes
-  if this was the last one.
+  Post Now and Delete advance to the next missed item. Edit loads that item
+  into the one composer and ends the reconciliation pass, leaving later
+  undecided items pending for the next launch; this prevents a later Edit
+  choice from overwriting the first item in the composer.
 - **Post All Remaining (N)** — footer, separated by a divider, per
   [SCHEDULING.md's bulk action](SCHEDULING.md#not-failing-silently-r4). Only
   appears when more than one item remains. No equivalent bulk Delete or Edit.
@@ -257,7 +254,7 @@ where Rin turns autostart back off or changes how an automatic launch appears.
 
 ![Tray context menu](../images/scheduling/tray-context-menu.png)
 
-GaleFling has no system tray presence today — this is new surface required by
+GaleFling's system tray presence is implemented for
 [SCHEDULING.md's background/tray operation](SCHEDULING.md#phase-1--scheduler-in-the-desktop-app-23-weeks)
 and [Start at login's configurable launch mode](SCHEDULING.md#start-at-login),
 not something this document invents independently.
@@ -306,18 +303,16 @@ menu action in the app already follows.
 
 ## Component / file mapping
 
-For whoever picks up Phase 1 implementation — where each screen's real
-version lands, based on the codebase's existing per-dialog file convention
-(`results_dialog.py`, `settings_dialog.py`, `setup_wizard.py`, etc.):
+The implemented component mapping is:
 
-| Screen | New file (proposed) | Touches |
+| Screen | Implementation | Touches |
 |--------|----------------------|---------|
 | Schedule dialog | `src/gui/schedule_dialog.py` | `post_composer.py` (new calendar `QToolButton` in `emoji_row`, a new `schedule_requested` signal following the existing `preview_requested`/`media_changed` pattern), `main_window.py` (connects the signal to open the dialog, reading composer/platform-selector state the same way `_do_post` already does) |
-| Scheduled Posts queue | `src/gui/scheduled_posts_dialog.py` | `main_window.py` (`_create_menu_bar`, new `Scheduled` menu) |
-| Missed-post reconciliation | `src/gui/reconciliation_dialog.py` | `main_window.py` (shown on startup, after `_check_first_run`) |
+| Scheduled Posts queue | `src/gui/schedule_dialog.py` (`ScheduledPostsDialog`) | `main_window.py` (`_create_menu_bar`, new `Scheduled` menu) |
+| Missed-post reconciliation | `src/gui/schedule_dialog.py` (`MissedPostDialog`) | `main_window.py` (shown on startup, after `_check_first_run`) |
 | Startup settings | — (extends `_create_advanced_tab`) | `settings_dialog.py`, `config_manager.py` (autostart enabled + automatic-launch display mode), platform-specific autostart module (new — Windows `Run` key / Linux XDG autostart, with the minimized-start argument synchronized to the selected mode, per `SCHEDULING.md`) |
-| Tray context menu | `src/gui/tray_icon.py` (new — doesn't exist) | `main_window.py` (`closeEvent`, minimize-to-tray behavior; wires Check for Updates / About to the existing `_manual_update_check`/`_show_about` handlers rather than duplicating them), app entry point |
-| Schedule-confirmation toast | `src/gui/toast.py` (new — no toast widget exists in the codebase today; the app's only transient-message precedent is `QStatusBar.showMessage`, e.g. `main_window.py`'s `'Ready'`/`'Opening WebView panel...'`) | `main_window.py` or `schedule_dialog.py`, wherever Schedule Post's success handler lands |
+| Tray context menu | `src/gui/tray_icon.py` | `main_window.py` (`closeEvent`, minimize-to-tray behavior; Check for Updates / About reuse existing handlers), app entry point |
+| Schedule-confirmation toast | `src/gui/toast.py` | `main_window.py` scheduling-success handler |
 | Scheduled-failure system toast | — (uses `QSystemTrayIcon.showMessage`, not the in-app confirmation-toast widget) | scheduler completion path consolidates failed platform result(s); `tray_icon.py` displays the toast and opens the existing results UI when clicked |
 
 The local queue itself (SQLite-backed, due-time poller) is core/back-end
@@ -345,6 +340,7 @@ work, not GUI — out of scope for this document; see
 
 | Date | Change |
 |------|--------|
+| 2026-08-21 | Implemented the design: SQLite queue and owned media copies, 30×30 composer calendar/emoji controls, combined date/time editor with a separate tinted calendar popup button, queue management, missed-item reconciliation, due-time posting through the existing `PostWorker`, Windows/Linux autostart, configurable automatic-launch display mode, tray menu/count, in-app confirmation toast, system failure notification, and SMTP failure email. Added unit coverage and `docs/SCHEDULING.md`; updated this document's status and component mapping to the shipped files. |
 | 2026-08-22 | Replaced the hand-drawn calendar mockup glyph with the real `calendar_month.svg` from Google's official Material Symbols repository, covered by the icon set's existing Apache 2.0 license. The composer calendar button and `QDateTimeEdit` now reuse that asset. Restyled the date/time control's native trailing chevron as a distinct `ACCENT` calendar button so the combined control reads as a picker rather than a generic dropdown; regenerated `composer-schedule-icon.png` and `schedule-dialog.png`. |
 | 2026-08-22 | Added an automatic-launch display-mode setting (Jas): **Open the main window** or **Start minimized to the system tray**, defaulting to the tray. It applies only to login/autostart launches; manual launches still open normally. Updated the [Startup settings](#4-startup-settings-settings--advanced) design, component mapping, and `settings-start-at-login.png`. Also confirmed scheduled-post failures use both durable email and a transient system toast: one consolidated `QSystemTrayIcon.showMessage` notification per scheduled item, visible while minimized and opening the existing results UI when clicked. Updated [Deliberately not mocked](#deliberately-not-mocked) and the queue-state description. |
 | 2026-08-22 | Corrected the [Start at login](#4-startup-settings-settings--advanced) hint text (Jas): "required... while you're away from the computer" was wrong — the setting isn't about presence, a scheduled post fires either way as long as GaleFling is running. It's specifically for surviving a reboot, so GaleFling relaunches instead of Rin having to notice and reopen it herself. New text: "Keeps scheduled posts firing after a reboot — GaleFling launches automatically instead of waiting for you to reopen it." Regenerated `settings-start-at-login.png`. |

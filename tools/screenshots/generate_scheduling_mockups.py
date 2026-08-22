@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""Generate design mockups for the not-yet-built scheduling UI.
+"""Generate deterministic scheduling design mockups.
 
-Scheduling is Phase 1 work that hasn't started (see docs/plans/SCHEDULING.md
-and docs/plans/SCHEDULING_UI_DESIGN.md) -- there is no scheduler, queue, or
-scheduling dialog in the codebase yet. These images are therefore *mockups*,
-not screenshots of real behavior: every widget here is built ad hoc by this
-script rather than driven from production classes. They use the app's real
+The scheduling implementation now exists, but these remain fake-data design
+renders so documentation regeneration never touches a user's real queue.
+They use the app's real
 theme, tokens, and icon assets (`apply_theme`, `src/utils/tokens.py`,
 `src/resources/icons/`) so they read as GaleFling rather than a generic
-wireframe, and the settings mockup goes one step further by injecting its
-new controls into the real `SettingsDialog` so they sit alongside controls
-that do exist today.
+wireframe. The composer render uses the real `PostComposer`; the settings
+mockup injects its controls into the real `SettingsDialog`.
 
 All data below (captions, handles, dates) is fabricated -- no resemblance to
 real accounts or real scheduled content. Dates are hardcoded rather than
@@ -37,8 +34,8 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from PIL import Image
-from PyQt6.QtCore import QDate, QDateTime, QPoint, QSize, Qt, QTime
-from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPixmap
+from PyQt6.QtCore import QDate, QDateTime, QPoint, Qt, QTime
+from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -53,14 +50,12 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QMenu,
     QPushButton,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
-from src.gui.icon_utils import tinted_icon
 from src.gui.post_composer import PostComposer
 from src.gui.results_dialog import _render_svg_colored
 from src.gui.settings_dialog import SettingsDialog
@@ -148,51 +143,11 @@ def _status_pill(text: str, color: str) -> QLabel:
     return label
 
 
-def _calendar_icon(size: int, color: str) -> QIcon:
-    """Render the repo's Material Symbols calendar asset in the requested color."""
-    return tinted_icon(_ICONS_DIR / 'ui' / 'calendar_month.svg', color, size)
-
-
-def _find_containing_layout(layout, widget):
-    """Locate the nested QLayout that directly holds `widget`, and its index."""
-    for i in range(layout.count()):
-        item = layout.itemAt(i)
-        if item.widget() is widget:
-            return layout, i
-        nested = item.layout()
-        if nested is not None:
-            found = _find_containing_layout(nested, widget)
-            if found is not None:
-                return found
-    return None
-
-
 def capture_composer_schedule_icon(app: QApplication) -> None:
-    """Composer: a new calendar icon button, immediately left of the emoji picker.
-
-    Injects into the real, running `PostComposer` (`post_composer.py:305-313`'s
-    `emoji_row`), the same technique `capture_settings_start_at_login` uses for
-    `SettingsDialog` -- not a from-scratch replica.
-    """
+    """Capture the real composer's calendar and emoji controls."""
     composer = PostComposer()
     apply_theme(app, composer)
     composer.set_text('Trying out scheduled posts today ✨')
-
-    # Both icons at 30x30 -- up from EmojiPickerButton's real 20x20
-    # (emoji_picker.py), a design change this mockup applies to the live
-    # instance rather than a size the production button already has.
-    icon_size = 30
-    composer._emoji_button.setIconSize(QSize(icon_size, icon_size))
-
-    calendar_btn = QToolButton()
-    calendar_btn.setIcon(_calendar_icon(icon_size, tokens.TEXT))
-    calendar_btn.setIconSize(QSize(icon_size, icon_size))
-    calendar_btn.setToolTip('Schedule this post for a later time')
-
-    found = _find_containing_layout(composer.layout(), composer._emoji_button)
-    assert found is not None, 'post_composer.py restructured -- update this mockup'
-    emoji_row, index = found
-    emoji_row.insertWidget(index, calendar_btn)
 
     composer.show()
     composer.resize(560, 420)
@@ -439,39 +394,19 @@ def _select_settings_nav_item(dialog, label: str) -> None:
 
 
 def capture_settings_start_at_login(app: QApplication) -> None:
-    """Settings > Advanced: the real SettingsDialog with a mockup 'Startup' group
-
-    and launch-mode selector inserted above its real 'WebView' group, in the
-    same QGroupBox style as every other Advanced-tab section.
-    """
+    """Capture the real Settings > Advanced startup controls."""
     config = ConfigManager()
     auth_manager = AuthManager()
     dialog = SettingsDialog(config, auth_manager)
     apply_theme(app, dialog)
 
-    startup_group = QGroupBox('Startup')
-    startup_layout = QVBoxLayout(startup_group)
-    autostart_cb = QCheckBox('Start GaleFling automatically when I log in')
+    startup_group = next(g for g in dialog.findChildren(QGroupBox) if g.title() == 'Startup')
+    autostart_cb = startup_group.findChild(QCheckBox)
+    assert autostart_cb is not None
     autostart_cb.setChecked(True)
-    startup_layout.addWidget(autostart_cb)
-    hint = QLabel(
-        '<i>Keeps scheduled posts firing after a reboot — GaleFling launches '
-        'automatically instead of waiting for you to reopen it.</i>'
-    )
-    hint.setWordWrap(True)
-    startup_layout.addWidget(hint)
-
-    launch_mode_row = QHBoxLayout()
-    launch_mode_row.addWidget(QLabel('When started automatically:'))
-    launch_mode = QComboBox()
-    launch_mode.addItems(['Open the main window', 'Start minimized to the system tray'])
+    launch_mode = startup_group.findChild(QComboBox)
+    assert launch_mode is not None
     launch_mode.setCurrentIndex(1)
-    launch_mode_row.addWidget(launch_mode, 1)
-    startup_layout.addLayout(launch_mode_row)
-
-    webview_group = next(g for g in dialog.findChildren(QGroupBox) if g.title() == 'WebView')
-    parent_layout = webview_group.parentWidget().layout()
-    parent_layout.insertWidget(parent_layout.indexOf(webview_group), startup_group)
 
     dialog.show()
     QApplication.processEvents()

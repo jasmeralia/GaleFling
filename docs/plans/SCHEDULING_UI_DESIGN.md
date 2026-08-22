@@ -199,12 +199,13 @@ per item.
   [SCHEDULING.md's bulk action](SCHEDULING.md#not-failing-silently-r4). Only
   appears when more than one item remains. No equivalent bulk Delete or Edit.
 
-**Not decided here, flagged for implementation:** what happens if Rin closes
-the window (titlebar X) without deciding on every item. `SCHEDULING.md` doesn't
-say. The least surprising behavior is probably "leave undecided items pending
-in the queue, ask again next launch" — consistent with nothing being lost by
-default — but this needs an explicit decision before Phase 1 build-out, not an
-assumption baked into the implementation.
+**Resolved (Jas): closing the window (titlebar X) without deciding on every
+item leaves undecided items pending in the queue, and the reconciliation
+window asks again on the next launch.** Nothing is lost or auto-resolved by
+default — an unreviewed item stays exactly as pending as it was before
+launch, just with a due time now in the past, until Rin either decides on it
+here or edits/cancels it directly from the
+[Scheduled Posts queue](#2-scheduled-posts-queue).
 
 ---
 
@@ -288,17 +289,18 @@ work, not GUI — out of scope for this document; see
 
 ## Open questions
 
-1. **Close-without-deciding behavior for the reconciliation window** — see
-   [above](#3-missed-scheduled-posts-reconciliation). Needs an explicit
-   answer before Phase 1 build-out.
-2. **Schedule confirmation UX** — toast vs. status-bar message vs. something
+1. **Schedule confirmation UX** — toast vs. status-bar message vs. something
    else, once a post is successfully queued from the
    [Schedule dialog](#1-schedule-dialog). Not a `ResultsDialog` (nothing
    posted yet), but not decided further than that here.
-3. **Minimum lead time for the due-time picker** — "strictly after now" is
+2. **Minimum lead time for the due-time picker** — "strictly after now" is
    the floor assumed above; confirm this is sufficient or whether a small
    buffer (e.g. 1 minute) is needed to avoid a race with the due-time poller
    at save time.
+
+The close-without-deciding question this section used to list is resolved —
+see [Missed Scheduled Posts reconciliation](#3-missed-scheduled-posts-reconciliation):
+undecided items stay pending and are asked about again next launch.
 
 ---
 
@@ -321,4 +323,6 @@ work, not GUI — out of scope for this document; see
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | Resolved the reconciliation window's close-without-deciding open question (Jas): closing the window without deciding on every item leaves undecided items pending in the queue, and the window asks again on the next launch — nothing lost or auto-resolved by default. Updated the [Missed Scheduled Posts reconciliation](#3-missed-scheduled-posts-reconciliation) section and dropped the resolved item from Open Questions. |
+| 2026-08-21 | Corrected the Schedule dialog's button-color description: `tokens.SUCCESS` is `#5C7CFA`, a blue/indigo, not green, despite the token's name. The mockup image already rendered it correctly; only the prose was wrong. |
 | 2026-08-21 | Initial draft (Jas): five mockups (Schedule dialog, Scheduled Posts queue, Missed Scheduled Posts reconciliation, Start at login toggle, Tray context menu) covering R2 and R4's GUI surface, generated via a new `tools/screenshots/generate_scheduling_mockups.py`. Flagged a real rendering bug found while building the queue/reconciliation mockups: `results_dialog.py`'s badge `QFrame` styling corrupts descendant layout under the offscreen Qt platform, already visible in the checked-in `docs/images/results-dialog.png`; worked around here, not fixed (separate task). |

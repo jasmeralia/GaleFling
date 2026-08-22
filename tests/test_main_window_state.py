@@ -1,14 +1,18 @@
 import json
 import re
+import tempfile
 import threading
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 from PyQt6.QtWidgets import QDialog, QLabel, QMessageBox
 
 import src.gui.main_window as _main_window_module
+from src.core.scheduled_post_queue import ScheduledPostQueue
 from src.gui.main_window import MainWindow
-from src.utils.constants import MAX_MEDIA_ATTACHMENTS, AccountConfig
+from src.utils.constants import MAX_MEDIA_ATTACHMENTS, AccountConfig, PostResult
 
 
 class DummyAuthManager:
@@ -95,6 +99,9 @@ class DummyAuthManager:
     def get_accounts_for_platform(self, platform_id):
         return [a for a in self.get_accounts() if a.platform_id == platform_id]
 
+    def get_smtp_credentials(self):
+        return None
+
 
 class DummyConfig:
     def __init__(self, selected=None):
@@ -111,6 +118,9 @@ class DummyConfig:
         self.log_upload_endpoint = 'https://example.invalid'
         self.log_upload_enabled = True
         self.debug_mode = False
+        self.autostart_enabled = False
+        self.autostart_launch_mode = 'tray'
+        self.notification_email = ''
 
     def save(self):
         return
@@ -120,6 +130,11 @@ class DummyConfig:
 
 
 class DummyMainWindow(MainWindow):
+    def __init__(self, config, auth_manager):
+        self._scheduled_tempdir = tempfile.TemporaryDirectory()
+        queue = ScheduledPostQueue(Path(self._scheduled_tempdir.name) / 'scheduled.sqlite3')
+        super().__init__(config, auth_manager, scheduled_queue=queue)
+
     def _check_first_run(self):
         return
 
@@ -168,6 +183,24 @@ def test_menu_action_logging(qtbot, monkeypatch):
     action.trigger()
 
     assert 'User selected Help > About' in logged
+
+
+def test_scheduled_menu_action_logging(qtbot, monkeypatch):
+    logged = []
+
+    class DummyLogger:
+        def info(self, message):
+            logged.append(message)
+
+    monkeypatch.setattr('src.gui.main_window.get_logger', lambda: DummyLogger())
+    monkeypatch.setattr('src.gui.main_window.MainWindow._show_scheduled_posts', lambda _self: None)
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+
+    action = _find_menu_action(window, 'Scheduled', 'View Scheduled Posts...')
+    action.trigger()
+
+    assert 'User selected Scheduled > View Scheduled Posts...' in logged
 
 
 def test_help_open_log_directory_action(qtbot, monkeypatch, tmp_path):
@@ -1731,3 +1764,551 @@ def test_close_event_calls_save_geometry_and_auto_save(qtbot):
 
     assert calls == ['geometry', 'draft']
     assert event.accepted is True
+
+
+def test_schedule_current_post_saves_queue_clears_composer_and_toasts(qtbot, monkeypatch):
+    chosen_due_at = datetime.now(UTC) + timedelta(hours=1)
+
+    class FakeScheduleDialog:
+        enable_autostart = False
+        due_at = chosen_due_at
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    toasts = []
+    monkeypatch.setattr('src.gui.main_window.ScheduleDialog', FakeScheduleDialog)
+    monkeypatch.setattr(
+        'src.gui.main_window.show_toast', lambda _parent, message: toasts.append(message)
+    )
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    window._composer.set_text('scheduled caption')
+
+    window._schedule_current_post()
+
+    pending = window._scheduled_queue.list_pending()
+    assert len(pending) == 1
+    assert pending[0].text == 'scheduled caption'
+    assert pending[0].account_ids == ('twitter_1',)
+    assert window._composer.get_text() == ''
+    assert toasts and 'scheduled for' in toasts[0]
+
+
+def test_schedule_current_post_rejects_webview_platform(qtbot, monkeypatch):
+    messages = []
+    window = DummyMainWindow(
+        DummyConfig(selected=['snapchat_1']), DummyAuthManager(False, False, snapchat=True)
+    )
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    window._composer.set_text('caption')
+    monkeypatch.setattr(window, '_get_selected_enabled_platforms', lambda: ['snapchat_1'])
+    monkeypatch.setattr(
+        window,
+        '_show_message_box',
+        lambda title, message, *_a, **_k: messages.append((title, message)),
+    )
+
+    window._schedule_current_post()
+
+    assert messages[0][0] == 'Cannot Schedule Selected Platforms'
+    assert window._scheduled_queue.list_pending() == []
+
+
+def test_due_post_uses_worker_and_marks_item_posted(qtbot):
+    class Platform:
+        def get_platform_name(self):
+            return 'Twitter (profile)'
+
+        def post(self, text, media_paths):
+            assert text == 'due caption'
+            assert media_paths is None
+            return PostResult(success=True, platform='Twitter', account_id='twitter_1')
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    window._scheduling_started = True
+    window._platforms['twitter_1'] = Platform()
+    post = window._scheduled_queue.add(
+        text='due caption',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+
+    window._poll_scheduled_posts()
+
+    qtbot.waitUntil(lambda: window._scheduled_queue.get(post.id).state == 'posted', timeout=3000)
+    assert window._active_scheduled_post is None
+
+
+def test_scheduled_failure_marks_failed_and_shows_tray_notification(qtbot, monkeypatch):
+    class Platform:
+        def get_platform_name(self):
+            return 'Twitter (profile)'
+
+        def post(self, _text, _media_paths):
+            return PostResult(
+                success=False,
+                platform='Twitter (profile)',
+                account_id='twitter_1',
+                error_message='network down',
+            )
+
+    notifications = []
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    window._scheduling_started = True
+    window._platforms['twitter_1'] = Platform()
+    monkeypatch.setattr(
+        window._tray,
+        'show_failure',
+        lambda accounts, callback: notifications.append((accounts, callback)),
+    )
+    post = window._scheduled_queue.add(
+        text='due caption',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+
+    window._poll_scheduled_posts()
+
+    qtbot.waitUntil(lambda: window._scheduled_queue.get(post.id).state == 'failed', timeout=3000)
+    assert notifications[0][0] == ['Twitter (profile)']
+    assert window._last_scheduled_failure_results[0].error_message == 'network down'
+
+
+def test_closing_missed_reconciliation_defers_remaining_items(qtbot, monkeypatch):
+    class FakeMissedDialog:
+        action = 'leave'
+
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    post = window._scheduled_queue.add(
+        text='missed caption',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    monkeypatch.setattr('src.gui.main_window.MissedPostDialog', FakeMissedDialog)
+
+    window._start_scheduling()
+    window._scheduler_timer.stop()
+
+    assert post.id in window._deferred_missed_ids
+    assert window._scheduled_queue.get(post.id).state == 'pending'
+
+
+def test_editing_missed_post_defers_later_items_without_overwriting_composer(qtbot, monkeypatch):
+    dialog_count = 0
+
+    class FakeMissedDialog:
+        action = 'edit'
+
+        def __init__(self, *_args, **_kwargs):
+            nonlocal dialog_count
+            dialog_count += 1
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    posts = [
+        window._scheduled_queue.add(
+            text=f'missed caption {index}',
+            account_ids=['twitter_1'],
+            media_paths=[],
+            processed_media={},
+            due_at=datetime.now(UTC) - timedelta(minutes=2 - index),
+        )
+        for index in range(2)
+    ]
+    loaded = []
+    monkeypatch.setattr('src.gui.main_window.MissedPostDialog', FakeMissedDialog)
+    monkeypatch.setattr(window, '_load_scheduled_post_for_edit', loaded.append)
+
+    window._start_scheduling()
+    window._scheduler_timer.stop()
+
+    assert dialog_count == 1
+    assert loaded == [posts[0]]
+    assert window._deferred_missed_ids == {post.id for post in posts}
+
+
+def test_schedule_current_post_validates_empty_selection_length_and_media(qtbot, monkeypatch):
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    messages = []
+    monkeypatch.setattr(
+        window,
+        '_show_message_box',
+        lambda title, message, *_a, **_k: messages.append((title, message)),
+    )
+
+    window._schedule_current_post()
+    assert messages.pop()[0] == 'Empty Post'
+
+    window._composer.set_text('caption')
+    monkeypatch.setattr(window, '_get_selected_enabled_platforms', lambda: [])
+    window._schedule_current_post()
+    assert messages.pop()[0] == 'No Platforms'
+
+    monkeypatch.setattr(window, '_get_selected_enabled_platforms', lambda: ['twitter_1'])
+    window._platforms['twitter_1'] = SimpleNamespace(
+        get_specs=lambda: SimpleNamespace(max_text_length=3, platform_name='Twitter')
+    )
+    window._schedule_current_post()
+    assert messages.pop()[0] == 'Text Too Long'
+
+    window._platforms['twitter_1'] = SimpleNamespace(
+        get_specs=lambda: SimpleNamespace(max_text_length=None, platform_name='Twitter')
+    )
+    monkeypatch.setattr(window._composer, 'get_media_paths', lambda: [Path('missing.png')])
+    monkeypatch.setattr(window, '_get_missing_processed_platforms', lambda *_a: ['twitter'])
+    monkeypatch.setattr(window, '_show_media_preview', lambda *_a: None)
+    window._schedule_current_post()
+    assert messages.pop()[0] == 'Media Error'
+
+
+def test_schedule_current_post_cancel_and_autostart_failure_leave_queue_unchanged(
+    qtbot, monkeypatch
+):
+    class RejectedDialog:
+        enable_autostart = False
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    window._composer.set_text('caption')
+    monkeypatch.setattr('src.gui.main_window.ScheduleDialog', RejectedDialog)
+    window._schedule_current_post()
+    assert window._scheduled_queue.list_pending() == []
+
+    class AutostartDialog(RejectedDialog):
+        enable_autostart = True
+        due_at = datetime.now(UTC) + timedelta(hours=1)
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    messages = []
+    monkeypatch.setattr('src.gui.main_window.ScheduleDialog', AutostartDialog)
+    monkeypatch.setattr(
+        'src.gui.main_window.set_autostart',
+        lambda *_a, **_k: (_ for _ in ()).throw(OSError('denied')),
+    )
+    monkeypatch.setattr(
+        window,
+        '_show_message_box',
+        lambda title, message, *_a, **_k: messages.append((title, message)),
+    )
+    window._schedule_current_post()
+    assert messages == [('Start at Login', 'GaleFling could not enable start at login:\ndenied')]
+    assert window._scheduled_queue.list_pending() == []
+
+
+def test_schedule_current_post_reschedules_loaded_item_and_enables_autostart(qtbot, monkeypatch):
+    due_at = datetime.now(UTC) + timedelta(hours=1)
+    new_due_at = due_at + timedelta(hours=1)
+
+    class FakeScheduleDialog:
+        enable_autostart = True
+        due_at = new_due_at
+
+        def __init__(self, **kwargs):
+            assert kwargs['due_at'] == due_at
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    config = DummyConfig(selected=['twitter_1'])
+    window = DummyMainWindow(config, DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    post = window._scheduled_queue.add(
+        text='old',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=due_at,
+    )
+    window._editing_scheduled_post = post
+    window._deferred_missed_ids.add(post.id)
+    window._composer.set_text('new')
+    autostart_calls = []
+    toasts = []
+    monkeypatch.setattr('src.gui.main_window.ScheduleDialog', FakeScheduleDialog)
+    monkeypatch.setattr(
+        'src.gui.main_window.set_autostart',
+        lambda enabled, *, start_minimized: autostart_calls.append((enabled, start_minimized)),
+    )
+    monkeypatch.setattr(
+        'src.gui.main_window.show_toast', lambda _parent, message: toasts.append(message)
+    )
+
+    window._schedule_current_post()
+
+    saved = window._scheduled_queue.get(post.id)
+    assert saved.text == 'new'
+    assert saved.due_at == new_due_at
+    assert window._editing_scheduled_post is None
+    assert post.id not in window._deferred_missed_ids
+    assert config.autostart_enabled is True
+    assert autostart_calls == [(True, True)]
+    assert 'rescheduled' in toasts[0]
+
+
+def test_load_scheduled_post_for_edit_restores_composer_media_and_selection(qtbot, tmp_path):
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    media = tmp_path / 'image.png'
+    media.write_bytes(b'image')
+    post = window._scheduled_queue.add(
+        text='restore me',
+        account_ids=['twitter_1'],
+        media_paths=[media],
+        processed_media={'twitter': [media]},
+        due_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+    window._load_scheduled_post_for_edit(post)
+
+    assert window._editing_scheduled_post == post
+    assert window._composer.get_text() == 'restore me'
+    assert window._composer.get_media_paths() == list(post.media_paths)
+    assert window._processed_media == {
+        group: list(paths) for group, paths in post.processed_media.items()
+    }
+    assert window._platform_selector.get_selected() == ['twitter_1']
+    assert 'Editing scheduled post' in window._status_bar.currentMessage()
+
+
+def test_scheduled_posts_dialog_routes_edit_new_and_queue_changes(qtbot, monkeypatch):
+    class Signal:
+        def connect(self, callback):
+            self.callback = callback
+
+        def emit(self, *args):
+            self.callback(*args)
+
+    dialogs = []
+
+    class FakeScheduledPostsDialog:
+        def __init__(self, queue, display_name, parent, *, platform_key):
+            assert queue is parent._scheduled_queue
+            assert display_name('missing') == 'missing'
+            assert platform_key('twitter_1') == 'twitter'
+            self.edit_requested = Signal()
+            self.new_requested = Signal()
+            self.queue_changed = Signal()
+            self.accepted = False
+            self.action = ['edit', 'new-with-text', 'new-empty'][len(dialogs)]
+            dialogs.append(self)
+
+        def accept(self):
+            self.accepted = True
+
+        def exec(self):
+            if self.action == 'edit':
+                self.edit_requested.emit(post)
+            else:
+                self.new_requested.emit()
+            self.queue_changed.emit()
+            return QDialog.DialogCode.Accepted
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    post = window._scheduled_queue.add(
+        text='queued',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    edited = []
+    scheduled = []
+    count_updates = []
+    monkeypatch.setattr('src.gui.main_window.ScheduledPostsDialog', FakeScheduledPostsDialog)
+    monkeypatch.setattr(window, '_apply_dialog_theme', lambda _dialog: None)
+    monkeypatch.setattr(window, '_load_scheduled_post_for_edit', edited.append)
+    monkeypatch.setattr(window, '_schedule_current_post', lambda: scheduled.append(True))
+    monkeypatch.setattr(window, '_update_scheduled_count', lambda: count_updates.append(True))
+
+    window._show_scheduled_posts()
+    assert edited == [post]
+
+    window._composer.set_text('draft')
+    window._show_scheduled_posts()
+    assert scheduled == [True]
+
+    window._composer.clear()
+    window._show_scheduled_posts()
+    assert scheduled == [True]
+    assert all(dialog.accepted for dialog in dialogs)
+    assert len(count_updates) == 3
+
+
+def test_missed_reconciliation_post_delete_and_post_all_actions(qtbot, monkeypatch):
+    actions = iter(['post', 'delete', 'post_all'])
+
+    class FakeMissedDialog:
+        def __init__(self, *_args, **_kwargs):
+            self.action = next(actions)
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    posts = [
+        window._scheduled_queue.add(
+            text=f'missed {index}',
+            account_ids=['twitter_1'],
+            media_paths=[],
+            processed_media={},
+            due_at=datetime.now(UTC) - timedelta(minutes=3 - index),
+        )
+        for index in range(3)
+    ]
+    monkeypatch.setattr('src.gui.main_window.MissedPostDialog', FakeMissedDialog)
+    monkeypatch.setattr(window, '_poll_scheduled_posts', lambda: None)
+
+    window._start_scheduling()
+    window._scheduler_timer.stop()
+
+    assert window._scheduled_queue.get(posts[0].id) is not None
+    assert window._scheduled_queue.get(posts[1].id) is None
+    assert window._scheduled_queue.get(posts[2].id) is not None
+    window._start_scheduling()  # idempotent after the first startup reconciliation
+
+
+def test_poll_due_post_with_missing_account_marks_failure_without_worker(qtbot, monkeypatch):
+    window = DummyMainWindow(DummyConfig(selected=[]), DummyAuthManager(False, False))
+    qtbot.addWidget(window)
+    post = window._scheduled_queue.add(
+        text='due caption',
+        account_ids=['removed_account'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    failures = []
+    monkeypatch.setattr(
+        window,
+        '_handle_scheduled_failure',
+        lambda saved, results: failures.append((saved, results)),
+    )
+    monkeypatch.setattr('src.gui.main_window.QTimer.singleShot', lambda *_a: None)
+
+    window._poll_scheduled_posts()
+
+    assert window._scheduled_queue.get(post.id).state == 'failed'
+    assert failures[0][1][0].error_code == 'SCHEDULED-ACCOUNT-MISSING'
+    assert window._scheduled_worker is None
+    window._on_scheduled_post_finished([])  # harmless without an active item
+
+    window._scheduled_worker = SimpleNamespace(isRunning=lambda: True)
+    window._poll_scheduled_posts()  # a running worker prevents overlapping claims
+
+
+def test_scheduled_failure_email_worker_and_results_dialog(qtbot, monkeypatch):
+    class Auth(DummyAuthManager):
+        def get_smtp_credentials(self):
+            return {
+                'host': 'smtp.example.com',
+                'port': 587,
+                'username': 'sender@example.com',
+                'app_password': 'secret',
+            }
+
+    class Signal:
+        def connect(self, callback):
+            self.callback = callback
+
+        def emit(self, *args):
+            self.callback(*args)
+
+    workers = []
+
+    class FakeEmailWorker:
+        def __init__(self, credentials, recipient, subject, body):
+            self.finished = Signal()
+            self.args = (credentials, recipient, subject, body)
+            workers.append(self)
+
+        def start(self):
+            self.finished.emit(False, 'smtp unavailable')
+
+    shown = []
+
+    class FakeResultsDialog:
+        def __init__(self, results, parent):
+            shown.append((results, parent))
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    config = DummyConfig(selected=['twitter_1'])
+    config.notification_email = 'recipient@example.com'
+    window = DummyMainWindow(config, Auth(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    post = window._scheduled_queue.add(
+        text='due caption',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    result = PostResult(
+        success=False,
+        platform='',
+        account_id='twitter_1',
+        error_code='NETWORK',
+    )
+    monkeypatch.setattr('src.gui.main_window.EmailNotificationWorker', FakeEmailWorker)
+    monkeypatch.setattr('src.gui.main_window.ResultsDialog', FakeResultsDialog)
+    monkeypatch.setattr(window._tray, 'show_failure', lambda *_a: None)
+
+    window._show_last_scheduled_failure()  # no-op before a failure has been recorded
+
+    window._handle_scheduled_failure(post, [result])
+
+    assert workers[0].args[1:3] == (
+        'recipient@example.com',
+        'GaleFling scheduled post failed',
+    )
+    assert 'Twitter (jasmeralia)' in workers[0].args[3]
+    assert window._email_workers == set()
+    window._show_last_scheduled_failure()
+    assert shown == [([result], window)]

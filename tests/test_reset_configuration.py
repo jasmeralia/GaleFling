@@ -74,6 +74,7 @@ class _ConfigStub:
         self.log_upload_endpoint = 'https://example.invalid'
         self.log_upload_enabled = True
         self.debug_mode = False
+        self.autostart_enabled = False
         self._reset_called = False
 
     def save(self):
@@ -237,5 +238,33 @@ def test_reset_configuration_works_without_webprofiles_dir(qtbot, monkeypatch, t
     # Should not raise
     window._reset_configuration()
 
+    assert auth._cleared is True
+    assert config._reset_called is True
+
+
+def test_reset_configuration_disables_autostart(qtbot, monkeypatch, tmp_path):
+    auth = _AuthStub()
+    config = _ConfigStub()
+    config.autostart_enabled = True
+    autostart_calls = []
+
+    monkeypatch.setattr(
+        _main_window_module.QMessageBox,
+        'exec',
+        lambda self: QMessageBox.StandardButton.Yes,
+    )
+    monkeypatch.setattr('src.gui.main_window.get_app_data_dir', lambda: tmp_path)
+    monkeypatch.setattr(
+        _main_window_module,
+        'set_autostart',
+        lambda enabled, *, start_minimized: autostart_calls.append((enabled, start_minimized)),
+    )
+
+    window = _DummyWindow(config, auth)
+    qtbot.addWidget(window)
+
+    window._reset_configuration()
+
+    assert autostart_calls == [(False, False)]
     assert auth._cleared is True
     assert config._reset_called is True

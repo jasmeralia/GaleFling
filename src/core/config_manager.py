@@ -31,6 +31,8 @@ DEFAULT_CONFIG = {
     'remote_debug_enabled': False,
     'remote_debug_port': 9222,
     'notification_email': '',
+    'autostart_enabled': False,
+    'autostart_launch_mode': 'tray',
 }
 
 
@@ -118,6 +120,23 @@ class ConfigManager:
     @notification_email.setter
     def notification_email(self, value: str) -> None:
         self.set('notification_email', value.strip())
+
+    @property
+    def autostart_enabled(self) -> bool:
+        return bool(self._config.get('autostart_enabled', False))
+
+    @autostart_enabled.setter
+    def autostart_enabled(self, value: bool) -> None:
+        self.set('autostart_enabled', bool(value))
+
+    @property
+    def autostart_launch_mode(self) -> str:
+        value = self._config.get('autostart_launch_mode', 'tray')
+        return value if value in {'window', 'tray'} else 'tray'
+
+    @autostart_launch_mode.setter
+    def autostart_launch_mode(self, value: str) -> None:
+        self.set('autostart_launch_mode', value if value in {'window', 'tray'} else 'tray')
 
     @property
     def log_upload_enabled(self) -> bool:

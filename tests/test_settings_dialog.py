@@ -5,10 +5,17 @@ from __future__ import annotations
 import json
 import sqlite3
 
+import pytest
+
 from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
 from src.gui.settings_dialog import SettingsDialog
 from src.utils.constants import PLATFORM_SPECS_MAP, AccountConfig
+
+
+@pytest.fixture(autouse=True)
+def _isolate_autostart(monkeypatch):
+    monkeypatch.setattr('src.gui.settings_dialog.set_autostart', lambda *_a, **_k: None)
 
 
 def _make_config(tmp_path, monkeypatch) -> ConfigManager:
@@ -72,6 +79,8 @@ def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
     dialog._debug_cb.setChecked(True)
     dialog._log_upload_cb.setChecked(False)
     dialog._endpoint_edit.setText('https://example.com/logs')
+    dialog._autostart_cb.setChecked(True)
+    dialog._autostart_mode_combo.setCurrentIndex(dialog._autostart_mode_combo.findData('window'))
 
     dialog._tw_api_key.setText('k')
     dialog._tw_api_secret.setText('s')
@@ -92,6 +101,8 @@ def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
     assert config.debug_mode is True
     assert config.log_upload_enabled is False
     assert config.log_upload_endpoint == 'https://example.com/logs'
+    assert config.autostart_enabled is True
+    assert config.autostart_launch_mode == 'window'
 
     twitter_app = json.loads((tmp_path / 'auth' / 'twitter_app_auth.json').read_text())
     assert twitter_app['api_key'] == 'k'
@@ -101,6 +112,64 @@ def test_settings_dialog_saves_config_and_auth(qtbot, tmp_path, monkeypatch):
     assert bluesky_auth['identifier'] == 'user.bsky.social'
     bluesky_alt = json.loads((tmp_path / 'auth' / 'bluesky_auth_alt.json').read_text())
     assert bluesky_alt['identifier'] == 'alt.bsky.social'
+
+
+def test_twitter_guidance_matches_setup_wizard_account_switching(qtbot, tmp_path, monkeypatch):
+    from PyQt6.QtWidgets import QLabel
+
+    dialog = SettingsDialog(
+        _make_config(tmp_path, monkeypatch),
+        _make_auth(tmp_path, monkeypatch),
+    )
+    qtbot.addWidget(dialog)
+
+    label_text = ' '.join(label.text() for label in dialog.findChildren(QLabel))
+    assert 'if you’re already logged in to both' in label_text
+    assert 'Twitter’s account switcher' in label_text
+
+
+def test_autostart_launch_mode_stays_configurable_while_disabled(qtbot, tmp_path, monkeypatch):
+    dialog = SettingsDialog(
+        _make_config(tmp_path, monkeypatch),
+        _make_auth(tmp_path, monkeypatch),
+    )
+    qtbot.addWidget(dialog)
+
+    dialog._autostart_cb.setChecked(False)
+
+    assert dialog._autostart_mode_combo.isEnabled()
+
+
+def test_settings_dialog_reports_autostart_error_without_persisting_choice(
+    qtbot, tmp_path, monkeypatch
+):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    warnings = []
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.set_autostart',
+        lambda *_a, **_k: (_ for _ in ()).throw(OSError('permission denied')),
+    )
+    monkeypatch.setattr(
+        'src.gui.settings_dialog.QMessageBox.warning',
+        lambda _parent, title, message: warnings.append((title, message)),
+    )
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+    dialog._autostart_cb.setChecked(True)
+    dialog._autostart_mode_combo.setCurrentIndex(dialog._autostart_mode_combo.findData('window'))
+
+    dialog._save_and_close()
+
+    assert warnings == [
+        (
+            'Start at Login',
+            'GaleFling could not update the start-at-login setting:\npermission denied',
+        )
+    ]
+    assert config.autostart_enabled is False
+    assert config.autostart_launch_mode == 'tray'
+    assert dialog.result() == 0
 
 
 def test_settings_dialog_does_not_save_incomplete_twitter(qtbot, tmp_path, monkeypatch):

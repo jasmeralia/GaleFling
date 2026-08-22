@@ -72,3 +72,18 @@ def test_notification_email_default_get_set_and_strips_whitespace(tmp_path, monk
 
     saved = json.loads((tmp_path / 'app_config.json').read_text())
     assert saved['notification_email'] == 'rin@example.com'
+
+
+def test_autostart_defaults_and_persistence(tmp_path, monkeypatch):
+    monkeypatch.setattr('src.core.config_manager.get_app_data_dir', lambda: tmp_path)
+    manager = ConfigManager()
+
+    assert manager.autostart_enabled is False
+    assert manager.autostart_launch_mode == 'tray'
+
+    manager.autostart_enabled = True
+    manager.autostart_launch_mode = 'window'
+
+    restored = ConfigManager()
+    assert restored.autostart_enabled is True
+    assert restored.autostart_launch_mode == 'window'

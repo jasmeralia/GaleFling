@@ -14,7 +14,14 @@ Core goals:
 - `src/gui/main_window.py`
   - orchestrates compose -> preview -> post
   - splits API vs WebView platform flow
-  - coordinates update checks, logs, drafts, setup wizard
+  - coordinates update checks, logs, drafts, setup wizard, and the due-time poller
+- `src/core/scheduled_post_queue.py`
+  - SQLite queue with atomic due-item claims and recovery of interrupted items
+  - owns durable copies of original and per-platform processed media
+- `src/gui/schedule_dialog.py`
+  - create/edit due-time picker, pending-queue management, and missed-post reconciliation
+- `src/gui/tray_icon.py`
+  - background presence, live pending count, and clickable scheduled-failure notifications
 - `src/gui/webview_panel.py`
   - hosts WebView post-confirm tabs and statuses
 - `src/platforms/*`
@@ -61,5 +68,8 @@ For SPA-heavy sites, "posted (link unavailable)" is an expected non-error state.
 
 ## Reliability Features
 - auto-save drafts and restore prompt
+- persistent scheduled-post queue with startup reconciliation
+- optional per-user start-at-login integration (Windows Run key / Linux XDG autostart)
+- scheduled failure reporting through system notifications and optional SMTP email
 - file logs + screenshot capture + upload workflow
 - non-blocking per-platform posting behavior

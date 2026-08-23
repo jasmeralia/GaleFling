@@ -54,10 +54,13 @@ next launch. Interrupted `in_flight` items are also recovered to `pending` at st
 
 Platform failures stay isolated: one account failing does not stop the other selected
 accounts, and a post with a mix of successes and failures is recorded as **failed** —
-GaleFling never silently discards which accounts actually went out. It logs the outcome
-and shows one consolidated system notification naming only the failed accounts. Clicking
-it, or the tray icon's **Scheduled Posts** menu item, opens the standard results dialog
-showing every account's outcome, including links for the ones that already succeeded.
+GaleFling never silently discards which accounts actually went out. In the queue's
+**Recent Activity** list, only the account(s) that actually failed get a red ring around
+their platform icon, so a partial failure reads as partial rather than as "everything
+here failed." GaleFling logs the outcome and shows one consolidated system notification
+naming only the failed accounts. Clicking it, or the tray icon's **Scheduled Posts** menu
+item, opens the standard results dialog showing every account's outcome, including links
+for the ones that already succeeded.
 If SMTP credentials and a notification address are configured, GaleFling also sends one
 durable failure email. Email and system notifications are best-effort and neither changes
 the recorded posting result. Optionally, **Settings → Advanced → SMTP → Also email me when

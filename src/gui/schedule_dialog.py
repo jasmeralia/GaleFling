@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from PyQt6.QtCore import QDateTime, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPainter, QPixmap
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QCalendarWidget,
@@ -115,21 +115,31 @@ def _section_heading(text: str) -> QLabel:
     return label
 
 
-def _platform_badge(platform_key: str, size: int = 30) -> QPixmap:
+_BADGE_BORDER = 3  # reserved on all sides so failed/ok badges share one footprint
+
+
+def _platform_badge(platform_key: str, size: int = 30, *, failed: bool = False) -> QPixmap:
     spec = PLATFORM_SPECS_MAP.get(platform_key)
-    pixmap = QPixmap(size, size)
+    total = size + _BADGE_BORDER * 2
+    pixmap = QPixmap(total, total)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    if failed:
+        pen = QPen(QColor(tokens.DANGER))
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(1, 1, total - 2, total - 2)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QColor(spec.platform_color if spec else tokens.BORDER))
-    painter.drawEllipse(1, 1, size - 2, size - 2)
+    painter.drawEllipse(_BADGE_BORDER + 1, _BADGE_BORDER + 1, size - 2, size - 2)
 
     icon_name = _BRAND_ICON_FILES.get(platform_key)
     if icon_name:
         icon_size = max(14, size - 13)
         icon = _render_svg_colored(_BRAND_ICONS_DIR / icon_name, icon_size, QColor(tokens.TEXT))
-        offset = (size - icon_size) // 2
+        offset = _BADGE_BORDER + (size - icon_size) // 2
         painter.drawPixmap(offset, offset, icon)
     else:
         font = QFont()
@@ -137,20 +147,24 @@ def _platform_badge(platform_key: str, size: int = 30) -> QPixmap:
         font.setPixelSize(max(12, size // 2))
         painter.setFont(font)
         painter.setPen(QColor(tokens.TEXT))
-        painter.drawText(pixmap.rect(), int(Qt.AlignmentFlag.AlignCenter), platform_key[:1].upper())
+        badge_rect = pixmap.rect().adjusted(
+            _BADGE_BORDER, _BADGE_BORDER, -_BADGE_BORDER, -_BADGE_BORDER
+        )
+        painter.drawText(badge_rect, int(Qt.AlignmentFlag.AlignCenter), platform_key[:1].upper())
     painter.end()
     return pixmap
 
 
-def _target_summary(names: list[str], keys: list[str]) -> QWidget:
+def _target_summary(names: list[str], keys: list[str], failed: list[bool] | None = None) -> QWidget:
     widget = QWidget()
     layout = QHBoxLayout(widget)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(5)
-    for name, key in zip(names, keys, strict=True):
+    failed = failed if failed is not None else [False] * len(names)
+    for name, key, is_failed in zip(names, keys, failed, strict=True):
         badge = QLabel()
-        badge.setPixmap(_platform_badge(key))
-        badge.setToolTip(name)
+        badge.setPixmap(_platform_badge(key, failed=is_failed))
+        badge.setToolTip(f'{name} — failed to post' if is_failed else name)
         layout.addWidget(badge)
     names_label = QLabel(', '.join(names))
     names_label.setWordWrap(True)
@@ -356,7 +370,11 @@ class ScheduledPostsDialog(QDialog):
         layout = QVBoxLayout(frame)
         account_names = [self._display_name(account_id) for account_id in post.account_ids]
         account_keys = [self._platform_key(account_id) for account_id in post.account_ids]
-        layout.addWidget(_target_summary(account_names, account_keys))
+        failed_ids = {
+            result.get('account_id') for result in post.results if not result.get('success')
+        }
+        account_failed = [account_id in failed_ids for account_id in post.account_ids]
+        layout.addWidget(_target_summary(account_names, account_keys, account_failed))
         preview = post.text.replace('\n', ' ')
         if len(preview) > 120:
             preview = preview[:117] + '…'

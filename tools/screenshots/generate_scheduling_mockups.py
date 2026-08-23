@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from PIL import Image
 from PyQt6.QtCore import QDate, QDateTime, QPoint, Qt, QTime
-from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap
+from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -104,16 +104,26 @@ def _save(image: Image.Image, name: str) -> None:
     print(f'Wrote {path} ({image.width}x{image.height})')
 
 
-def _platform_badge(platform_key: str, size: int = 28) -> QPixmap:
+_BADGE_BORDER = 3  # reserved on all sides so failed/ok badges share one footprint
+
+
+def _platform_badge(platform_key: str, size: int = 28, *, failed: bool = False) -> QPixmap:
     spec = PLATFORM_SPECS_MAP[platform_key]
-    pixmap = QPixmap(size, size)
+    total = size + _BADGE_BORDER * 2
+    pixmap = QPixmap(total, total)
     pixmap.fill(Qt.GlobalColor.transparent)
 
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    if failed:
+        pen = QPen(QColor(tokens.DANGER))
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(1, 1, total - 2, total - 2)
     painter.setBrush(QColor(spec.platform_color))
     painter.setPen(Qt.PenStyle.NoPen)
-    painter.drawEllipse(0, 0, size, size)
+    painter.drawEllipse(_BADGE_BORDER, _BADGE_BORDER, size, size)
 
     icon_file = _BRAND_ICON_FILES.get(platform_key)
     if icon_file:
@@ -121,16 +131,17 @@ def _platform_badge(platform_key: str, size: int = 28) -> QPixmap:
         icon_pixmap = _render_svg_colored(
             _ICONS_DIR / 'brands' / icon_file, icon_size, QColor(tokens.TEXT)
         )
-        offset = (size - icon_size) // 2
+        offset = _BADGE_BORDER + (size - icon_size) // 2
         painter.drawPixmap(offset, offset, icon_pixmap)
     painter.end()
     return pixmap
 
 
-def _badge_label(platform_key: str, size: int = 28) -> QLabel:
+def _badge_label(platform_key: str, size: int = 28, *, failed: bool = False) -> QLabel:
     label = QLabel()
-    label.setPixmap(_platform_badge(platform_key, size))
-    label.setFixedSize(size, size)
+    pixmap = _platform_badge(platform_key, size, failed=failed)
+    label.setPixmap(pixmap)
+    label.setFixedSize(pixmap.size())
     return label
 
 
@@ -236,18 +247,25 @@ _QUEUE_ITEMS = [
     {
         'state': 'pending',
         'platforms': ('bluesky', 'meta_instagram'),
+        'failed_platforms': frozenset(),
         'caption': 'Trying out scheduled posts today ✨',
         'due_line': 'Sat, Aug 22, 2026 · 9:00 AM  ·  in 18 hours',
     },
     {
+        # Mixed outcome: bluesky succeeded, facebook failed. The still-failed
+        # platform gets a danger-colored ring so a partial failure reads as
+        # partial, not as "everything here failed" -- see schedule_dialog.py's
+        # _platform_badge / _target_summary for the real (non-mockup) version.
         'state': 'failed',
-        'platforms': ('meta_facebook_page',),
+        'platforms': ('bluesky', 'meta_facebook_page'),
+        'failed_platforms': frozenset({'meta_facebook_page'}),
         'caption': 'Behind-the-scenes from this week’s shoot',
         'due_line': 'Was due Thu, Aug 20, 2026 · 6:00 PM · updated 2 hours ago',
     },
     {
         'state': 'posted',
         'platforms': ('twitter',),
+        'failed_platforms': frozenset(),
         'caption': 'Quick update for everyone — more soon!',
         'due_line': 'Was due Wed, Aug 19, 2026 · 11:30 AM · updated 1 day ago',
     },
@@ -265,7 +283,7 @@ def _queue_row(item: dict) -> QFrame:
 
     badges_row = QHBoxLayout()
     for key in item['platforms']:
-        badges_row.addWidget(_badge_label(key, size=26))
+        badges_row.addWidget(_badge_label(key, size=26, failed=key in item['failed_platforms']))
     badges_row.addStretch()
     layout.addLayout(badges_row)
 

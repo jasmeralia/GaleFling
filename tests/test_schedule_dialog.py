@@ -12,7 +12,12 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.scheduled_post_queue import ScheduledPostQueue
-from src.gui.schedule_dialog import MissedPostDialog, ScheduleDialog, ScheduledPostsDialog
+from src.gui.schedule_dialog import (
+    MissedPostDialog,
+    ScheduleDialog,
+    ScheduledPostsDialog,
+    _platform_badge,
+)
 
 
 def test_schedule_dialog_uses_combined_editor_and_separate_calendar_button(qtbot):
@@ -163,6 +168,52 @@ def test_scheduled_posts_dialog_shows_history_with_state_specific_actions(qtbot,
     view_buttons[0].click()
     assert len(viewed) == 1
     assert viewed[0].id in {posted.id, failed.id}
+
+
+def test_platform_badge_draws_danger_ring_only_when_failed():
+    ok_image = _platform_badge('twitter', failed=False).toImage()
+    failed_image = _platform_badge('twitter', failed=True).toImage()
+
+    assert ok_image.size() == failed_image.size()
+    # The badge circle itself doesn't reach the outermost pixels (they're
+    # reserved as border space -- see _BADGE_BORDER), so this point is only
+    # ever painted when the danger ring is drawn.
+    top_center_x = ok_image.width() // 2
+    assert ok_image.pixelColor(top_center_x, 1).alpha() == 0
+    assert failed_image.pixelColor(top_center_x, 1).alpha() > 0
+
+
+def test_scheduled_posts_dialog_marks_only_the_failed_account_in_a_mixed_result(qtbot, tmp_path):
+    queue = ScheduledPostQueue(tmp_path / 'queue.sqlite3')
+    post = queue.add(
+        text='mixed caption',
+        account_ids=['twitter_1', 'bluesky_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now().astimezone() - timedelta(minutes=3),
+    )
+    queue.claim_due()
+    queue.mark_results(
+        post.id,
+        [
+            {'account_id': 'twitter_1', 'success': True},
+            {'account_id': 'bluesky_1', 'success': False},
+        ],
+    )
+    names = {'twitter_1': 'Twitter (main)', 'bluesky_1': 'Bluesky (main)'}
+
+    dialog = ScheduledPostsDialog(
+        queue,
+        lambda account_id: names[account_id],
+        None,
+        platform_key=lambda account_id: account_id.split('_')[0],
+    )
+    qtbot.addWidget(dialog)
+
+    tooltips = {label.toolTip() for label in dialog.findChildren(QLabel) if label.toolTip()}
+    assert 'Bluesky (main) — failed to post' in tooltips
+    assert 'Twitter (main)' in tooltips
+    assert 'Twitter (main) — failed to post' not in tooltips
 
 
 def test_scheduled_posts_dialog_dismiss_deletes_history_record(qtbot, tmp_path, monkeypatch):

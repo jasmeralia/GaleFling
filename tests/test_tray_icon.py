@@ -18,6 +18,14 @@ def _make_tray(qtbot):
     return tray
 
 
+def test_tray_context_menu_options_are_alphabetical(qtbot):
+    tray = _make_tray(qtbot)
+
+    labels = [action.text() for action in tray.contextMenu().actions()]
+
+    assert labels == sorted(labels)
+
+
 def test_tray_actions_log_and_pending_count_updates(qtbot, monkeypatch):
     messages = []
     calls = []

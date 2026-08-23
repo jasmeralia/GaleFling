@@ -451,17 +451,14 @@ def capture_settings_start_at_login(app: QApplication) -> None:
 
 
 def capture_tray_menu(app: QApplication) -> None:
-    """The tray icon's right-click menu, offered once background/tray operation ships."""
+    """The tray icon's right-click menu -- alphabetical, matching tray_icon.py."""
     menu = QMenu()
     apply_theme(app)
-    menu.addAction('Show GaleFling')
-    menu.addSeparator()
-    menu.addAction('Scheduled Posts (3)')
-    menu.addSeparator()
-    menu.addAction('Check for Updates')
     menu.addAction('About')
-    menu.addSeparator()
+    menu.addAction('Check for Updates')
     menu.addAction('Exit')
+    menu.addAction('Scheduled Posts (3)')
+    menu.addAction('Show GaleFling')
     menu.move(0, 0)
     menu.show()
     QApplication.processEvents()

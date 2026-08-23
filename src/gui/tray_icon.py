@@ -41,15 +41,13 @@ class TrayIcon(QSystemTrayIcon):
         self._has_pending = False
         self._has_unseen_failure = False
         self._failure_callback: Callable[[], None] | None = None
+        # Alphabetical, per user preference -- not grouped by function.
         menu = QMenu(parent)
-        self._add_action(menu, 'Show GaleFling', show_window)
-        menu.addSeparator()
-        self._scheduled_action = self._add_action(menu, 'Scheduled Posts (0)', show_scheduled)
-        menu.addSeparator()
-        self._add_action(menu, 'Check for Updates', check_updates)
         self._add_action(menu, 'About', show_about)
-        menu.addSeparator()
+        self._add_action(menu, 'Check for Updates', check_updates)
         self._add_action(menu, 'Exit', exit_app)
+        self._scheduled_action = self._add_action(menu, 'Scheduled Posts (0)', show_scheduled)
+        self._add_action(menu, 'Show GaleFling', show_window)
         self.setContextMenu(menu)
         self.activated.connect(
             lambda reason: (

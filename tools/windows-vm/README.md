@@ -91,6 +91,32 @@ run, so it always matches the host working tree. Credentials are read from
 `Z:\tests\functional\.env` via `GALEFLING_FUNCTIONAL_ENV` and are never written to the
 guest disk.
 
+## Build a Windows executable or installer
+
+```bash
+make win-vm-installer                        # dist/GaleFling.exe + build/GaleFling-Setup-*.exe
+make win-vm-installer BUILD_ARGS="--exe-only" # dist/GaleFling.exe only
+make win-vm-installer-clean                   # revert to the baseline snapshot first
+```
+
+Useful for producing a Windows build of a branch to test manually before it merges
+to `master`, without creating a git tag or touching `.github/workflows/release.yml`
+(which only ever builds from `master` or an existing `refs/tags/vX.Y.Z`, and would
+pollute the tag history used to compute the next release version if abused for
+this). `build-installer.sh` regenerates `src/utils/_version.py` on the host from
+`git describe` against whatever is currently checked out, syncs the guest copy,
+builds with PyInstaller, and copies `dist\GaleFling.exe` back through the VirtIO-FS
+share into this repo's own (gitignored) `dist/`.
+
+By default it also bootstraps Chocolatey from the official
+`community.chocolatey.org` installer and installs NSIS on the guest if neither is
+already present, then builds `build/GaleFling-Setup-*.exe` the same way CI does.
+That installs software on the guest, drifting it away from the `clean-loggedout`
+baseline — pair a default run with `--revert`/`win-vm-installer-clean`, or run
+`snapshot-vm.sh revert clean-loggedout` yourself afterward, before relying on the
+VM for isolated functional-test runs again. Pass `--exe-only` to skip the NSIS
+stage entirely and avoid that drift.
+
 ## Repository sharing
 
 The live repository is mounted as `Z:` through VirtIO-FS. The finalizer also makes

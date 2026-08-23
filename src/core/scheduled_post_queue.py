@@ -152,7 +152,7 @@ class ScheduledPostQueue:
                 """
                 UPDATE scheduled_posts
                 SET text = ?, account_ids = ?, media_paths = ?, processed_media = ?,
-                    due_at = ?, updated_at = ?, state = 'pending', results = '[]'
+                    due_at = ?, updated_at = ?, state = 'pending'
                 WHERE id = ?
                 """,
                 (
@@ -193,6 +193,16 @@ class ScheduledPostQueue:
             "SELECT * FROM scheduled_posts WHERE state = 'pending' AND due_at <= ? ORDER BY due_at",
             (cutoff,),
         )
+
+    def list_history(self, limit: int = 25) -> list[ScheduledPost]:
+        """Most-recently-updated posted/failed posts, for the queue dialog's history section."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM scheduled_posts WHERE state IN ('posted', 'failed') "
+                'ORDER BY updated_at DESC LIMIT ?',
+                (limit,),
+            ).fetchall()
+        return [self._from_row(row) for row in rows]
 
     def claim_due(
         self,
@@ -238,15 +248,31 @@ class ScheduledPostQueue:
         return cursor.rowcount
 
     def mark_results(self, post_id: str, results: list[dict]) -> ScheduledPost:
-        state = (
-            'posted'
-            if results and all(bool(result.get('success')) for result in results)
-            else 'failed'
-        )
+        """Merge a completed attempt's results into the post's stored history.
+
+        Merging (rather than overwriting) by ``account_id`` lets a retry that only
+        re-attempts previously-failed accounts keep the results of accounts that
+        already succeeded, so a post only reaches 'posted' once every account it
+        has ever been attempted for has succeeded.
+        """
         with self._connect() as connection:
+            row = connection.execute(
+                'SELECT results FROM scheduled_posts WHERE id = ?', (post_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(post_id)
+            merged = {entry.get('account_id'): entry for entry in json.loads(row['results'])}
+            for entry in results:
+                merged[entry.get('account_id')] = entry
+            merged_results = list(merged.values())
+            state = (
+                'posted'
+                if merged_results and all(bool(entry.get('success')) for entry in merged_results)
+                else 'failed'
+            )
             cursor = connection.execute(
                 'UPDATE scheduled_posts SET state = ?, results = ?, updated_at = ? WHERE id = ?',
-                (state, json.dumps(results, default=str), _utc_now().isoformat(), post_id),
+                (state, json.dumps(merged_results, default=str), _utc_now().isoformat(), post_id),
             )
             if cursor.rowcount != 1:
                 raise KeyError(post_id)

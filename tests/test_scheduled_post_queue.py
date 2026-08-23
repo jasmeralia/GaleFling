@@ -74,6 +74,107 @@ def test_mark_results_and_recover_interrupted_post(tmp_path):
     assert queue.list_pending() == []
 
 
+def test_mark_results_merges_by_account_id_across_attempts(tmp_path):
+    queue = _queue(tmp_path)
+    post = queue.add(
+        text='caption',
+        account_ids=['twitter_1', 'bluesky_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    assert queue.claim_due().id == post.id
+    first = queue.mark_results(
+        post.id,
+        [
+            {'account_id': 'twitter_1', 'success': True, 'post_url': 'https://x/1'},
+            {'account_id': 'bluesky_1', 'success': False, 'error_message': 'nope'},
+        ],
+    )
+    assert first.state == 'failed'
+
+    # Retry only the failed account — account_ids narrows to just bluesky_1.
+    updated = queue.update(
+        post.id,
+        text='caption',
+        account_ids=['bluesky_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    assert updated.state == 'pending'
+    # Prior results (including twitter_1's success) must survive the edit —
+    # that's what mark_results() has to merge into after the retry attempt.
+    assert {r['account_id']: r['success'] for r in updated.results} == {
+        'twitter_1': True,
+        'bluesky_1': False,
+    }
+
+    assert queue.claim_due().id == post.id
+    final = queue.mark_results(
+        post.id, [{'account_id': 'bluesky_1', 'success': True, 'post_url': 'https://b/1'}]
+    )
+    assert final.state == 'posted'
+    assert {r['account_id']: r['success'] for r in final.results} == {
+        'twitter_1': True,
+        'bluesky_1': True,
+    }
+
+
+def test_update_preserves_prior_results_for_plain_reschedule(tmp_path):
+    queue = _queue(tmp_path)
+    post = queue.add(
+        text='caption',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    updated = queue.update(
+        post.id,
+        text='caption v2',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) + timedelta(hours=2),
+    )
+    assert updated.results == ()
+
+
+def test_list_history_returns_posted_and_failed_newest_first(tmp_path):
+    queue = _queue(tmp_path)
+    older = queue.add(
+        text='older',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=5),
+    )
+    newer = queue.add(
+        text='newer',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    still_pending = queue.add(
+        text='pending',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+
+    assert queue.claim_due(exclude_ids={newer.id, still_pending.id}).id == older.id
+    queue.mark_results(older.id, [{'account_id': 'twitter_1', 'success': True}])
+    assert queue.claim_due(exclude_ids={still_pending.id}).id == newer.id
+    queue.mark_results(newer.id, [{'account_id': 'twitter_1', 'success': False}])
+
+    history = queue.list_history()
+    assert [item.id for item in history] == [newer.id, older.id]
+    assert still_pending.id not in [item.id for item in history]
+
+
 def test_update_replaces_owned_media_and_delete_cleans_directory(tmp_path):
     queue = _queue(tmp_path)
     first = tmp_path / 'first.png'

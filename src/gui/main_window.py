@@ -585,6 +585,9 @@ class MainWindow(QMainWindow):
         self._platform_selector = PlatformSelector()
         self._platform_selector.set_selected(self._config.last_selected_platforms)
         self._platform_selector.selection_changed.connect(self._on_platforms_changed)
+        self._platform_selector.locked_platform_clicked.connect(
+            self._confirm_unlock_scheduled_account
+        )
         layout.addWidget(self._platform_selector)
 
         # Separator
@@ -1515,7 +1518,9 @@ class MainWindow(QMainWindow):
             )
             self._deferred_missed_ids.discard(editing.id)
             self._editing_scheduled_post = None
-            message = f'Post rescheduled for {post.due_at.astimezone():%b %d, %Y at %I:%M %p}.'
+            self._platform_selector.clear_locks()
+            verb = 'retried' if editing.state == 'failed' else 'rescheduled'
+            message = f'Post {verb} for {post.due_at.astimezone():%b %d, %Y at %I:%M %p}.'
         else:
             post = self._scheduled_queue.add(
                 text=text,
@@ -1541,6 +1546,8 @@ class MainWindow(QMainWindow):
         self._clear_count_restriction()
 
     def _show_scheduled_posts(self) -> None:
+        # Cleared unconditionally on viewing, not gated on the failure being fixed.
+        self._tray.clear_failure_indicator()
         dialog = ScheduledPostsDialog(
             self._scheduled_queue,
             self._get_platform_display_name,
@@ -1559,21 +1566,83 @@ class MainWindow(QMainWindow):
             if self._composer.get_text().strip():
                 self._schedule_current_post()
 
+        def view_results(post: ScheduledPost) -> None:
+            self._show_results_for_scheduled_post(post)
+
         dialog.edit_requested.connect(edit)
         dialog.new_requested.connect(create_new)
+        dialog.view_results_requested.connect(view_results)
         dialog.queue_changed.connect(self._update_scheduled_count)
+        dialog.exec()
+
+    def _show_results_for_scheduled_post(self, post: ScheduledPost) -> None:
+        results = [PostResult(**entry) for entry in post.results]
+        dialog = ResultsDialog(results, self)
+        self._apply_dialog_theme(dialog)
         dialog.exec()
 
     def _load_scheduled_post_for_edit(self, post: ScheduledPost) -> None:
         self._show_main_window()
         self._editing_scheduled_post = post
+        self._platform_selector.clear_locks()
         self._composer.set_text(post.text)
         self._composer.set_media_paths(list(post.media_paths))
         self._processed_media = {
             group: list(paths) for group, paths in post.processed_media.items()
         }
-        self._platform_selector.set_selected(list(post.account_ids))
-        self._status_bar.showMessage('Editing scheduled post — use the calendar to reschedule it')
+        if post.state == 'failed':
+            succeeded_ids = {
+                result.get('account_id') for result in post.results if result.get('success')
+            }
+            retry_ids = [
+                account_id for account_id in post.account_ids if account_id not in succeeded_ids
+            ]
+            for account_id in succeeded_ids:
+                self._platform_selector.set_platform_locked(
+                    str(account_id),
+                    True,
+                    tooltip=(
+                        f'Already posted successfully to '
+                        f'{self._get_platform_display_name(str(account_id))} — '
+                        'click to include it in this retry anyway.'
+                    ),
+                )
+            self._platform_selector.set_selected(retry_ids)
+            if succeeded_ids:
+                names = ', '.join(
+                    self._get_platform_display_name(str(account_id))
+                    for account_id in post.account_ids
+                    if account_id in succeeded_ids
+                )
+                self._status_bar.showMessage(
+                    f'Editing failed post — already posted to {names}; retry will not resend '
+                    'to them unless you click them to override.'
+                )
+            else:
+                self._status_bar.showMessage(
+                    'Editing failed post — use the calendar to reschedule it'
+                )
+        else:
+            self._platform_selector.set_selected(list(post.account_ids))
+            self._status_bar.showMessage(
+                'Editing scheduled post — use the calendar to reschedule it'
+            )
+
+    def _confirm_unlock_scheduled_account(self, account_id: str) -> None:
+        name = self._get_platform_display_name(account_id)
+        answer = QMessageBox.warning(
+            self,
+            'Re-send to an Already-Posted Platform?',
+            f'{name} already received this scheduled post successfully. Re-sending will '
+            'publish a duplicate unless you deleted the original post there.\n\n'
+            'Include it in this retry anyway?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._platform_selector.set_platform_locked(account_id, False)
+        self._platform_selector.set_selected([*self._platform_selector.get_selected(), account_id])
 
     def _start_scheduling(self) -> None:
         if getattr(self, '_scheduling_started', False):
@@ -1657,10 +1726,15 @@ class MainWindow(QMainWindow):
         self._active_scheduled_post = None
         self._scheduled_worker = None
         self._update_scheduled_count()
+        # saved.results is the full merged history across every attempt this post has
+        # ever had, not just this round — a retry that fixes one account must still
+        # show the accounts that already succeeded in an earlier attempt.
+        merged_results = [PostResult(**entry) for entry in saved.results]
         if saved.state == 'failed':
-            self._handle_scheduled_failure(saved, results)
+            self._handle_scheduled_failure(saved, merged_results)
         else:
             get_logger().info('Scheduled post published', extra={'scheduled_post_id': saved.id})
+            self._handle_scheduled_success(saved, merged_results)
         QTimer.singleShot(0, self._poll_scheduled_posts)
 
     def _handle_scheduled_failure(self, post: ScheduledPost, results: list[PostResult]) -> None:
@@ -1675,6 +1749,7 @@ class MainWindow(QMainWindow):
         )
         self._last_scheduled_failure_results = results
         self._tray.show_failure(failed_names, self._show_last_scheduled_failure)
+        self._tray.mark_failure_unseen()
         credentials = self._auth_manager.get_smtp_credentials()
         recipient = self._config.notification_email
         if not credentials or not recipient:
@@ -1702,6 +1777,38 @@ class MainWindow(QMainWindow):
             if not ok:
                 get_logger().error(
                     'Scheduled failure email could not be sent', extra={'error': message}
+                )
+
+        worker.finished.connect(finished)
+        worker.start()
+
+    def _handle_scheduled_success(self, post: ScheduledPost, results: list[PostResult]) -> None:
+        if not self._config.notify_on_scheduled_success:
+            return
+        credentials = self._auth_manager.get_smtp_credentials()
+        recipient = self._config.notification_email
+        if not credentials or not recipient:
+            return
+        details = '\n'.join(
+            f'- {result.platform or self._get_platform_display_name(result.account_id or "")}: '
+            f'{result.post_url or "(link unavailable)"}'
+            for result in results
+        )
+        worker = EmailNotificationWorker(
+            credentials,
+            recipient,
+            'GaleFling scheduled post published',
+            'A scheduled post was published successfully.\n\n'
+            f'Scheduled for: {post.due_at.astimezone():%b %d, %Y at %I:%M %p}\n'
+            f'Accounts:\n{details}\n\nOpen GaleFling for complete results.',
+        )
+        self._email_workers.add(worker)
+
+        def finished(ok: bool, message: str, item=worker) -> None:
+            self._email_workers.discard(item)
+            if not ok:
+                get_logger().error(
+                    'Scheduled success email could not be sent', extra={'error': message}
                 )
 
         worker.finished.connect(finished)
@@ -2016,10 +2123,15 @@ class MainWindow(QMainWindow):
 
         # Clear all credentials and reset config
         self._auth_manager.clear_all_credentials()
-        if self._config.autostart_enabled:
-            with contextlib.suppress(OSError):
-                set_autostart(False, start_minimized=False)
         self._config.reset_to_defaults()
+        # Sync the OS-level entry to whatever the reset config now says (the
+        # default is on, matching a fresh install) rather than only ever
+        # disabling it -- see config_manager.DEFAULT_CONFIG's autostart_enabled.
+        with contextlib.suppress(OSError):
+            set_autostart(
+                self._config.autostart_enabled,
+                start_minimized=self._config.autostart_launch_mode == 'tray',
+            )
 
         get_logger().info('Configuration reset to defaults')
         self._show_message_box(

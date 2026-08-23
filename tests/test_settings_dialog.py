@@ -167,7 +167,10 @@ def test_settings_dialog_reports_autostart_error_without_persisting_choice(
             'GaleFling could not update the start-at-login setting:\npermission denied',
         )
     ]
-    assert config.autostart_enabled is False
+    # A failed OS-level update must not persist the checkbox's new choice --
+    # the config value should stay at whatever it already was (the default,
+    # here), not flip to match the unsaved checkbox state.
+    assert config.autostart_enabled is True
     assert config.autostart_launch_mode == 'tray'
     assert dialog.result() == 0
 
@@ -706,6 +709,22 @@ def test_settings_dialog_notification_email_load_and_save(qtbot, tmp_path, monke
     dialog._save_and_close()
 
     assert config.notification_email == 'jas@example.com'
+
+
+def test_settings_dialog_notify_on_scheduled_success_load_and_save(qtbot, tmp_path, monkeypatch):
+    config = _make_config(tmp_path, monkeypatch)
+    auth = _make_auth(tmp_path, monkeypatch)
+    config.notify_on_scheduled_success = True
+
+    dialog = SettingsDialog(config, auth)
+    qtbot.addWidget(dialog)
+
+    assert dialog._notify_on_success_cb.isChecked() is True
+
+    dialog._notify_on_success_cb.setChecked(False)
+    dialog._save_and_close()
+
+    assert config.notify_on_scheduled_success is False
 
 
 def test_settings_dialog_test_smtp_connection_requires_notification_email(

@@ -110,6 +110,91 @@ def test_scheduled_posts_dialog_edit_cancel_and_empty_state(qtbot, tmp_path, mon
     assert any(label.text() == 'No posts scheduled' for label in dialog.findChildren(QLabel))
 
 
+def test_scheduled_posts_dialog_shows_history_with_state_specific_actions(qtbot, tmp_path):
+    queue = ScheduledPostQueue(tmp_path / 'queue.sqlite3')
+    posted = queue.add(
+        text='posted caption',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now().astimezone() - timedelta(minutes=5),
+    )
+    failed = queue.add(
+        text='failed caption',
+        account_ids=['bluesky_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now().astimezone() - timedelta(minutes=3),
+    )
+    queue.claim_due()
+    queue.mark_results(posted.id, [{'account_id': 'twitter_1', 'success': True}])
+    queue.claim_due()
+    queue.mark_results(failed.id, [{'account_id': 'bluesky_1', 'success': False}])
+
+    dialog = ScheduledPostsDialog(
+        queue,
+        lambda _account_id: 'Account',
+        None,
+        platform_key=lambda _account_id: 'twitter',
+    )
+    qtbot.addWidget(dialog)
+
+    labels = [label.text() for label in dialog.findChildren(QLabel)]
+    assert 'POSTED' in labels
+    assert 'FAILED' in labels
+
+    view_buttons = [
+        button for button in dialog.findChildren(QPushButton) if button.text() == 'View Results'
+    ]
+    assert len(view_buttons) == 2
+
+    retry_buttons = [
+        button for button in dialog.findChildren(QPushButton) if button.text() == 'Edit && Retry'
+    ]
+    assert len(retry_buttons) == 1
+
+    dismiss_buttons = [
+        button for button in dialog.findChildren(QPushButton) if button.text() == 'Dismiss'
+    ]
+    assert len(dismiss_buttons) == 2
+
+    viewed = []
+    dialog.view_results_requested.connect(viewed.append)
+    view_buttons[0].click()
+    assert len(viewed) == 1
+    assert viewed[0].id in {posted.id, failed.id}
+
+
+def test_scheduled_posts_dialog_dismiss_deletes_history_record(qtbot, tmp_path, monkeypatch):
+    queue = ScheduledPostQueue(tmp_path / 'queue.sqlite3')
+    post = queue.add(
+        text='posted caption',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now().astimezone() - timedelta(minutes=5),
+    )
+    queue.claim_due()
+    queue.mark_results(post.id, [{'account_id': 'twitter_1', 'success': True}])
+
+    dialog = ScheduledPostsDialog(
+        queue,
+        lambda _account_id: 'Account',
+        None,
+        platform_key=lambda _account_id: 'twitter',
+    )
+    qtbot.addWidget(dialog)
+    monkeypatch.setattr(QMessageBox, 'question', lambda *_args: QMessageBox.StandardButton.Yes)
+
+    dismiss = next(
+        button for button in dialog.findChildren(QPushButton) if button.text() == 'Dismiss'
+    )
+    dismiss.click()
+
+    assert queue.list_history() == []
+    assert any(label.text() == 'No posts scheduled' for label in dialog.findChildren(QLabel))
+
+
 def test_missed_post_dialog_actions(qtbot, tmp_path):
     queue = ScheduledPostQueue(tmp_path / 'queue.sqlite3')
     post = queue.add(

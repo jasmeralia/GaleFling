@@ -57,7 +57,7 @@ def _format_due(value: datetime) -> str:
     return _local_datetime(value).strftime('%a, %b %d, %Y · %I:%M %p').replace(' 0', ' ')
 
 
-def _format_relative_due(value: datetime) -> str:
+def _relative_amount_label(value: datetime) -> tuple[str, bool]:
     seconds = int((_local_datetime(value) - datetime.now().astimezone()).total_seconds())
     overdue = seconds < 0
     seconds = abs(seconds)
@@ -70,8 +70,49 @@ def _format_relative_due(value: datetime) -> str:
     else:
         amount = max(1, seconds // 86400)
         unit = 'day'
-    label = f'{amount} {unit}{"s" if amount != 1 else ""}'
+    return f'{amount} {unit}{"s" if amount != 1 else ""}', overdue
+
+
+def _format_relative_due(value: datetime) -> str:
+    label, overdue = _relative_amount_label(value)
     return f'{label} overdue' if overdue else f'in {label}'
+
+
+def _format_time_ago(value: datetime) -> str:
+    label, _overdue = _relative_amount_label(value)
+    return f'{label} ago'
+
+
+_STATUS_STYLES = {
+    'pending': (tokens.ACCENT, 'PENDING'),
+    'posted': (tokens.SUCCESS, 'POSTED'),
+    'failed': (tokens.DANGER, 'FAILED'),
+}
+
+
+def _status_label(state: str) -> QLabel:
+    color, text = _STATUS_STYLES.get(state, (tokens.TEXT_SECONDARY, state.upper()))
+    label = QLabel(text)
+    label.setStyleSheet(
+        f'color: {color}; border: 1px solid {color}; '
+        'border-radius: 8px; padding: 2px 7px; font-weight: bold;'
+    )
+    return label
+
+
+def _danger_button_style() -> str:
+    return (
+        f'color: {tokens.DANGER}; border: 1px solid {tokens.DANGER}; '
+        'background: transparent; padding: 5px 12px; border-radius: 4px;'
+    )
+
+
+def _section_heading(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setStyleSheet(
+        f'color: {tokens.TEXT_SECONDARY}; font-weight: bold; font-size: 12px; margin-top: 6px;'
+    )
+    return label
 
 
 def _platform_badge(platform_key: str, size: int = 30) -> QPixmap:
@@ -245,6 +286,7 @@ class ScheduledPostsDialog(QDialog):
     edit_requested = pyqtSignal(object)
     new_requested = pyqtSignal()
     queue_changed = pyqtSignal()
+    view_results_requested = pyqtSignal(object)
 
     def __init__(
         self,
@@ -285,14 +327,23 @@ class ScheduledPostsDialog(QDialog):
         container = QWidget()
         rows = QVBoxLayout(container)
         pending = self._queue.list_pending()
-        if not pending:
+        history = self._queue.list_history()
+        if not pending and not history:
             empty = QLabel('No posts scheduled')
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             rows.addStretch()
             rows.addWidget(empty)
             rows.addStretch()
-        for post in pending:
-            rows.addWidget(self._build_row(post))
+        else:
+            if pending:
+                if history:
+                    rows.addWidget(_section_heading('Pending'))
+                for post in pending:
+                    rows.addWidget(self._build_row(post))
+            if history:
+                rows.addWidget(_section_heading('Recent Activity'))
+                for post in history:
+                    rows.addWidget(self._build_row(post))
         rows.addStretch()
         old = self._scroll.takeWidget()
         if old is not None:
@@ -312,36 +363,49 @@ class ScheduledPostsDialog(QDialog):
         caption = QLabel(preview)
         caption.setWordWrap(True)
         layout.addWidget(caption)
-        due = QLabel(f'{_format_due(post.due_at)} · {_format_relative_due(post.due_at)}')
+        if post.state == 'pending':
+            due_text = f'{_format_due(post.due_at)} · {_format_relative_due(post.due_at)}'
+        else:
+            due_text = (
+                f'Was due {_format_due(post.due_at)} · updated {_format_time_ago(post.updated_at)}'
+            )
+        due = QLabel(due_text)
         due.setStyleSheet(f'color: {tokens.TEXT_SECONDARY};')
         layout.addWidget(due)
         actions = QHBoxLayout()
-        status = QLabel('PENDING')
-        status.setStyleSheet(
-            f'color: {tokens.ACCENT}; border: 1px solid {tokens.ACCENT}; '
-            'border-radius: 8px; padding: 2px 7px; font-weight: bold;'
-        )
-        actions.addWidget(status)
+        actions.addWidget(_status_label(post.state))
         actions.addStretch()
-        edit = QPushButton('Edit')
-        edit.clicked.connect(lambda _=False, item=post: self.edit_requested.emit(item))
-        actions.addWidget(edit)
-        cancel = QPushButton('Cancel')
-        cancel.setStyleSheet(
-            f'color: {tokens.DANGER}; border: 1px solid {tokens.DANGER}; '
-            'background: transparent; padding: 5px 12px; border-radius: 4px;'
-        )
-        cancel.clicked.connect(lambda _=False, item=post: self._cancel(item))
-        actions.addWidget(cancel)
+        if post.state == 'pending':
+            edit = QPushButton('Edit')
+            edit.clicked.connect(lambda _=False, item=post: self.edit_requested.emit(item))
+            actions.addWidget(edit)
+            cancel = QPushButton('Cancel')
+            cancel.setStyleSheet(_danger_button_style())
+            cancel.clicked.connect(lambda _=False, item=post: self._remove(item))
+            actions.addWidget(cancel)
+        else:
+            view = QPushButton('View Results')
+            view.clicked.connect(lambda _=False, item=post: self.view_results_requested.emit(item))
+            actions.addWidget(view)
+            if post.state == 'failed':
+                retry = QPushButton('Edit && Retry')
+                retry.clicked.connect(lambda _=False, item=post: self.edit_requested.emit(item))
+                actions.addWidget(retry)
+            dismiss = QPushButton('Dismiss')
+            dismiss.setStyleSheet(_danger_button_style())
+            dismiss.clicked.connect(lambda _=False, item=post: self._remove(item))
+            actions.addWidget(dismiss)
         layout.addLayout(actions)
         return frame
 
-    def _cancel(self, post: ScheduledPost) -> None:
-        answer = QMessageBox.question(
-            self,
-            'Cancel Scheduled Post',
-            'Remove this scheduled post from the queue? This cannot be undone.',
-        )
+    def _remove(self, post: ScheduledPost) -> None:
+        if post.state == 'pending':
+            title = 'Cancel Scheduled Post'
+            message = 'Remove this scheduled post from the queue? This cannot be undone.'
+        else:
+            title = 'Dismiss Post Record'
+            message = 'Remove this record from the queue? This cannot be undone.'
+        answer = QMessageBox.question(self, title, message)
         if answer != QMessageBox.StandardButton.Yes:
             return
         self._queue.delete(post.id)

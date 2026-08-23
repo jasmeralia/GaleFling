@@ -51,13 +51,13 @@ from PyQt6.QtWidgets import (
     QMenu,
     QPushButton,
     QVBoxLayout,
-    QWidget,
 )
 
 from src.core.auth_manager import AuthManager
 from src.core.config_manager import ConfigManager
 from src.gui.post_composer import PostComposer
 from src.gui.results_dialog import _render_svg_colored
+from src.gui.schedule_dialog import _danger_button_style, _section_heading, _status_label
 from src.gui.settings_dialog import SettingsDialog
 from src.utils import tokens
 from src.utils.constants import PLATFORM_SPECS_MAP
@@ -131,15 +131,6 @@ def _badge_label(platform_key: str, size: int = 28) -> QLabel:
     label = QLabel()
     label.setPixmap(_platform_badge(platform_key, size))
     label.setFixedSize(size, size)
-    return label
-
-
-def _status_pill(text: str, color: str) -> QLabel:
-    label = QLabel(text)
-    label.setStyleSheet(
-        f'QLabel {{ background-color: {tokens.with_alpha(color, 0.18)}; color: {color}; '
-        'border-radius: 8px; padding: 2px 10px; font-weight: 600; }'
-    )
     return label
 
 
@@ -235,74 +226,98 @@ def build_schedule_dialog() -> QDialog:
     return dialog
 
 
+# One of each state real ScheduledPostsDialog.refresh() can render, matching its
+# Pending / Recent Activity split and per-state action buttons (schedule_dialog.py's
+# _build_row). The due/updated text is baked in as static strings rather than
+# computed from datetime.now(), like _build_row's _format_relative_due /
+# _format_time_ago do, so re-running this script doesn't churn the PNG on every
+# regeneration.
 _QUEUE_ITEMS = [
     {
+        'state': 'pending',
         'platforms': ('bluesky', 'meta_instagram'),
         'caption': 'Trying out scheduled posts today ✨',
-        'due': 'Aug 22, 2026 · 9:00 AM',
-        'relative': 'in 18 hours',
+        'due_line': 'Sat, Aug 22, 2026 · 9:00 AM  ·  in 18 hours',
     },
     {
+        'state': 'failed',
         'platforms': ('meta_facebook_page',),
         'caption': 'Behind-the-scenes from this week’s shoot',
-        'due': 'Aug 23, 2026 · 6:00 PM',
-        'relative': 'in 2 days',
+        'due_line': 'Was due Thu, Aug 20, 2026 · 6:00 PM · updated 2 hours ago',
     },
     {
+        'state': 'posted',
         'platforms': ('twitter',),
         'caption': 'Quick update for everyone — more soon!',
-        'due': 'Aug 25, 2026 · 11:30 AM',
-        'relative': 'in 4 days',
+        'due_line': 'Was due Wed, Aug 19, 2026 · 11:30 AM · updated 1 day ago',
     },
 ]
 
 
+def _queue_row(item: dict) -> QFrame:
+    frame = QFrame()
+    frame.setFrameShape(QFrame.Shape.StyledPanel)
+    layout = QVBoxLayout(frame)
+    # Contents margins, not frame.setStyleSheet('QFrame { padding; margin }') --
+    # that combination corrupts child layout under the offscreen backend (see
+    # the results_dialog.py finding in SCHEDULING_UI_DESIGN.md's changelog).
+    layout.setContentsMargins(8, 8, 8, 8)
+
+    badges_row = QHBoxLayout()
+    for key in item['platforms']:
+        badges_row.addWidget(_badge_label(key, size=26))
+    badges_row.addStretch()
+    layout.addLayout(badges_row)
+
+    caption = QLabel(item['caption'])
+    caption.setWordWrap(True)
+    layout.addWidget(caption)
+
+    due_label = QLabel(item['due_line'])
+    due_label.setStyleSheet(f'color: {tokens.TEXT_MUTED};')
+    layout.addWidget(due_label)
+
+    actions = QHBoxLayout()
+    actions.addWidget(_status_label(item['state']))
+    actions.addStretch()
+    if item['state'] == 'pending':
+        actions.addWidget(QPushButton('Edit'))
+        cancel_btn = QPushButton('Cancel')
+        cancel_btn.setStyleSheet(_danger_button_style())
+        actions.addWidget(cancel_btn)
+    else:
+        actions.addWidget(QPushButton('View Results'))
+        if item['state'] == 'failed':
+            actions.addWidget(QPushButton('Edit && Retry'))
+        dismiss_btn = QPushButton('Dismiss')
+        dismiss_btn.setStyleSheet(_danger_button_style())
+        actions.addWidget(dismiss_btn)
+    layout.addLayout(actions)
+
+    return frame
+
+
 def build_queue_dialog() -> QDialog:
-    """Queue management: pending items with per-item Edit/Cancel, satisfying R2."""
+    """Queue management: pending, successful, and failed posts, satisfying R2."""
     dialog = QDialog()
     dialog.setWindowTitle('Scheduled Posts')
     dialog.setMinimumWidth(580)
     layout = QVBoxLayout(dialog)
 
-    header = QLabel(f'{len(_QUEUE_ITEMS)} posts pending')
-    header.setStyleSheet(f'color: {tokens.TEXT_MUTED};')
-    layout.addWidget(header)
+    heading = QLabel('<b>Scheduled Posts</b>')
+    heading.setStyleSheet('font-size: 18px;')
+    layout.addWidget(heading)
 
-    for item in _QUEUE_ITEMS:
-        frame = QFrame()
-        frame.setFrameShape(QFrame.Shape.StyledPanel)
-        row = QHBoxLayout(frame)
-        # Contents margins, not frame.setStyleSheet('QFrame { padding; margin }') --
-        # that combination corrupts child layout under the offscreen backend (see
-        # the results_dialog.py finding in SCHEDULING_UI_DESIGN.md's changelog).
-        row.setContentsMargins(8, 8, 8, 8)
+    pending_items = [item for item in _QUEUE_ITEMS if item['state'] == 'pending']
+    history_items = [item for item in _QUEUE_ITEMS if item['state'] != 'pending']
 
-        badges_widget = QWidget()
-        badges_row = QHBoxLayout(badges_widget)
-        badges_row.setContentsMargins(0, 0, 0, 0)
-        for key in item['platforms']:
-            badges_row.addWidget(_badge_label(key, size=26))
-        row.addWidget(badges_widget)
+    layout.addWidget(_section_heading('Pending'))
+    for item in pending_items:
+        layout.addWidget(_queue_row(item))
 
-        content = QVBoxLayout()
-        caption = QLabel(item['caption'])
-        caption.setWordWrap(True)
-        content.addWidget(caption)
-        due_label = QLabel(f'{item["due"]}  ·  {item["relative"]}')
-        due_label.setStyleSheet(f'color: {tokens.TEXT_MUTED};')
-        content.addWidget(due_label)
-        row.addLayout(content, 1)
-
-        row.addWidget(_status_pill('Pending', tokens.ACCENT))
-
-        actions = QVBoxLayout()
-        actions.addWidget(QPushButton('Edit'))
-        cancel_btn = QPushButton('Cancel')
-        cancel_btn.setStyleSheet(DANGER_BUTTON_STYLE)
-        actions.addWidget(cancel_btn)
-        row.addLayout(actions)
-
-        layout.addWidget(frame)
+    layout.addWidget(_section_heading('Recent Activity'))
+    for item in history_items:
+        layout.addWidget(_queue_row(item))
 
     sep = QFrame()
     sep.setFrameShape(QFrame.Shape.HLine)

@@ -1115,6 +1115,10 @@ class SettingsDialog(QDialog):
         self._notification_email_edit.setPlaceholderText('you@example.com')
         smtp_layout.addRow('Notification email:', self._notification_email_edit)
 
+        self._notify_on_success_cb = QCheckBox('Also email me when a scheduled post succeeds')
+        self._notify_on_success_cb.setChecked(self._config.notify_on_scheduled_success)
+        smtp_layout.addRow('', self._notify_on_success_cb)
+
         test_smtp_btn = QPushButton('Test Connection')
         test_smtp_btn.clicked.connect(self._test_smtp_connection)
         smtp_layout.addRow('', test_smtp_btn)
@@ -1254,6 +1258,7 @@ class SettingsDialog(QDialog):
 
         # Notification email
         self._config.notification_email = self._notification_email_edit.text()
+        self._config.notify_on_scheduled_success = self._notify_on_success_cb.isChecked()
 
         self._config.save()
         if webview_compatibility_before != self._config.webview_compatibility_mode:

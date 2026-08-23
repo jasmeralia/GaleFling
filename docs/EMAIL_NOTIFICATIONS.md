@@ -1,9 +1,11 @@
 # Email Notifications (SMTP)
 
-GaleFling sends email notifications over SMTP when a scheduled post fails.
-Each failed scheduled item produces one email naming its failed platform
-account(s), in addition to a system notification that opens the normal results
-dialog. See [Scheduling](SCHEDULING.md#failures) for the complete failure flow.
+GaleFling sends email notifications over SMTP when a scheduled post fails, and
+optionally when one fully succeeds. Each failed scheduled item produces one
+email naming its failed platform account(s), in addition to a system
+notification that opens the normal results dialog. See
+[Scheduling](SCHEDULING.md#failures-and-partial-success) for the complete
+failure and retry flow.
 
 ## Two separate pieces
 

@@ -121,6 +121,7 @@ class DummyConfig:
         self.autostart_enabled = False
         self.autostart_launch_mode = 'tray'
         self.notification_email = ''
+        self.notify_on_scheduled_success = False
 
     def save(self):
         return
@@ -1745,25 +1746,58 @@ def test_launch_installer_after_exit_non_windows_uses_startdetached(qtbot, monke
     assert started['path'] == str(installer)
 
 
-def test_close_event_calls_save_geometry_and_auto_save(qtbot):
-    class DummyEvent:
-        def __init__(self):
-            self.accepted = False
+class _DummyCloseEvent:
+    def __init__(self):
+        self.accepted = False
+        self.ignored = False
 
-        def accept(self):
-            self.accepted = True
+    def accept(self):
+        self.accepted = True
 
+    def ignore(self):
+        self.ignored = True
+
+
+def test_close_event_calls_save_geometry_and_auto_save(qtbot, monkeypatch):
     calls = []
     window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
     qtbot.addWidget(window)
     window._save_geometry = lambda: calls.append('geometry')
     window._auto_save_draft = lambda: calls.append('draft')
+    # closeEvent()'s tray-minimize branch depends on the real desktop's tray
+    # support (QSystemTrayIcon.isSystemTrayAvailable()), which is environment-
+    # dependent and not what this test is about — pin it so the accept path is
+    # exercised deterministically regardless of the host running the suite.
+    monkeypatch.setattr(window._tray, 'isSystemTrayAvailable', lambda: False)
 
-    event = DummyEvent()
+    event = _DummyCloseEvent()
     window.closeEvent(event)
 
     assert calls == ['geometry', 'draft']
     assert event.accepted is True
+    assert event.ignored is False
+
+
+def test_close_event_hides_to_tray_instead_of_closing_when_tray_available(qtbot, monkeypatch):
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._save_geometry = lambda: None
+    window._auto_save_draft = lambda: None
+    window._allow_close = False
+    monkeypatch.setattr(window._tray, 'isSystemTrayAvailable', lambda: True)
+    monkeypatch.setattr(window._tray, 'isVisible', lambda: True)
+    messages = []
+    monkeypatch.setattr(window._tray, 'showMessage', lambda *args: messages.append(args))
+    hidden = []
+    monkeypatch.setattr(window, 'hide', lambda: hidden.append(True))
+
+    event = _DummyCloseEvent()
+    window.closeEvent(event)
+
+    assert event.ignored is True
+    assert event.accepted is False
+    assert hidden == [True]
+    assert messages and 'still running in the system tray' in messages[0][1]
 
 
 def test_schedule_current_post_saves_queue_clears_composer_and_toasts(qtbot, monkeypatch):
@@ -2129,6 +2163,7 @@ def test_scheduled_posts_dialog_routes_edit_new_and_queue_changes(qtbot, monkeyp
             self.edit_requested = Signal()
             self.new_requested = Signal()
             self.queue_changed = Signal()
+            self.view_results_requested = Signal()
             self.accepted = False
             self.action = ['edit', 'new-with-text', 'new-empty'][len(dialogs)]
             dialogs.append(self)
@@ -2312,3 +2347,280 @@ def test_scheduled_failure_email_worker_and_results_dialog(qtbot, monkeypatch):
     assert window._email_workers == set()
     window._show_last_scheduled_failure()
     assert shown == [([result], window)]
+
+
+def test_scheduled_failure_flags_tray_and_viewing_queue_clears_it(qtbot, monkeypatch):
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    monkeypatch.setattr(window._tray, 'show_failure', lambda *_a: None)
+    post = window._scheduled_queue.add(
+        text='caption',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    result = PostResult(success=False, platform='Twitter', account_id='twitter_1')
+
+    window._handle_scheduled_failure(post, [result])
+    assert window._tray._has_unseen_failure is True
+
+    monkeypatch.setattr(
+        'src.gui.main_window.ScheduledPostsDialog',
+        lambda *_a, **_k: SimpleNamespace(
+            edit_requested=SimpleNamespace(connect=lambda _cb: None),
+            new_requested=SimpleNamespace(connect=lambda _cb: None),
+            view_results_requested=SimpleNamespace(connect=lambda _cb: None),
+            queue_changed=SimpleNamespace(connect=lambda _cb: None),
+            exec=lambda: None,
+        ),
+    )
+    window._show_scheduled_posts()
+    # Cleared just by opening the queue — nothing about the failure was fixed.
+    assert window._tray._has_unseen_failure is False
+
+
+def test_show_results_for_scheduled_post_reconstructs_results(qtbot, monkeypatch):
+    window = DummyMainWindow(DummyConfig(selected=['twitter_1']), DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    post = window._scheduled_queue.add(
+        text='caption',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    window._scheduled_queue.claim_due()
+    saved = window._scheduled_queue.mark_results(
+        post.id,
+        [{'account_id': 'twitter_1', 'success': True, 'post_url': 'https://x/1', 'platform': 'X'}],
+    )
+    shown = []
+    monkeypatch.setattr(
+        'src.gui.main_window.ResultsDialog',
+        lambda results, parent: (
+            shown.append((results, parent)) or SimpleNamespace(exec=lambda: None)
+        ),
+    )
+
+    window._show_results_for_scheduled_post(saved)
+
+    results, parent = shown[0]
+    assert parent is window
+    assert len(results) == 1
+    assert isinstance(results[0], PostResult)
+    assert (
+        results[0].success,
+        results[0].platform,
+        results[0].account_id,
+        results[0].post_url,
+    ) == (
+        True,
+        'X',
+        'twitter_1',
+        'https://x/1',
+    )
+
+
+def test_handle_scheduled_success_sends_email_when_enabled(qtbot, monkeypatch):
+    class Auth(DummyAuthManager):
+        def get_smtp_credentials(self):
+            return {
+                'host': 'smtp.example.com',
+                'port': 587,
+                'username': 'sender@example.com',
+                'app_password': 'secret',
+            }
+
+    class Signal:
+        def connect(self, callback):
+            self.callback = callback
+
+        def emit(self, *args):
+            self.callback(*args)
+
+    workers = []
+
+    class FakeEmailWorker:
+        def __init__(self, credentials, recipient, subject, body):
+            self.finished = Signal()
+            self.args = (credentials, recipient, subject, body)
+            workers.append(self)
+
+        def start(self):
+            self.finished.emit(True, '')
+
+    config = DummyConfig(selected=['twitter_1'])
+    config.notification_email = 'recipient@example.com'
+    config.notify_on_scheduled_success = True
+    window = DummyMainWindow(config, Auth(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    monkeypatch.setattr('src.gui.main_window.EmailNotificationWorker', FakeEmailWorker)
+    post = window._scheduled_queue.add(
+        text='caption',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    result = PostResult(
+        success=True, platform='Twitter', account_id='twitter_1', post_url='https://x/1'
+    )
+
+    window._handle_scheduled_success(post, [result])
+
+    assert workers[0].args[1:3] == (
+        'recipient@example.com',
+        'GaleFling scheduled post published',
+    )
+    assert 'https://x/1' in workers[0].args[3]
+
+
+def test_handle_scheduled_success_does_nothing_when_disabled(qtbot, monkeypatch):
+    workers = []
+    monkeypatch.setattr(
+        'src.gui.main_window.EmailNotificationWorker',
+        lambda *args: workers.append(args),
+    )
+    config = DummyConfig(selected=['twitter_1'])
+    config.notification_email = 'recipient@example.com'
+    config.notify_on_scheduled_success = False
+    window = DummyMainWindow(config, DummyAuthManager(True, False))
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    post = window._scheduled_queue.add(
+        text='caption',
+        account_ids=['twitter_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    result = PostResult(success=True, platform='Twitter', account_id='twitter_1')
+
+    window._handle_scheduled_success(post, [result])
+
+    assert workers == []
+
+
+def test_load_scheduled_post_for_edit_locks_succeeded_and_preselects_failed(qtbot):
+    window = DummyMainWindow(
+        DummyConfig(selected=['twitter_1', 'bluesky_1']), DummyAuthManager(True, True)
+    )
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    post = window._scheduled_queue.add(
+        text='caption',
+        account_ids=['twitter_1', 'bluesky_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    window._scheduled_queue.claim_due()
+    failed = window._scheduled_queue.mark_results(
+        post.id,
+        [
+            {'account_id': 'twitter_1', 'success': True},
+            {'account_id': 'bluesky_1', 'success': False},
+        ],
+    )
+
+    window._load_scheduled_post_for_edit(failed)
+
+    assert window._platform_selector.get_selected() == ['bluesky_1']
+    assert 'twitter_1' in window._platform_selector._locked
+    assert 'bluesky_1' not in window._platform_selector._locked
+
+
+def test_confirm_unlock_scheduled_account_requires_confirmation(qtbot, monkeypatch):
+    window = DummyMainWindow(
+        DummyConfig(selected=['twitter_1', 'bluesky_1']), DummyAuthManager(True, True)
+    )
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    post = window._scheduled_queue.add(
+        text='caption',
+        account_ids=['twitter_1', 'bluesky_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    window._scheduled_queue.claim_due()
+    failed = window._scheduled_queue.mark_results(
+        post.id,
+        [
+            {'account_id': 'twitter_1', 'success': True},
+            {'account_id': 'bluesky_1', 'success': False},
+        ],
+    )
+    window._load_scheduled_post_for_edit(failed)
+
+    monkeypatch.setattr(
+        'src.gui.main_window.QMessageBox.warning',
+        lambda *_a, **_k: QMessageBox.StandardButton.No,
+    )
+    window._platform_selector._checkboxes['twitter_1'].click()
+    assert 'twitter_1' not in window._platform_selector.get_selected()
+    assert 'twitter_1' in window._platform_selector._locked
+
+    monkeypatch.setattr(
+        'src.gui.main_window.QMessageBox.warning',
+        lambda *_a, **_k: QMessageBox.StandardButton.Yes,
+    )
+    window._platform_selector._checkboxes['twitter_1'].click()
+    assert 'twitter_1' in window._platform_selector.get_selected()
+    assert 'twitter_1' not in window._platform_selector._locked
+
+
+def test_retry_saves_only_narrowed_accounts_and_clears_locks(qtbot, monkeypatch):
+    chosen_due_at = datetime.now(UTC) + timedelta(hours=1)
+
+    class FakeScheduleDialog:
+        enable_autostart = False
+        due_at = chosen_due_at
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr('src.gui.main_window.ScheduleDialog', FakeScheduleDialog)
+    monkeypatch.setattr('src.gui.main_window.show_toast', lambda *_a: None)
+    window = DummyMainWindow(
+        DummyConfig(selected=['twitter_1', 'bluesky_1']), DummyAuthManager(True, True)
+    )
+    qtbot.addWidget(window)
+    window._scheduler_bootstrap_timer.stop()
+    post = window._scheduled_queue.add(
+        text='caption',
+        account_ids=['twitter_1', 'bluesky_1'],
+        media_paths=[],
+        processed_media={},
+        due_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    window._scheduled_queue.claim_due()
+    window._scheduled_queue.mark_results(
+        post.id,
+        [
+            {'account_id': 'twitter_1', 'success': True, 'post_url': 'https://x/1'},
+            {'account_id': 'bluesky_1', 'success': False},
+        ],
+    )
+    failed = window._scheduled_queue.get(post.id)
+    window._load_scheduled_post_for_edit(failed)
+
+    window._schedule_current_post()
+
+    saved = window._scheduled_queue.get(post.id)
+    assert saved.state == 'pending'
+    assert saved.account_ids == ('bluesky_1',)
+    # twitter_1's earlier success must still be there for mark_results() to merge into.
+    assert {r['account_id']: r['success'] for r in saved.results} == {
+        'twitter_1': True,
+        'bluesky_1': False,
+    }
+    assert window._editing_scheduled_post is None
+    assert window._platform_selector._locked == {}

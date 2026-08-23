@@ -18,12 +18,13 @@ def _make_tray(qtbot):
     return tray
 
 
-def test_tray_context_menu_options_are_alphabetical(qtbot):
+def test_tray_context_menu_options_are_alphabetical_with_quit_pinned_last(qtbot):
     tray = _make_tray(qtbot)
 
-    labels = [action.text() for action in tray.contextMenu().actions()]
+    labels = [action.text() for action in tray.contextMenu().actions() if action.text()]
 
-    assert labels == sorted(labels)
+    assert labels[-1] == 'Quit'
+    assert labels[:-1] == sorted(labels[:-1])
 
 
 def test_tray_actions_log_and_pending_count_updates(qtbot, monkeypatch):

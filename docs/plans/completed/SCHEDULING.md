@@ -328,20 +328,31 @@ on and Rin logged in, with GaleFling simply never launched since the last boot, 
 via the tray icon's Exit action. Nothing above catches this, and it is exactly the kind of
 step R5 says should not be left for Rin to remember.
 
-**Add a "Start GaleFling at login" setting** — Settings dialog, on by default once the
-first post is scheduled rather than buried as an opt-in nobody finds. Concretely:
+**Add a "Start GaleFling at login" setting** — Settings dialog, on by default from the
+first launch rather than buried as an opt-in nobody finds. Concretely:
 
 - **The setting is a real, user-visible toggle**, not just an installer-time default.
-  Installer defaults (see
+  A one-time installer default (see
   [MOBILE_LAN_ACCESS.md Phase 3](../MOBILE_LAN_ACCESS.md#phase-3--onboarding-r5-1-week))
-  don't help if she reinstalls, resets the machine, or the setting gets toggled off some
+  wouldn't help if she reinstalls, resets the machine, or the setting gets toggled off some
   other way — the app needs to be able to set and query this itself.
-- **Offer to turn it on at the moment it starts mattering.** When Rin schedules her first
-  pending post while autostart is off, prompt once (a checkbox alongside the
+- **Default it on for every fresh install, not just prompt at schedule time.**
+  `ConfigManager`'s `autostart_enabled` default is `True`, and `main.py` registers the
+  real OS-level entry (not just the config flag) the moment it detects no config file
+  existed before this launch — i.e. exactly once, on a genuinely fresh install. An
+  existing install upgrading to this behavior keeps whatever it already had, on or off,
+  since loading config only fills in *missing* keys and never overwrites a saved value;
+  resetting configuration re-derives the same fresh-install default and re-syncs the OS
+  entry to match. This already covers reinstalls that wipe app data, addressing the
+  installer-default concern above without needing the installer itself to do anything.
+- **Also offer to turn it on at the moment it starts mattering**, for the install-already-
+  existed / already-declined case. When Rin schedules a pending post while autostart is
+  off, prompt once (a checkbox alongside the
   [composer-time warning](#shutdown-awareness-r4) is the natural spot, since both are
   about the same underlying requirement — the computer must stay on and GaleFling must be
   running) rather than requiring her to find Settings unprompted. Default the checkbox to
-  checked; she can decline.
+  checked; she can decline. Because autostart is already on for any fresh install, this
+  prompt in practice only ever appears if she (or a pre-existing install) turned it off.
 - **Platform mechanism**: on Windows, a `HKEY_CURRENT_USER\...\Run` registry value (no
   admin rights needed, unlike a Startup-folder shortcut created system-wide) or a Startup
   folder shortcut — either is fine, pick whichever the installer tooling makes easiest to
@@ -442,6 +453,7 @@ Windows drift, mDNS failure, and the mobile-specific risks live in
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | [Start at login](#start-at-login) now defaults on for every fresh install, registered for real (not just the config flag) the moment `main.py` detects no config file existed before this launch, rather than only being pre-checked in the schedule-time prompt (Jas). An existing install keeps whatever it already had; resetting configuration re-syncs the OS entry to the reset config in either direction instead of only ever disabling it. This subsumes the installer-default idea from [MOBILE_LAN_ACCESS.md Phase 3](../MOBILE_LAN_ACCESS.md#phase-3--onboarding-r5-1-week), which is updated accordingly. |
 | 2026-08-22 | Moved this implemented scheduling plan from `docs/plans/` to `docs/plans/completed/` and updated repository references and relative links. |
 | 2026-08-22 | Hardened Linux start-at-login behavior after reviewing KDE/GNOME integration: a requested minimized launch falls back to the visible main window if Qt reports no usable tray; AppImage entries use the persistent `$APPIMAGE` path rather than a temporary mounted executable; Desktop Entry `Exec` values use freedesktop quoting instead of shell quoting; and source-checkout entries use an absolute entry point. Added regression tests and validated the generated XDG entry with `desktop-file-validate`. |
 | 2026-08-21 | Implemented Phase 1: local SQLite queue with owned media copies, atomic due claims and interrupted-item recovery; composer calendar action and five-minute picker floor; pending queue edit/cancel UI; missed-item startup reconciliation; existing `PostWorker` execution path; Windows/Linux per-user autostart with window/tray launch choice; tray controls/live count; in-app confirmation toast; consolidated clickable system failure notification; and best-effort SMTP failure email. Added `docs/SCHEDULING.md`, unit tests, and architecture/user documentation. The deferred Windows shutdown-block prompt remains out of scope. |

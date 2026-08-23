@@ -75,6 +75,7 @@ class _ConfigStub:
         self.log_upload_enabled = True
         self.debug_mode = False
         self.autostart_enabled = False
+        self.autostart_launch_mode = 'tray'
         self._reset_called = False
 
     def save(self):
@@ -85,6 +86,10 @@ class _ConfigStub:
 
     def reset_to_defaults(self):
         self._reset_called = True
+        # Mirrors config_manager.DEFAULT_CONFIG's actual defaults, since the
+        # real reset_to_defaults() re-derives every field from that dict.
+        self.autostart_enabled = True
+        self.autostart_launch_mode = 'tray'
 
 
 class _DummyWindow(MainWindow):
@@ -242,10 +247,16 @@ def test_reset_configuration_works_without_webprofiles_dir(qtbot, monkeypatch, t
     assert config._reset_called is True
 
 
-def test_reset_configuration_disables_autostart(qtbot, monkeypatch, tmp_path):
+def test_reset_configuration_syncs_autostart_to_reset_default(qtbot, monkeypatch, tmp_path):
+    """Reset re-enables autostart per the new default, not just disables it.
+
+    The OS-level entry is synced to whatever reset_to_defaults() leaves in
+    config, in either direction, rather than only ever turning it off -- see
+    main_window.py's _reset_configuration.
+    """
     auth = _AuthStub()
     config = _ConfigStub()
-    config.autostart_enabled = True
+    config.autostart_enabled = False  # pre-reset state; reset should still enable it
     autostart_calls = []
 
     monkeypatch.setattr(
@@ -265,6 +276,6 @@ def test_reset_configuration_disables_autostart(qtbot, monkeypatch, tmp_path):
 
     window._reset_configuration()
 
-    assert autostart_calls == [(False, False)]
+    assert autostart_calls == [(True, True)]
     assert auth._cleared is True
     assert config._reset_called is True

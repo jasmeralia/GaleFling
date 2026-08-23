@@ -346,6 +346,7 @@ def test_main_bootstrap_flow(
         webview_compatibility_mode = False
         remote_debug_enabled = False
         remote_debug_port = 9222
+        is_fresh_install = False
 
     class DummyApp:
         def __init__(self, _args):
@@ -456,3 +457,57 @@ def test_apply_webview_compatibility_flags_disabled(monkeypatch: pytest.MonkeyPa
     flags = main_module.os.environ['QTWEBENGINE_CHROMIUM_FLAGS'].split()
     assert '--foo' in flags
     assert '--disable-gpu' not in flags
+
+
+class _AutostartConfigStub:
+    def __init__(self, *, is_fresh_install, autostart_enabled=True, autostart_launch_mode='tray'):
+        self.is_fresh_install = is_fresh_install
+        self.autostart_enabled = autostart_enabled
+        self.autostart_launch_mode = autostart_launch_mode
+
+
+def test_fresh_install_autostart_default_registers_entry(monkeypatch: pytest.MonkeyPatch):
+    calls = []
+    monkeypatch.setattr(
+        main_module,
+        'set_autostart',
+        lambda enabled, *, start_minimized: calls.append((enabled, start_minimized)),
+    )
+
+    main_module._apply_fresh_install_autostart_default(
+        _AutostartConfigStub(is_fresh_install=True, autostart_launch_mode='tray')
+    )
+
+    assert calls == [(True, True)]
+
+
+def test_fresh_install_autostart_default_skips_existing_install(monkeypatch: pytest.MonkeyPatch):
+    calls = []
+    monkeypatch.setattr(main_module, 'set_autostart', lambda *_a, **_k: calls.append((_a, _k)))
+
+    main_module._apply_fresh_install_autostart_default(_AutostartConfigStub(is_fresh_install=False))
+
+    assert calls == []
+
+
+def test_fresh_install_autostart_default_skips_when_config_already_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    calls = []
+    monkeypatch.setattr(main_module, 'set_autostart', lambda *_a, **_k: calls.append((_a, _k)))
+
+    main_module._apply_fresh_install_autostart_default(
+        _AutostartConfigStub(is_fresh_install=True, autostart_enabled=False)
+    )
+
+    assert calls == []
+
+
+def test_fresh_install_autostart_default_tolerates_os_error(monkeypatch: pytest.MonkeyPatch):
+    def _raise(*_a, **_k):
+        raise OSError('registry unavailable')
+
+    monkeypatch.setattr(main_module, 'set_autostart', _raise)
+
+    # Should not raise.
+    main_module._apply_fresh_install_autostart_default(_AutostartConfigStub(is_fresh_install=True))

@@ -24,6 +24,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from src.core.auth_manager import AuthManager
+from src.core.autostart import set_autostart
 from src.core.config_manager import ConfigManager
 from src.core.logger import get_logger, setup_logging
 from src.gui.main_window import MainWindow
@@ -113,6 +114,7 @@ def main():
     # Set up logging
     setup_logging(debug_mode=config.debug_mode)
     _install_exception_logging()
+    _apply_fresh_install_autostart_default(config)
 
     # Create Qt application
     app = GaleFlingApplication(sys.argv)
@@ -193,6 +195,28 @@ def _apply_remote_debugging(enabled: bool, port: int) -> None:
         os.environ['QTWEBENGINE_REMOTE_DEBUGGING'] = str(port)
     else:
         os.environ.pop('QTWEBENGINE_REMOTE_DEBUGGING', None)
+
+
+def _apply_fresh_install_autostart_default(config: ConfigManager) -> None:
+    """Register the login-launch entry for a genuinely fresh install.
+
+    ConfigManager.DEFAULT_CONFIG defaults autostart_enabled to True, but that
+    alone only affects the config value -- it does not create the actual
+    Windows Run-key value or Linux XDG autostart entry. Without this, a fresh
+    install would show autostart as "on" in Settings while scheduled posts
+    silently stop firing after a reboot, since nothing ever asked the OS to
+    relaunch GaleFling. This runs once, only when no config file existed
+    before this launch; an existing install, or one where autostart is
+    already off for any reason, is never touched.
+    """
+    if not (config.is_fresh_install and config.autostart_enabled):
+        return
+    try:
+        set_autostart(True, start_minimized=config.autostart_launch_mode == 'tray')
+    except OSError:
+        get_logger().warning('Could not register the default start-at-login entry')
+    else:
+        get_logger().info('Fresh install: registered start-at-login by default')
 
 
 def _check_remote_debug_port(port: int) -> bool:

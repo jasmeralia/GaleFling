@@ -372,13 +372,16 @@ though nothing about the mobile client's design requires waiting on it.
 
 ### Phase 3 — Onboarding (R5) (~1 week)
 
-Treated as engineering, not documentation: installer defaults that turn on the
-[start-at-login setting](completed/SCHEDULING.md#start-at-login) (which ships with scheduling in
-Phase 1, not introduced fresh here — Phase 3 just needs the installer to default it on for
-a new install, same as it would for scheduling alone), a first-run flow that ends with her
-phone paired and the client on her home screen, a one-page setup guide, and a way for Jas
-to see whether her side is healthy. **Success is Rin completing setup unaided, not the
+Treated as engineering, not documentation: a first-run flow that ends with her phone
+paired and the client on her home screen, a one-page setup guide, and a way for Jas to
+see whether her side is healthy. **Success is Rin completing setup unaided, not the
 existence of instructions.**
+
+(Defaulting the [start-at-login setting](completed/SCHEDULING.md#start-at-login) on for
+a new install was originally scoped here as an installer-time default. It shipped with
+scheduling itself instead — `main.py` registers it on first launch whenever no config
+file existed before, not the installer — so there is no separate work item for Phase 3
+to pick up.)
 
 "Unaided" is load-bearing: Rin is in Nevada and Jas is in Washington, so there is no
 in-person fallback. Every setup step and every subsequent troubleshoot happens either on
@@ -502,6 +505,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | Removed Phase 3's installer-default autostart work item (Jas): `SCHEDULING.md`'s [Start at login](completed/SCHEDULING.md#start-at-login) now defaults on for every fresh install at the app level (`main.py`, not the installer), so there is nothing left for Phase 3 to do here. |
 | 2026-08-21 | Phase 3's installer-default autostart language now points to `SCHEDULING.md`'s new [Start at login](completed/SCHEDULING.md#start-at-login) setting (Jas) — that setting ships with scheduling in Phase 1, not introduced fresh here; Phase 3 only needs the installer to default it on. |
 | 2026-08-21 | Resolved the sleep half of Phase 0.1 (Jas): confirmed not configured, retiring that risk from scheduling's register. Surfaced a bigger finding in the process — Rin routinely fully shuts the machine down when not in active use — which fed a new "Shutdown awareness" design section in `docs/plans/completed/SCHEDULING.md` rather than this document, since it's a scheduling-protection concern. Autologon confirmation remains an open question. |
 | 2026-08-21 | Split out of `docs/plans/SCHEDULING_AND_MULTI_CLIENT.md` into this mobile/LAN-access-only document (Jas): scheduling and mobile/LAN access are handled in entirely different phases and no longer need one shared file. Content carried over verbatim from the combined plan's mobile/LAN-relevant sections; scheduling content moved to `docs/plans/completed/SCHEDULING.md`. This document retains the full original changelog below for continuity, since it is the architectural/topology-level document the combined plan grew from. |

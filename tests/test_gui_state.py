@@ -184,6 +184,64 @@ def test_platform_selector_resorts_when_profile_updates(qtbot):
     assert list(selector._checkboxes.keys()) == ['bluesky_1', 'bluesky_alt']
 
 
+def test_platform_selector_locked_platform_cannot_be_checked(qtbot):
+    selector = PlatformSelector()
+    qtbot.addWidget(selector)
+    selector.set_accounts(_sample_accounts())
+    selector.set_platform_enabled('twitter_1', True)
+
+    selector.set_platform_locked('twitter_1', True, tooltip='Already posted')
+
+    selector.set_selected(['twitter_1'])
+    assert 'twitter_1' not in selector.get_selected()
+
+    clicks = []
+    selector.locked_platform_clicked.connect(clicks.append)
+    selector._checkboxes['twitter_1'].click()
+    assert not selector._checkboxes['twitter_1'].isChecked()
+    assert clicks == ['twitter_1']
+
+
+def test_platform_selector_lock_survives_set_accounts_rebuild(qtbot):
+    selector = PlatformSelector()
+    qtbot.addWidget(selector)
+    selector.set_accounts(_sample_accounts())
+    selector.set_platform_enabled('twitter_1', True)
+    selector.set_platform_locked('twitter_1', True)
+
+    # set_accounts() rebuilds every checkbox from scratch (as the credential
+    # refresh cycle does on every selection change); the lock must survive it.
+    selector.set_accounts(_sample_accounts())
+    selector.set_platform_enabled('twitter_1', True)
+
+    selector.set_selected(['twitter_1'])
+    assert 'twitter_1' not in selector.get_selected()
+
+
+def test_platform_selector_unlocking_allows_selection(qtbot):
+    selector = PlatformSelector()
+    qtbot.addWidget(selector)
+    selector.set_accounts(_sample_accounts())
+    selector.set_platform_enabled('twitter_1', True)
+    selector.set_platform_locked('twitter_1', True)
+
+    selector.set_platform_locked('twitter_1', False)
+    selector.set_selected(['twitter_1'])
+    assert 'twitter_1' in selector.get_selected()
+
+
+def test_platform_selector_clear_locks(qtbot):
+    selector = PlatformSelector()
+    qtbot.addWidget(selector)
+    selector.set_accounts(_sample_accounts())
+    selector.set_platform_enabled('twitter_1', True)
+    selector.set_platform_locked('twitter_1', True)
+
+    selector.clear_locks()
+    selector.set_selected(['twitter_1'])
+    assert 'twitter_1' in selector.get_selected()
+
+
 def test_preview_button_enabled_when_image_present(qtbot, tmp_path):
     composer = PostComposer()
     qtbot.addWidget(composer)

@@ -327,12 +327,26 @@ def test_qt_message_handler_logs_and_writes_fatal_marker(monkeypatch: pytest.Mon
     assert len(previous_calls) == 2
 
 
-def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize(
+    ('arguments', 'tray_available', 'expected_shown'),
+    [
+        (['galefling'], False, True),
+        (['galefling', '--autostart', '--start-minimized'], True, False),
+        (['galefling', '--autostart', '--start-minimized'], False, True),
+    ],
+)
+def test_main_bootstrap_flow(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: list[str],
+    tray_available: bool,
+    expected_shown: bool,
+):
     class DummyConfig:
         debug_mode = True
         webview_compatibility_mode = False
         remote_debug_enabled = False
         remote_debug_port = 9222
+        is_fresh_install = False
 
     class DummyApp:
         def __init__(self, _args):
@@ -368,6 +382,11 @@ def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(main_module, 'ConfigManager', lambda: DummyConfig())
     monkeypatch.setattr(main_module, 'GaleFlingApplication', DummyApp)
+    monkeypatch.setattr(
+        main_module,
+        'QSystemTrayIcon',
+        types.SimpleNamespace(isSystemTrayAvailable=lambda: tray_available),
+    )
     monkeypatch.setattr(main_module, 'AuthManager', lambda: object())
     monkeypatch.setattr(main_module, 'MainWindow', lambda *_a, **_k: window)
     monkeypatch.setattr(
@@ -387,7 +406,7 @@ def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         main_module, 'apply_theme', lambda *_a: calls['theme_calls'].append(tuple(_a))
     )
-    monkeypatch.setattr(main_module.sys, 'argv', ['galefling'])
+    monkeypatch.setattr(main_module.sys, 'argv', arguments)
     monkeypatch.setattr(
         main_module.sys, 'exit', lambda code=0: (_ for _ in ()).throw(SystemExit(code))
     )
@@ -400,11 +419,24 @@ def test_main_bootstrap_flow(monkeypatch: pytest.MonkeyPatch):
     assert calls.get('installed') is True
     assert calls.get('abort_checked') is True
     assert calls.get('icon_applied') is True
-    assert window.shown is True
+    assert window.shown is expected_shown
     assert window.restored is True
     assert window.checked is True
     assert [len(call) for call in calls['theme_calls']] == [1, 2]
     assert calls['theme_calls'][1][1] is window
+
+
+@pytest.mark.parametrize(
+    ('arguments', 'tray_available', 'expected'),
+    [
+        (['galefling', '--autostart', '--start-minimized'], True, True),
+        (['galefling', '--autostart', '--start-minimized'], False, False),
+        (['galefling'], True, False),
+        (['galefling', '--start-minimized'], True, False),
+    ],
+)
+def test_should_start_minimized(arguments, tray_available, expected):
+    assert main_module._should_start_minimized(arguments, tray_available=tray_available) is expected
 
 
 def test_apply_webview_compatibility_flags_enabled(monkeypatch: pytest.MonkeyPatch):
@@ -425,3 +457,57 @@ def test_apply_webview_compatibility_flags_disabled(monkeypatch: pytest.MonkeyPa
     flags = main_module.os.environ['QTWEBENGINE_CHROMIUM_FLAGS'].split()
     assert '--foo' in flags
     assert '--disable-gpu' not in flags
+
+
+class _AutostartConfigStub:
+    def __init__(self, *, is_fresh_install, autostart_enabled=True, autostart_launch_mode='tray'):
+        self.is_fresh_install = is_fresh_install
+        self.autostart_enabled = autostart_enabled
+        self.autostart_launch_mode = autostart_launch_mode
+
+
+def test_fresh_install_autostart_default_registers_entry(monkeypatch: pytest.MonkeyPatch):
+    calls = []
+    monkeypatch.setattr(
+        main_module,
+        'set_autostart',
+        lambda enabled, *, start_minimized: calls.append((enabled, start_minimized)),
+    )
+
+    main_module._apply_fresh_install_autostart_default(
+        _AutostartConfigStub(is_fresh_install=True, autostart_launch_mode='tray')
+    )
+
+    assert calls == [(True, True)]
+
+
+def test_fresh_install_autostart_default_skips_existing_install(monkeypatch: pytest.MonkeyPatch):
+    calls = []
+    monkeypatch.setattr(main_module, 'set_autostart', lambda *_a, **_k: calls.append((_a, _k)))
+
+    main_module._apply_fresh_install_autostart_default(_AutostartConfigStub(is_fresh_install=False))
+
+    assert calls == []
+
+
+def test_fresh_install_autostart_default_skips_when_config_already_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    calls = []
+    monkeypatch.setattr(main_module, 'set_autostart', lambda *_a, **_k: calls.append((_a, _k)))
+
+    main_module._apply_fresh_install_autostart_default(
+        _AutostartConfigStub(is_fresh_install=True, autostart_enabled=False)
+    )
+
+    assert calls == []
+
+
+def test_fresh_install_autostart_default_tolerates_os_error(monkeypatch: pytest.MonkeyPatch):
+    def _raise(*_a, **_k):
+        raise OSError('registry unavailable')
+
+    monkeypatch.setattr(main_module, 'set_autostart', _raise)
+
+    # Should not raise.
+    main_module._apply_fresh_install_autostart_default(_AutostartConfigStub(is_fresh_install=True))

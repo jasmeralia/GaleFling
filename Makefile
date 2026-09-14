@@ -16,13 +16,16 @@ POWERSHELL   := /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
 WIN_PYTHON   ?= py
 DESKTOP_SESSION_RUNNER := scripts/run-with-desktop-session.sh
 WIN_VM_RUNNER := tools/windows-vm/run-tests.sh
+WIN_VM_BUILD_RUNNER := tools/windows-vm/build-installer.sh
 PYTEST_ARGS   ?=
+BUILD_ARGS    ?=
 
 .PHONY: help venv deps version-file lint lintfix format test test-ci test-cov \
         test-functional test-functional-non-mutating test-functional-mutating \
         test-functional-mutating-leave-up \
         test-functional-linux test-functional-xvfb test-functional-cmd \
         test-functional-win-vm test-functional-win-vm-clean \
+        win-vm-installer win-vm-installer-clean \
         venv-win build-wsl build-linux installer-wsl run clean
 
 help: ## Show this help
@@ -100,6 +103,12 @@ test-functional-win-vm: ## [Linux→VM] Run functional tests in the Windows VM o
 
 test-functional-win-vm-clean: ## [Linux→VM] As above, reverting to the baseline snapshot first (discards guest changes)
 	$(WIN_VM_RUNNER) --revert $(PYTEST_ARGS)
+
+win-vm-installer: ## [Linux→VM] Build the Windows exe + NSIS installer in the VM over SSH, no tag needed (BUILD_ARGS="--exe-only" to skip NSIS)
+	$(WIN_VM_BUILD_RUNNER) $(BUILD_ARGS)
+
+win-vm-installer-clean: ## [Linux→VM] As above, reverting to the baseline snapshot first (discards guest changes)
+	$(WIN_VM_BUILD_RUNNER) --revert $(BUILD_ARGS)
 
 venv-win: ## [WSL→Win] Create Windows venv at .venv-win via PowerShell (run once first)
 	@WIN_DIR=$$(wslpath -w "$(CURDIR)"); \

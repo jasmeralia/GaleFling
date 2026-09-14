@@ -410,7 +410,7 @@ SMTP_APP_PASSWORD=your-app-password
 SMTP_TEST_RECIPIENT=someone@example.com
 ```
 - See [docs/EMAIL_NOTIFICATIONS.md](../EMAIL_NOTIFICATIONS.md) for the feature this
-  supports and [docs/plans/SCHEDULING.md](../plans/SCHEDULING.md#email-configuration) for
+  supports and [docs/plans/completed/SCHEDULING.md](../plans/completed/SCHEDULING.md#email-configuration) for
   the design rationale
 - `test_smtp.py`'s mutating test sends one real email per run to
   `SMTP_TEST_RECIPIENT` (or the sending account itself if unset) — not public content, so

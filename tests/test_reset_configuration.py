@@ -74,6 +74,8 @@ class _ConfigStub:
         self.log_upload_endpoint = 'https://example.invalid'
         self.log_upload_enabled = True
         self.debug_mode = False
+        self.autostart_enabled = False
+        self.autostart_launch_mode = 'tray'
         self._reset_called = False
 
     def save(self):
@@ -84,6 +86,10 @@ class _ConfigStub:
 
     def reset_to_defaults(self):
         self._reset_called = True
+        # Mirrors config_manager.DEFAULT_CONFIG's actual defaults, since the
+        # real reset_to_defaults() re-derives every field from that dict.
+        self.autostart_enabled = True
+        self.autostart_launch_mode = 'tray'
 
 
 class _DummyWindow(MainWindow):
@@ -237,5 +243,39 @@ def test_reset_configuration_works_without_webprofiles_dir(qtbot, monkeypatch, t
     # Should not raise
     window._reset_configuration()
 
+    assert auth._cleared is True
+    assert config._reset_called is True
+
+
+def test_reset_configuration_syncs_autostart_to_reset_default(qtbot, monkeypatch, tmp_path):
+    """Reset re-enables autostart per the new default, not just disables it.
+
+    The OS-level entry is synced to whatever reset_to_defaults() leaves in
+    config, in either direction, rather than only ever turning it off -- see
+    main_window.py's _reset_configuration.
+    """
+    auth = _AuthStub()
+    config = _ConfigStub()
+    config.autostart_enabled = False  # pre-reset state; reset should still enable it
+    autostart_calls = []
+
+    monkeypatch.setattr(
+        _main_window_module.QMessageBox,
+        'exec',
+        lambda self: QMessageBox.StandardButton.Yes,
+    )
+    monkeypatch.setattr('src.gui.main_window.get_app_data_dir', lambda: tmp_path)
+    monkeypatch.setattr(
+        _main_window_module,
+        'set_autostart',
+        lambda enabled, *, start_minimized: autostart_calls.append((enabled, start_minimized)),
+    )
+
+    window = _DummyWindow(config, auth)
+    qtbot.addWidget(window)
+
+    window._reset_configuration()
+
+    assert autostart_calls == [(True, True)]
     assert auth._cleared is True
     assert config._reset_called is True

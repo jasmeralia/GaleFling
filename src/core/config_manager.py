@@ -31,6 +31,15 @@ DEFAULT_CONFIG = {
     'remote_debug_enabled': False,
     'remote_debug_port': 9222,
     'notification_email': '',
+    'notify_on_scheduled_success': False,
+    # Fresh installs register this for real on first launch (see main.py's
+    # _apply_fresh_install_autostart_default) rather than only setting this flag,
+    # since scheduled posts silently stop firing after a reboot otherwise. An
+    # existing install keeps whatever's already on disk -- load() below only
+    # fills in *missing* keys, never overwriting a saved value -- so this can
+    # never override a deliberate choice to turn it off.
+    'autostart_enabled': True,
+    'autostart_launch_mode': 'tray',
 }
 
 
@@ -40,10 +49,12 @@ class ConfigManager:
     def __init__(self) -> None:
         self._config_path = get_app_data_dir() / 'app_config.json'
         self._config: dict[str, Any] = {}
+        self.is_fresh_install = False
         self.load()
 
     def load(self) -> None:
         """Load config from disk, falling back to defaults."""
+        self.is_fresh_install = not self._config_path.exists()
         if self._config_path.exists():
             try:
                 with open(self._config_path) as f:
@@ -112,12 +123,38 @@ class ConfigManager:
 
     @property
     def notification_email(self) -> str:
-        """Address to email if a scheduled post fails. Empty until scheduling ships."""
+        """Address to email when a scheduled post fails."""
         return self._config.get('notification_email', '')
 
     @notification_email.setter
     def notification_email(self, value: str) -> None:
         self.set('notification_email', value.strip())
+
+    @property
+    def notify_on_scheduled_success(self) -> bool:
+        """Whether to also email notification_email when a scheduled post succeeds."""
+        return bool(self._config.get('notify_on_scheduled_success', False))
+
+    @notify_on_scheduled_success.setter
+    def notify_on_scheduled_success(self, value: bool) -> None:
+        self.set('notify_on_scheduled_success', bool(value))
+
+    @property
+    def autostart_enabled(self) -> bool:
+        return bool(self._config.get('autostart_enabled', False))
+
+    @autostart_enabled.setter
+    def autostart_enabled(self, value: bool) -> None:
+        self.set('autostart_enabled', bool(value))
+
+    @property
+    def autostart_launch_mode(self) -> str:
+        value = self._config.get('autostart_launch_mode', 'tray')
+        return value if value in {'window', 'tray'} else 'tray'
+
+    @autostart_launch_mode.setter
+    def autostart_launch_mode(self, value: str) -> None:
+        self.set('autostart_launch_mode', value if value in {'window', 'tray'} else 'tray')
 
     @property
     def log_upload_enabled(self) -> bool:

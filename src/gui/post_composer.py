@@ -250,6 +250,8 @@ class PostComposer(QWidget):
     snapchat_landscape_mode_changed = pyqtSignal(str)
     snapchat_multi_image_mode_changed = pyqtSignal(str)
 
+    schedule_requested = pyqtSignal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._media_paths: list[Path] = []
@@ -305,7 +307,14 @@ class PostComposer(QWidget):
         # Emoji picker — anchored below and to the right of the text box
         emoji_row = QHBoxLayout()
         emoji_row.addStretch()
+        self._schedule_button = QToolButton()
+        self._schedule_button.setIcon(_icon('calendar_month.svg'))
+        self._schedule_button.setIconSize(QSize(30, 30))
+        self._schedule_button.setToolTip('Schedule this post for a later time')
+        self._schedule_button.clicked.connect(self.schedule_requested.emit)
+        emoji_row.addWidget(self._schedule_button)
         self._emoji_button = EmojiPickerButton()
+        self._emoji_button.setIconSize(QSize(30, 30))
         self._emoji_button.setToolTip('Insert emoji')
         self._emoji_button.clicked.connect(self._on_emoji_picker_opened)
         self._emoji_button.emoji_selected.connect(self._on_emoji_selected)

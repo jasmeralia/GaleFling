@@ -5,7 +5,7 @@
 **Draft — Phase 0 partially resolved, Phase 2/3 not started.** Split out of the combined
 `SCHEDULING_AND_MULTI_CLIENT.md` plan on 2026-08-21 (Jas) — scheduling and mobile/LAN
 access are handled in entirely different phases and no longer need to share one
-document. See [docs/plans/SCHEDULING.md](SCHEDULING.md) for the scheduling design (R2,
+document. See [docs/plans/completed/SCHEDULING.md](completed/SCHEDULING.md) for the scheduling design (R2,
 R4, delegate-vs-local-queue) — this document owns everything else: the desktop-resident
 server topology, R1, R3, R5, R6, R7, and the mobile web client.
 
@@ -45,7 +45,7 @@ explicitly opportunistic with no timing guarantee and does not run at all after 
 quit. The WebView tier additionally needs a live browser rendering a DOM, which neither
 mobile OS permits from a background task. Something that is already always-on has to do
 the posting — and Rin's desktop already is. This is why GaleFling's scheduler
-([SCHEDULING.md](SCHEDULING.md)) lives on the desktop rather than the phone, even though
+([SCHEDULING.md](completed/SCHEDULING.md)) lives on the desktop rather than the phone, even though
 this document's mobile client is what lets Rin *create* a scheduled post from her phone.
 
 Once the desktop is the poster, the phone client becomes thin: compose, attach media,
@@ -88,7 +88,7 @@ Derived:
 - **R3** — Posting must continue to originate from her own machine and network
   (see [IP identity](#why-the-poster-stays-on-her-machine)). This also underlies
   scheduling's local queue — see
-  [SCHEDULING.md](SCHEDULING.md#requirements) — since the due-time poller runs on the
+  [SCHEDULING.md](completed/SCHEDULING.md#requirements) — since the due-time poller runs on the
   same machine under the same constraint.
 - **R5** — Rin must be able to complete setup herself. She was sent setup instructions
   for the current desktop app months ago and has not gotten through them; onboarding
@@ -103,7 +103,7 @@ Derived:
   hosted component, no third party in the path.
 
 R2 and R4 (scheduling and its failure reporting) are defined in
-[SCHEDULING.md](SCHEDULING.md#requirements).
+[SCHEDULING.md](completed/SCHEDULING.md#requirements).
 
 ---
 
@@ -193,7 +193,7 @@ Exactly two things are lost, and neither is currently worth paying for:
 
 - **Push notifications** — moot. GaleFling has no notification model at all today; post
   results are shown in the results dialog. There is nothing to push. R4
-  ([SCHEDULING.md](SCHEDULING.md#not-failing-silently-r4)) is satisfied by the desktop
+  ([SCHEDULING.md](completed/SCHEDULING.md#not-failing-silently-r4)) is satisfied by the desktop
   GUI and by Jas's alerting.
 - **Offline capability** — narrower than it sounds. Without a service worker the page
   loads only while the desktop is reachable, so tapping the home-screen icon while away
@@ -253,7 +253,7 @@ those accounts — that is precisely the anomaly those platforms watch for. A re
 IP is not inherently safe; an IP *consistent with where the account has always been used*
 is. Jas's residential IP is the right IP for Jas's accounts and the wrong one for Rin's.
 This is R3, and it applies equally to scheduling's local queue — see
-[SCHEDULING.md](SCHEDULING.md#requirements).
+[SCHEDULING.md](completed/SCHEDULING.md#requirements).
 
 Secondary reasons, in descending order of weight:
 
@@ -289,7 +289,7 @@ any posting path that does not originate from the user's own machine, and
 Whether her desktop is powered on, and whether GaleFling is running on it, is **not
 monitored and not alerted on**. That is her machine; if it is down for a week she either
 knows or is not home, and proactively watching it is not Jas's responsibility. This is a
-different problem from R4 ([SCHEDULING.md](SCHEDULING.md#not-failing-silently-r4)), which
+different problem from R4 ([SCHEDULING.md](completed/SCHEDULING.md#not-failing-silently-r4)), which
 is about GaleFling reporting *its own* failures while it is running.
 
 An earlier revision of the combined plan treated the two as one and proposed a dead-man's
@@ -311,7 +311,7 @@ Rin's logged-in session. Consequences:
   automatically finish setting up after an update"* so Windows restores her session, so a
   reboot self-heals rather than waiting on someone noticing. Anything whose due time
   passed during the reboot is caught by scheduling's startup reconciliation — see
-  [SCHEDULING.md#not-failing-silently-r4](SCHEDULING.md#not-failing-silently-r4).
+  [SCHEDULING.md#not-failing-silently-r4](completed/SCHEDULING.md#not-failing-silently-r4).
 - **Powered 24×7 is not the same as awake 24×7.** Sleep and Modern Standby settings must
   be confirmed, not assumed.
 - The existing GUI keeps working as-is; service mode is a second entry point into the same
@@ -333,7 +333,7 @@ Measured against the current tree (~17,043 LOC in `src/`):
 
 New code for this document's scope: embedded web server and its API, mDNS advertisement,
 device auth, mobile client. (Scheduling's new code — schedule queue, due-time poller — is
-tracked in [SCHEDULING.md](SCHEDULING.md).)
+tracked in [SCHEDULING.md](completed/SCHEDULING.md).)
 
 For contrast, the superseded plan's Option B was 3–5 months and reimplemented the
 1,813-line WebView base against a second engine; Option C discarded `src/` and `tests/`
@@ -347,12 +347,12 @@ outright. Neither is required to satisfy R1.
 
 | # | Deliverable | Owner | Pass criteria |
 |---|-------------|-------|---------------|
-| ~~0.1~~ | ~~Confirm Rin's sleep + autologon settings~~ | **Resolved 2026-08-21 (Jas)** | Sleep is not configured — not a risk. Autologon still needs separate confirmation (see [Open questions](#open-questions) #1 below). Surfaced a bigger finding for scheduling: Rin routinely fully shuts the machine down when not in active use — see [SCHEDULING.md#shutdown-awareness-r4](SCHEDULING.md#shutdown-awareness-r4). |
+| ~~0.1~~ | ~~Confirm Rin's sleep + autologon settings~~ | **Resolved 2026-08-21 (Jas)** | Sleep is not configured — not a risk. Autologon still needs separate confirmation (see [Open questions](#open-questions) #1 below). Surfaced a bigger finding for scheduling: Rin routinely fully shuts the machine down when not in active use — see [SCHEDULING.md#shutdown-awareness-r4](completed/SCHEDULING.md#shutdown-awareness-r4). |
 | 0.4 | mDNS + media upload from Rin's iPhone | Agent + operator | `galefling.local` resolves from her phone through the Dream Machine; a photo and a short video reach a local endpoint from a home-screen web app over plain HTTP |
-| 0.5 | Go/no-go | Both | Local queue scoped to every schedulable platform per [SCHEDULING.md](SCHEDULING.md); mDNS + LAN delivery confirmed viable for the mobile client |
+| 0.5 | Go/no-go | Both | Local queue scoped to every schedulable platform per [SCHEDULING.md](completed/SCHEDULING.md); mDNS + LAN delivery confirmed viable for the mobile client |
 
 Scheduling's Phase 0 items (0.2, 0.3, 0.3b) are tracked in
-[SCHEDULING.md#phase-0--spike-and-confirmation-scheduling-relevant-items](SCHEDULING.md#phase-0--spike-and-confirmation-scheduling-relevant-items)
+[SCHEDULING.md#phase-0--spike-and-confirmation-scheduling-relevant-items](completed/SCHEDULING.md#phase-0--spike-and-confirmation-scheduling-relevant-items)
 and are already resolved.
 
 ### Phase 2 — Embedded server + mobile client (~3–4 weeks)
@@ -367,18 +367,21 @@ Includes mDNS advertisement and device auth per
 [Discovery and TLS](#discovery-and-tls); no certificates in the baseline. Bind, TLS, auth, and pairing must work identically on Windows and Linux
 (R6). Completing this phase satisfies **R1** outright. Depends on the schedule picker/queue
 existing server-side, so in practice follows
-[SCHEDULING.md Phase 1](SCHEDULING.md#phase-1--scheduler-in-the-desktop-app-23-weeks),
+[SCHEDULING.md Phase 1](completed/SCHEDULING.md#phase-1--scheduler-in-the-desktop-app-23-weeks),
 though nothing about the mobile client's design requires waiting on it.
 
 ### Phase 3 — Onboarding (R5) (~1 week)
 
-Treated as engineering, not documentation: installer defaults that turn on the
-[start-at-login setting](SCHEDULING.md#start-at-login) (which ships with scheduling in
-Phase 1, not introduced fresh here — Phase 3 just needs the installer to default it on for
-a new install, same as it would for scheduling alone), a first-run flow that ends with her
-phone paired and the client on her home screen, a one-page setup guide, and a way for Jas
-to see whether her side is healthy. **Success is Rin completing setup unaided, not the
+Treated as engineering, not documentation: a first-run flow that ends with her phone
+paired and the client on her home screen, a one-page setup guide, and a way for Jas to
+see whether her side is healthy. **Success is Rin completing setup unaided, not the
 existence of instructions.**
+
+(Defaulting the [start-at-login setting](completed/SCHEDULING.md#start-at-login) on for
+a new install was originally scoped here as an installer-time default. It shipped with
+scheduling itself instead — `main.py` registers it on first launch whenever no config
+file existed before, not the installer — so there is no separate work item for Phase 3
+to pick up.)
 
 "Unaided" is load-bearing: Rin is in Nevada and Jas is in Washington, so there is no
 in-person fallback. Every setup step and every subsequent troubleshoot happens either on
@@ -388,7 +391,7 @@ times carry no cross-timezone ambiguity between them — though the UI should st
 which clock a scheduled time refers to.)
 
 **Total for this document's phases: ~5–6 weeks** (0.4, 2, 3), independent of
-[SCHEDULING.md's Phase 1](SCHEDULING.md#phase-1--scheduler-in-the-desktop-app-23-weeks)
+[SCHEDULING.md's Phase 1](completed/SCHEDULING.md#phase-1--scheduler-in-the-desktop-app-23-weeks)
 (~2–3 weeks) — scheduling can ship and be used from the desktop GUI before any mobile work
 lands.
 
@@ -409,7 +412,7 @@ lands.
 
 Scheduling-specific risks (reboot strands the poster, desktop sleep, local-queue posting
 breaking on API changes, Cloudflare on paused platforms) are tracked in
-[SCHEDULING.md#risk-register-scheduling-relevant](SCHEDULING.md#risk-register-scheduling-relevant).
+[SCHEDULING.md#risk-register-scheduling-relevant](completed/SCHEDULING.md#risk-register-scheduling-relevant).
 
 Note that the top risks here are operational rather than technical, which is the expected
 shape once the architecture stops fighting the platforms.
@@ -423,8 +426,8 @@ shape once the architecture stops fighting the platforms.
 2. Does mDNS resolve end-to-end on Rin's actual network — her iPhone to her desktop
    through the Dream Machine? Everything about discovery rests on this. (Phase 0.4)
 
-Scheduling's staleness-threshold and reboot-vs-shutdown-detection open questions are
-tracked in [SCHEDULING.md#open-questions](SCHEDULING.md#open-questions).
+Scheduling's former staleness-threshold and reboot-vs-shutdown-detection questions are
+settled; see [SCHEDULING.md's changelog](completed/SCHEDULING.md#changelog).
 
 ---
 
@@ -487,7 +490,7 @@ sustained rental and is the only option that supports an interactive debug loop.
 
 ## References
 
-- `docs/plans/SCHEDULING.md` — scheduling design, R2/R4, delegate-vs-local-queue decision
+- `docs/plans/completed/SCHEDULING.md` — scheduling design, R2/R4, delegate-vs-local-queue decision
 - `docs/ARCHITECTURE_OVERVIEW.md` — two-tier posting model
 - `docs/platforms/PLATFORM_SPECS.md` — platform limits and API vs WebView
 - `src/platforms/base_webview.py` — WebView tier retained unchanged by this plan
@@ -502,9 +505,10 @@ sustained rental and is the only option that supports an interactive debug loop.
 
 | Date | Change |
 |------|--------|
-| 2026-08-21 | Phase 3's installer-default autostart language now points to `SCHEDULING.md`'s new [Start at login](SCHEDULING.md#start-at-login) setting (Jas) — that setting ships with scheduling in Phase 1, not introduced fresh here; Phase 3 only needs the installer to default it on. |
-| 2026-08-21 | Resolved the sleep half of Phase 0.1 (Jas): confirmed not configured, retiring that risk from scheduling's register. Surfaced a bigger finding in the process — Rin routinely fully shuts the machine down when not in active use — which fed a new "Shutdown awareness" design section in `docs/plans/SCHEDULING.md` rather than this document, since it's a scheduling-protection concern. Autologon confirmation remains an open question. |
-| 2026-08-21 | Split out of `docs/plans/SCHEDULING_AND_MULTI_CLIENT.md` into this mobile/LAN-access-only document (Jas): scheduling and mobile/LAN access are handled in entirely different phases and no longer need one shared file. Content carried over verbatim from the combined plan's mobile/LAN-relevant sections; scheduling content moved to `docs/plans/SCHEDULING.md`. This document retains the full original changelog below for continuity, since it is the architectural/topology-level document the combined plan grew from. |
+| 2026-08-22 | Removed Phase 3's installer-default autostart work item (Jas): `SCHEDULING.md`'s [Start at login](completed/SCHEDULING.md#start-at-login) now defaults on for every fresh install at the app level (`main.py`, not the installer), so there is nothing left for Phase 3 to do here. |
+| 2026-08-21 | Phase 3's installer-default autostart language now points to `SCHEDULING.md`'s new [Start at login](completed/SCHEDULING.md#start-at-login) setting (Jas) — that setting ships with scheduling in Phase 1, not introduced fresh here; Phase 3 only needs the installer to default it on. |
+| 2026-08-21 | Resolved the sleep half of Phase 0.1 (Jas): confirmed not configured, retiring that risk from scheduling's register. Surfaced a bigger finding in the process — Rin routinely fully shuts the machine down when not in active use — which fed a new "Shutdown awareness" design section in `docs/plans/completed/SCHEDULING.md` rather than this document, since it's a scheduling-protection concern. Autologon confirmation remains an open question. |
+| 2026-08-21 | Split out of `docs/plans/SCHEDULING_AND_MULTI_CLIENT.md` into this mobile/LAN-access-only document (Jas): scheduling and mobile/LAN access are handled in entirely different phases and no longer need one shared file. Content carried over verbatim from the combined plan's mobile/LAN-relevant sections; scheduling content moved to `docs/plans/completed/SCHEDULING.md`. This document retains the full original changelog below for continuity, since it is the architectural/topology-level document the combined plan grew from. |
 | 2026-08-13 | Initial draft. Supersedes `ANDROID_PORT.md`, since removed — its analysis survives as Appendix A. Re-framed from mobile port to desktop-resident scheduler + mobile web client. |
 | 2026-08-13 | Noted that Rin (Nevada) and Jas (Washington) are remote from each other, so R5's "unaided" has no in-person fallback and support is screen-share only. Both on Pacific time. |
 | 2026-08-13 | Clarified what plain HTTP actually costs (Jas): push is moot since GaleFling has no notification model, and "offline" means the app will not open at all while off-LAN, i.e. no compose-while-away. Both sit behind the same secure-context gate, so the TLS upgrade is one decision rather than two. |
@@ -514,4 +518,4 @@ sustained rental and is the only option that supports an interactive debug loop.
 
 For the scheduling-specific portions of the 2026-08-13 and 2026-08-21 history (delegate
 vs. local-queue research, Facebook API verification, email/SMTP failure reporting), see
-[SCHEDULING.md's changelog](SCHEDULING.md#changelog).
+[SCHEDULING.md's changelog](completed/SCHEDULING.md#changelog).

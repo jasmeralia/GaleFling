@@ -2,10 +2,10 @@
 
 ## Status
 
-**Draft — Phase 0 resolved, Phase 1 not started.** Split out of the combined
+**Implemented — Phase 1 shipped on the scheduling feature branch.** Split out of the combined
 `SCHEDULING_AND_MULTI_CLIENT.md` plan on 2026-08-21 (Jas) — scheduling and mobile/LAN
 access are handled in entirely different phases and no longer need to share one
-document. See [docs/plans/MOBILE_LAN_ACCESS.md](MOBILE_LAN_ACCESS.md) for the mobile
+document. See [docs/plans/MOBILE_LAN_ACCESS.md](../MOBILE_LAN_ACCESS.md) for the mobile
 client / embedded server work; that document remains the canonical source for the
 overall desktop-resident-server architecture, the IP-identity rationale for why posting
 never leaves Rin's machine, and R1/R5/R6/R7. This document owns scheduling only: R2,
@@ -21,7 +21,10 @@ targets is historical: if reactivated, they would delegate via UI automation (dr
 composer once, set a future time) — a different mechanism from the API-scheduling
 question this document resolves, and unaffected by the decision below.
 
-Canonical repo path: `docs/plans/SCHEDULING.md`
+Canonical repo path: `docs/plans/completed/SCHEDULING.md`
+
+The user-facing guide is [docs/SCHEDULING.md](../../SCHEDULING.md). This document remains
+the rationale and requirements record.
 
 ---
 
@@ -31,8 +34,8 @@ Rin asked for scheduled posts: hold several drafts, pick a future time for each,
 able to see, edit, or cancel anything still pending. The scheduler that fires those
 posts has to be **something that is already always-on** — Rin's desktop, powered 24×7 —
 because scheduled posting cannot run on a phone (see
-[MOBILE_LAN_ACCESS.md](MOBILE_LAN_ACCESS.md#executive-summary) for why) and cannot run
-server-side (see [Why the poster stays on her machine](MOBILE_LAN_ACCESS.md#why-the-poster-stays-on-her-machine)
+[MOBILE_LAN_ACCESS.md](../MOBILE_LAN_ACCESS.md#executive-summary) for why) and cannot run
+server-side (see [Why the poster stays on her machine](../MOBILE_LAN_ACCESS.md#why-the-poster-stays-on-her-machine)
 for the IP-identity reasoning).
 
 The scheduling-specific design question this document resolves is narrower: **for each
@@ -57,10 +60,10 @@ Derived:
 - **R4** — When GaleFling attempts a scheduled post and it fails, that failure must be
   reported, not swallowed. Scope is GaleFling reporting its own failures; the health of
   the machine it runs on is out of scope (see
-  [MOBILE_LAN_ACCESS.md](MOBILE_LAN_ACCESS.md#explicitly-not-in-scope-monitoring-rins-machine)).
+  [MOBILE_LAN_ACCESS.md](../MOBILE_LAN_ACCESS.md#explicitly-not-in-scope-monitoring-rins-machine)).
 
 R3 (posting must continue to originate from Rin's own machine and network) is defined in
-[MOBILE_LAN_ACCESS.md](MOBILE_LAN_ACCESS.md#why-the-poster-stays-on-her-machine) and
+[MOBILE_LAN_ACCESS.md](../MOBILE_LAN_ACCESS.md#why-the-poster-stays-on-her-machine) and
 applies here without restatement: the local queue's due-time poller runs in the same
 process, on the same machine, under the same IP-identity constraint as interactive
 posting.
@@ -151,10 +154,17 @@ confirm in a WebView tab and cannot run headless against Cloudflare.
 **Queue management is part of R2, not a later nicety.** Several posts may be pending at
 once, and Rin must be able to see the queue, edit a pending item, and cancel one — from
 the desktop GUI and, once it exists, from the mobile client (see
-[MOBILE_LAN_ACCESS.md](MOBILE_LAN_ACCESS.md)) alike. With the no-delegation decision above,
+[MOBILE_LAN_ACCESS.md](../MOBILE_LAN_ACCESS.md)) alike. With the no-delegation decision above,
 every schedulable platform's pending items are held identically, so this editing/cancelling
 behavior is symmetric across platforms — there is no platform whose pending item lives in a
 remote scheduler instead of this queue.
+
+**Minimum lead time: 5 minutes (Jas).** The due-time picker rejects anything closer than 5
+minutes from now, not just anything in the past — enough headroom that a post scheduled and
+almost immediately due doesn't race the due-time poller's own polling interval. Not
+inherited from any platform's own floor (Facebook's API scheduler enforces 10 minutes, per
+the [delegation research above](#delegation-investigated-decided-against--local-queue-for-every-schedulable-platform)) — GaleFling's poller enforces its own regardless of which
+platform a post targets.
 
 ### Not failing silently (R4)
 
@@ -163,13 +173,19 @@ Interactive posting already fails loudly, since Rin is present and sees the erro
 Scheduled posting is the case that can fail unobserved, because nobody is watching at post
 time.
 
-Three channels, none of which need a service worker or a notification model:
+Four surfaces report the failure:
 
 - **Email over SMTP.** The natural channel for something that happens while nobody is
   looking: it reaches Rin and Jas on any device without the phone client being open, and
   needs no service worker, no notification model, and no secure context. See
   [Email configuration](#email-configuration) — this is chosen over SES specifically
   because it can be pre-configured for Rin rather than set up by her.
+- **A system toast through the tray icon.** Show one consolidated
+  `QSystemTrayIcon.showMessage` notification after all platform attempts for the scheduled
+  item settle, titled **Scheduled post failed** and naming the failed platform account(s).
+  This remains visible when the main window is minimized; clicking it opens the item's
+  failure details in the existing results UI. It is best-effort and transient, so it
+  supplements rather than replaces email.
 - **Visible failure state in the desktop GUI**, alongside the existing results dialog.
 - **The existing log-upload path**, for diagnosis after the fact.
 
@@ -211,7 +227,7 @@ platform, Facebook included, now goes through startup reconciliation like the re
 local queue.
 
 A Windows Update reboot is a common way for the desktop to miss a due time unattended; see
-[MOBILE_LAN_ACCESS.md#windows-session-constraints](MOBILE_LAN_ACCESS.md#windows-session-constraints)
+[MOBILE_LAN_ACCESS.md#windows-session-constraints](../MOBILE_LAN_ACCESS.md#windows-session-constraints)
 for why the poster can't be installed as a Windows service and what that implies for
 autologon and session restore. Startup reconciliation, above, is what catches anything
 whose due time passed during that kind of outage.
@@ -219,7 +235,7 @@ whose due time passed during that kind of outage.
 #### Email configuration
 
 **Implemented 2026-08-21, ahead of the rest of scheduling** — see
-[docs/EMAIL_NOTIFICATIONS.md](../EMAIL_NOTIFICATIONS.md) for the user-facing setup guide.
+[docs/EMAIL_NOTIFICATIONS.md](../../EMAIL_NOTIFICATIONS.md) for the user-facing setup guide.
 SMTP credentials (host, port, username, app password) import the same way as `meta`,
 `twitter`, and `aws` via `src/core/credential_importer.py`'s versioned, partial-import-safe
 `smtp` section, and are stored through `AuthManager` (`smtp_auth.json`, file-per-credential
@@ -277,55 +293,32 @@ sometimes fully shut down the machine when not in active use.** This retires the
 sleeps despite being powered" risk — nothing to mitigate there — but surfaces a more
 consequential one: unlike sleep, a full shutdown doesn't self-heal on its own the way
 autologon + session restore handles a Windows Update reboot (see
-[MOBILE_LAN_ACCESS.md#windows-session-constraints](MOBILE_LAN_ACCESS.md#windows-session-constraints));
+[MOBILE_LAN_ACCESS.md#windows-session-constraints](../MOBILE_LAN_ACCESS.md#windows-session-constraints));
 the machine stays off until Rin manually turns it back on, so a scheduled post's window can
-pass with nobody around to notice. This is routine behavior for her, not an edge case, so it
-needs a real mitigation rather than just startup reconciliation catching it after the fact.
+pass with nobody around to notice. This is routine behavior for her, not an edge case.
 
-Two pieces, both scoped to Windows (Rin's platform — see the Linux note below):
+**Composer-time warning.** The schedule picker shows a persistent reminder that
+scheduled posts require the computer to stay on and logged in, and that shutting down
+will prevent them from firing on time. Static, not conditional on anything — she should
+see this every time she schedules, not just when something is already pending.
 
-1. **Composer-time warning.** The schedule picker shows a persistent reminder that
-   scheduled posts require the computer to stay on and logged in, and that shutting down
-   will prevent them from firing on time. Static, not conditional on anything — she should
-   see this every time she schedules, not just when something is already pending.
-2. **Shutdown-block prompt while a post is pending.** While the local queue holds ≥1
-   pending item, the poster process (running as the tray/background entry point — see
-   [MOBILE_LAN_ACCESS.md#windows-session-constraints](MOBILE_LAN_ACCESS.md#windows-session-constraints))
-   handles `WM_QUERYENDSESSION` and calls `ShutdownBlockReasonCreate` with a reason string
-   naming the pending post(s), so Windows shows its native "this app is preventing
-   shutdown" dialog instead of GaleFling silently losing the window. Rin can proceed with
-   the shutdown from that dialog if she means to — this is a courtesy prompt, not a lock.
+**Shutdown-block prompt — deferred, 2026-08-22 (Jas): leave it out of Phase 1, may
+revisit later.** A Windows `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt —
+blocking shutdown while the local queue holds ≥1 pending item, with a reason string
+naming the pending post(s), so Windows shows its native "this app is preventing
+shutdown" dialog — was designed for this phase but isn't being built now. Startup
+reconciliation is the actual mitigation either way: nothing is silently lost, since a
+missed post is caught and surfaced next launch regardless of whether shutdown was
+blocked or not — the prompt would only have been a courtesy heads-up at shutdown time
+itself, not a safety net. Deferring it also moots the reboot-vs-shutdown detection
+question it would have needed (`WM_QUERYENDSESSION`'s `lParam` doesn't cleanly
+distinguish a restart from a full power-off, and `ENDSESSION_CRITICAL` shutdowns can't
+be blocked by any app regardless) — revisit alongside the prompt if it comes back.
 
-**Reboot vs. shutdown — open technical question, needs a Phase 0/1 spike before relying on
-it.** The ask is that a restart shouldn't trigger the same prompt, since autologon +
-session restore already means a restart self-heals. But `WM_QUERYENDSESSION`'s `lParam`
-does not cleanly expose "this is a restart" vs. "this is a full power-off" to a listening
-application — only `ENDSESSION_LOGOFF`, `ENDSESSION_CRITICAL`, and `ENDSESSION_CLOSEAPP`
-are documented flags, none of which distinguish reboot from shutdown. Two candidate
-approaches:
-
-   - **Query the System event log for Event ID 1074** (logged by the component that
-     requested the shutdown/restart, with a human-readable reason that does distinguish
-     them) shortly after the query fires. Fragile: needs Event Log read permissions, and
-     there's no guarantee the 1074 entry is written and readable before GaleFling has to
-     decide whether to return `FALSE` from the handler.
-   - **Don't try to distinguish upfront.** Show the block/prompt on every
-     `WM_QUERYENDSESSION` uniformly, and satisfy "reboots shouldn't need the same prompt"
-     through the already-planned autologon + startup reconciliation making a restart
-     self-heal quickly — so in practice a restart costs Rin, at worst, one extra dialog
-     dismissal rather than a real failure. This is the pragmatic default unless the spike
-     finds event-log detection reliable enough to trust.
-
-Either way, **`ENDSESSION_CRITICAL` shutdowns cannot be blocked by any app** — some
-Windows-Update-forced restarts fall into this category, and the OS proceeds regardless of
-what the handler returns. The block/prompt is a best-effort courtesy on top of startup
-reconciliation, which remains the actual safety net for anything that gets through
-unprompted.
-
-**Linux note:** this entire mechanism is Windows-specific because Rin's machine is
-Windows. Linux has an analogous inhibitor-lock mechanism (`systemd-logind`'s `Inhibit()`
-D-Bus call, or the `systemd-inhibit` CLI wrapper) if parity is ever wanted for R6, but it
-is not scoped now — nothing in this design requires it to ship.
+**Linux note:** the deferred mechanism above would have been Windows-specific
+regardless, since Rin's machine is Windows. Linux has an analogous inhibitor-lock
+mechanism (`systemd-logind`'s `Inhibit()` D-Bus call, or the `systemd-inhibit` CLI
+wrapper) if parity is ever wanted for R6, but neither is scoped now.
 
 ### Start at login
 
@@ -335,28 +328,47 @@ on and Rin logged in, with GaleFling simply never launched since the last boot, 
 via the tray icon's Exit action. Nothing above catches this, and it is exactly the kind of
 step R5 says should not be left for Rin to remember.
 
-**Add a "Start GaleFling at login" setting** — Settings dialog, on by default once the
-first post is scheduled rather than buried as an opt-in nobody finds. Concretely:
+**Add a "Start GaleFling at login" setting** — Settings dialog, on by default from the
+first launch rather than buried as an opt-in nobody finds. Concretely:
 
 - **The setting is a real, user-visible toggle**, not just an installer-time default.
-  Installer defaults (see
-  [MOBILE_LAN_ACCESS.md Phase 3](MOBILE_LAN_ACCESS.md#phase-3--onboarding-r5-1-week))
-  don't help if she reinstalls, resets the machine, or the setting gets toggled off some
+  A one-time installer default (see
+  [MOBILE_LAN_ACCESS.md Phase 3](../MOBILE_LAN_ACCESS.md#phase-3--onboarding-r5-1-week))
+  wouldn't help if she reinstalls, resets the machine, or the setting gets toggled off some
   other way — the app needs to be able to set and query this itself.
-- **Offer to turn it on at the moment it starts mattering.** When Rin schedules her first
-  pending post while autostart is off, prompt once (a checkbox alongside the
+- **Default it on for every fresh install, not just prompt at schedule time.**
+  `ConfigManager`'s `autostart_enabled` default is `True`, and `main.py` registers the
+  real OS-level entry (not just the config flag) the moment it detects no config file
+  existed before this launch — i.e. exactly once, on a genuinely fresh install. An
+  existing install upgrading to this behavior keeps whatever it already had, on or off,
+  since loading config only fills in *missing* keys and never overwrites a saved value;
+  resetting configuration re-derives the same fresh-install default and re-syncs the OS
+  entry to match. This already covers reinstalls that wipe app data, addressing the
+  installer-default concern above without needing the installer itself to do anything.
+- **Also offer to turn it on at the moment it starts mattering**, for the install-already-
+  existed / already-declined case. When Rin schedules a pending post while autostart is
+  off, prompt once (a checkbox alongside the
   [composer-time warning](#shutdown-awareness-r4) is the natural spot, since both are
   about the same underlying requirement — the computer must stay on and GaleFling must be
   running) rather than requiring her to find Settings unprompted. Default the checkbox to
-  checked; she can decline.
+  checked; she can decline. Because autostart is already on for any fresh install, this
+  prompt in practice only ever appears if she (or a pre-existing install) turned it off.
 - **Platform mechanism**: on Windows, a `HKEY_CURRENT_USER\...\Run` registry value (no
   admin rights needed, unlike a Startup-folder shortcut created system-wide) or a Startup
   folder shortcut — either is fine, pick whichever the installer tooling makes easiest to
   keep in sync with the setting's on/off state. On Linux, an XDG autostart desktop entry
   under `~/.config/autostart/`. Both are per-user, requiring no elevation, consistent with
   R6 (both platforms run the full app, including this).
-- **Launches to tray, not the visible window**, when started this way — Rin didn't ask to
-  see GaleFling's UI at every login, only for it to be running so scheduled posts fire.
+- **Automatic-launch display mode is a separate user-visible setting.** Settings offers
+  **Open the main window** or **Start minimized to the system tray**, defaulting to the tray.
+  This applies only when GaleFling is started by the login/autostart entry; a manual launch
+  still opens the main window normally. The Windows `Run` value / Startup shortcut and the
+  Linux XDG autostart entry should include a dedicated startup argument (for example,
+  `--start-minimized`) only for the tray choice, and be rewritten when this setting changes.
+  If Qt reports that no system tray is available, the automatic launch must show the main
+  window instead of leaving GaleFling running invisibly. For AppImage builds, the XDG entry
+  must use the persistent `$APPIMAGE` path, not `sys.executable` inside the temporary mount;
+  quote its `Exec` arguments using Desktop Entry rules rather than shell quoting.
 
 This belongs to **Phase 1** (the setting must exist before or alongside the first release
 that lets her schedule anything — it's not mobile-specific, so it doesn't wait for
@@ -381,24 +393,27 @@ if more platforms gain real API scheduling later.
 
 Phase 0.1 (confirm Rin's sleep + autologon settings) and 0.4 (mDNS + media upload spike)
 are mobile/LAN-access items — see
-[MOBILE_LAN_ACCESS.md#phase-0--spike-and-confirmation](MOBILE_LAN_ACCESS.md). 0.1 also
+[MOBILE_LAN_ACCESS.md#phase-0--spike-and-confirmation](../MOBILE_LAN_ACCESS.md). 0.1 also
 matters here, since the scheduler needs the desktop actually awake to fire on time, but it
 is tracked as one item rather than duplicated.
 
-## Phase 1 — Scheduler in the desktop app (~2–3 weeks)
+## Phase 1 — Scheduler in the desktop app — implemented
 
 Schedule queue, due-time poller, background/tray operation, the missed-post reconciliation
 dialog (post now / delete / edit — see
-[Not failing silently](#not-failing-silently-r4)), the Windows shutdown-block prompt (see
-[Shutdown awareness](#shutdown-awareness-r4)), and the
-[start-at-login setting](#start-at-login) — one uniform path for every schedulable platform,
+[Not failing silently](#not-failing-silently-r4)), the composer-time shutdown warning (see
+[Shutdown awareness](#shutdown-awareness-r4) — the Windows shutdown-block prompt itself is
+deferred, not part of this phase), and the
+[start-at-login setting](#start-at-login) — see
+[docs/plans/completed/SCHEDULING_UI_DESIGN.md](SCHEDULING_UI_DESIGN.md) for mockups of every screen
+this phase delivers. One uniform path for every schedulable platform,
 no delegated-vs-local routing to build for the active platform set (OnlyFans/Fansly's
 separate UI-automation delegation stays dormant while paused). Deliverable: **a post
 scheduled from the existing desktop GUI fires correctly with the app minimized**, on both
 Windows and Linux. No phone involved yet. This alone satisfies R2.
 
 This is the entire scheduling-side deliverable; mobile client work is
-[Phase 2](MOBILE_LAN_ACCESS.md#phase-2--embedded-server--mobile-client-34-weeks) and does not
+[Phase 2](../MOBILE_LAN_ACCESS.md#phase-2--embedded-server--mobile-client-34-weeks) and does not
 block it.
 
 ---
@@ -409,36 +424,21 @@ block it.
 |------|------------|--------|------------|
 | Windows Update reboot strands the poster at the lock screen | Medium | High | Autologon + session restore; startup reconciliation posts anything missed during the outage, late and flagged |
 | ~~Desktop sleeps despite being powered~~ | — | — | **Resolved 2026-08-21 (Phase 0.1):** confirmed Rin does not have sleep configured. Not a real risk; nothing to mitigate. |
-| Rin manually shuts down the machine when not in active use, silently dropping pending scheduled posts | **High** — confirmed routine behavior, not an edge case | High | See [Shutdown awareness](#shutdown-awareness-r4): composer-time warning plus a `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt while a post is pending, backstopped by startup reconciliation for anything that still gets through |
+| Rin manually shuts down the machine when not in active use, silently dropping pending scheduled posts | **High** — confirmed routine behavior, not an edge case | High | See [Shutdown awareness](#shutdown-awareness-r4): composer-time warning, backstopped by startup reconciliation for anything that gets through. The `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` prompt that would have added a shutdown-time courtesy heads-up is deferred, not part of this mitigation for now. |
 | Machine is on and Rin is logged in, but GaleFling itself isn't running (never launched since boot, or closed via the tray icon's Exit) | Medium | High | See [Start at login](#start-at-login): a real Settings toggle, offered proactively the first time she schedules a post while it's off |
 | Local-queue posting breaks when a platform's API changes | Medium | Medium | Same fragility as posting today; reconcile after the fact |
 | Cloudflare behavior changes on Fansly/OnlyFans | Medium | High | Unchanged from today; posting stays on her machine and IP. Not a scheduling risk per se — those platforms are paused — but retained here since a reactivation would restore their delegated-scheduling model. |
 
 Windows drift, mDNS failure, and the mobile-specific risks live in
-[MOBILE_LAN_ACCESS.md#risk-register](MOBILE_LAN_ACCESS.md#risk-register).
-
----
-
-## Open questions
-
-1. Can GaleFling reliably distinguish a restart from a full shutdown at
-   `WM_QUERYENDSESSION` time, well enough to skip the block/prompt on restarts
-   specifically? See [Shutdown awareness](#shutdown-awareness-r4) — needs a spike before
-   Phase 1 build-out; the pragmatic fallback (prompt uniformly, lean on autologon +
-   startup reconciliation for restarts) doesn't need this answered first.
-
-The staleness-threshold question this section used to list is resolved — see
-[Not failing silently (R4)](#not-failing-silently-r4): no automatic threshold, a
-missed-post dialog every time instead.
-
-Rin's autologon state and mDNS resolution are mobile/LAN-access open questions — see
-[MOBILE_LAN_ACCESS.md#open-questions](MOBILE_LAN_ACCESS.md#open-questions). Her sleep
-settings are resolved above (Phase 0.1) — not configured, not a risk.
+[MOBILE_LAN_ACCESS.md#risk-register](../MOBILE_LAN_ACCESS.md#risk-register).
 
 ---
 
 ## References
 
+- `docs/plans/completed/SCHEDULING_UI_DESIGN.md` — screen-by-screen mockups for every surface Phase 1
+  delivers (Schedule dialog, Scheduled Posts queue, missed-post reconciliation, start-at-login
+  toggle, tray menu)
 - `docs/plans/MOBILE_LAN_ACCESS.md` — architecture, IP-identity rationale, R1/R3/R5/R6/R7,
   Phase 0.1/0.4/2/3
 - `docs/ARCHITECTURE_OVERVIEW.md` — two-tier posting model
@@ -453,6 +453,14 @@ settings are resolved above (Phase 0.1) — not configured, not a risk.
 
 | Date | Change |
 |------|--------|
+| 2026-08-22 | [Start at login](#start-at-login) now defaults on for every fresh install, registered for real (not just the config flag) the moment `main.py` detects no config file existed before this launch, rather than only being pre-checked in the schedule-time prompt (Jas). An existing install keeps whatever it already had; resetting configuration re-syncs the OS entry to the reset config in either direction instead of only ever disabling it. This subsumes the installer-default idea from [MOBILE_LAN_ACCESS.md Phase 3](../MOBILE_LAN_ACCESS.md#phase-3--onboarding-r5-1-week), which is updated accordingly. |
+| 2026-08-22 | Moved this implemented scheduling plan from `docs/plans/` to `docs/plans/completed/` and updated repository references and relative links. |
+| 2026-08-22 | Hardened Linux start-at-login behavior after reviewing KDE/GNOME integration: a requested minimized launch falls back to the visible main window if Qt reports no usable tray; AppImage entries use the persistent `$APPIMAGE` path rather than a temporary mounted executable; Desktop Entry `Exec` values use freedesktop quoting instead of shell quoting; and source-checkout entries use an absolute entry point. Added regression tests and validated the generated XDG entry with `desktop-file-validate`. |
+| 2026-08-21 | Implemented Phase 1: local SQLite queue with owned media copies, atomic due claims and interrupted-item recovery; composer calendar action and five-minute picker floor; pending queue edit/cancel UI; missed-item startup reconciliation; existing `PostWorker` execution path; Windows/Linux per-user autostart with window/tray launch choice; tray controls/live count; in-app confirmation toast; consolidated clickable system failure notification; and best-effort SMTP failure email. Added `docs/SCHEDULING.md`, unit tests, and architecture/user documentation. The deferred Windows shutdown-block prompt remains out of scope. |
+| 2026-08-22 | Added a configurable automatic-launch display mode (Jas): **Open the main window** or **Start minimized to the system tray**, defaulting to the tray. This affects only login/autostart launches; manual launches still show the normal window. Also expanded scheduled-post failure reporting to include a consolidated system toast through `QSystemTrayIcon.showMessage` alongside the already-required SMTP email, persistent GUI failure state, and logs. The toast is best-effort/transient, remains visible while the app is minimized, and opens the existing results UI when clicked. |
+| 2026-08-22 | Set the due-time picker's minimum lead time to 5 minutes (Jas), settling the open question `SCHEDULING_UI_DESIGN.md` had flagged. Not inherited from Facebook's own 10-minute API scheduler floor — GaleFling's poller enforces its own regardless of target platform. Added to [Local queue](#local-queue). |
+| 2026-08-22 | Deferred the Windows shutdown-block prompt out of Phase 1 (Jas): "leave out the reboot blocking, may revisit in the future." [Shutdown awareness](#shutdown-awareness-r4) keeps only the composer-time warning for now; the `WM_QUERYENDSESSION`/`ShutdownBlockReasonCreate` mechanism and its reboot-vs-shutdown detection question are both dropped from scope rather than needing a spike. Startup reconciliation remains the actual safety net either way — the deferred prompt would only have added a shutdown-time courtesy heads-up, not a correctness guarantee. Updated Phase 1 scope and the risk register's shutdown-risk mitigation; the now-empty Open questions section was subsequently removed. |
+| 2026-08-21 | Added `docs/plans/completed/SCHEDULING_UI_DESIGN.md` (Jas; originally under `docs/plans/`, moved after implementation): a full screen-by-screen design for Phase 1's GUI surface — Schedule dialog, Scheduled Posts queue, missed-post reconciliation window, the start-at-login toggle's placement in Settings → Advanced, and the (currently nonexistent) tray context menu — with mockups generated by a new `tools/screenshots/generate_scheduling_mockups.py`, styled with the app's real theme/tokens/icons rather than generic wireframes. Building the mockups surfaced a real rendering bug in `results_dialog.py`'s badge compositing (a QSS `padding`+`margin` combination on a styled `QFrame` corrupts descendant layout under the offscreen Qt platform); flagged in the new document and worked around there, left unfixed here as it's unrelated to scheduling. |
 | 2026-08-21 | Implemented SMTP credential import + notification email setup ahead of the rest of scheduling (Jas): `smtp` credential import section, `AuthManager` storage, a Settings → Advanced → Email Notifications section with a real test-email button, and a Setup Wizard field for the notification address. See `docs/EMAIL_NOTIFICATIONS.md`. Corrected two assumptions this section had made: storage is plain-file via `AuthManager` (matching every other credential), not `keyring`; and the notification address is a single field, not the "recipients" plural originally assumed. Sending an actual notification on a failed/blocked post is still Phase 1 work, pending the rest of scheduling. |
 | 2026-08-21 | Added a bulk "Post all" action to the missed-post reconciliation window (Jas), offered alongside the per-item Post now/Delete/Edit flow rather than replacing it — for when Rin just wants everything out without stepping through each one. No bulk Delete or Edit: deleting unreviewed risks losing something wanted, and bulk-editing doesn't make sense across differing captions. |
 | 2026-08-21 | Clarified multiple-missed-posts handling in startup reconciliation (Jas): one reconciliation window stepping through each missed item in turn (progress like "Post 2 of 4"), not a separate popup dialog per item — spawning N windows on launch is the opposite of graceful. Cited `ResultsDialog` (`src/gui/results_dialog.py`) as existing precedent for one window handling multiple items. |

@@ -314,9 +314,8 @@ class CredentialImportPage(QWizardPage):
         layout.addLayout(notification_form)
 
         notification_hint = QLabel(
-            '<i>GaleFling will email this address if a scheduled post ever fails to send — '
-            'scheduling is not available yet, but you can set this up now so it’s ready '
-            'later. Optional — leave blank and set it anytime in Settings → Advanced.</i>'
+            '<i>GaleFling will email this address if a scheduled post fails to send. '
+            'Optional — leave blank and set it anytime in Settings → Advanced.</i>'
         )
         notification_hint.setWordWrap(True)
         layout.addWidget(notification_hint)

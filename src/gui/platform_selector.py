@@ -96,6 +96,7 @@ class PlatformSelector(QWidget):
     """
 
     selection_changed = pyqtSignal(list)
+    locked_platform_clicked = pyqtSignal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -106,6 +107,9 @@ class PlatformSelector(QWidget):
         self._available: set[str] = set()
         self._format_restricted: set[str] = set()
         self._count_restricted: set[str] = set()
+        # Deliberately NOT cleared by set_accounts()'s rebuild — a lock must survive
+        # the credential-availability refresh that runs on every selection change.
+        self._locked: dict[str, str] = {}
         self._init_ui()
 
     def _init_ui(self) -> None:
@@ -267,6 +271,10 @@ class PlatformSelector(QWidget):
         cb = self._checkboxes.get(account_id)
         if not cb:
             return
+        if cb.isChecked() and account_id in self._locked:
+            cb.setChecked(False)
+            self.locked_platform_clicked.emit(account_id)
+            return
         # Block checking unavailable, format-restricted, or count-restricted platforms
         if cb.isChecked() and (
             account_id not in self._available
@@ -282,7 +290,9 @@ class PlatformSelector(QWidget):
 
     def set_selected(self, account_ids: list[str]):
         for name, cb in self._checkboxes.items():
-            cb.setChecked(name in account_ids and name in self._available)
+            cb.setChecked(
+                name in account_ids and name in self._available and name not in self._locked
+            )
         self.selection_changed.emit(self.get_selected())
 
     def set_platform_enabled(self, account_id: str, enabled: bool):
@@ -297,6 +307,27 @@ class PlatformSelector(QWidget):
 
     def get_enabled(self) -> list[str]:
         return [name for name in self._checkboxes if name in self._available]
+
+    def set_platform_locked(self, account_id: str, locked: bool, *, tooltip: str = '') -> None:
+        """Lock/unlock an account so it can't be checked (e.g. already posted on retry).
+
+        Unlike ``_available``, this survives set_accounts()'s rebuild.
+        """
+        if locked:
+            self._locked[account_id] = tooltip
+        else:
+            self._locked.pop(account_id, None)
+        cb = self._checkboxes.get(account_id)
+        if cb and locked:
+            cb.setChecked(False)
+        self._update_row_style(account_id)
+
+    def clear_locks(self) -> None:
+        if not self._locked:
+            return
+        self._locked.clear()
+        for account_id in self._checkboxes:
+            self._update_row_style(account_id)
 
     def set_format_restriction(self, restricted_account_ids: set[str], notice_text: str = ''):
         """Restrict platforms that don't support the attached image format.
@@ -370,7 +401,21 @@ class PlatformSelector(QWidget):
         color = specs.platform_color if specs else tokens.TEXT
         text_color = tokens.legible_accent(color)
 
-        if account_id in self._format_restricted:
+        if account_id in self._locked:
+            row.name_label.setStyleSheet(
+                f'font-size: 13px; font-weight: bold; color: {tokens.TEXT_MUTED};'
+                ' font-style: italic;'
+            )
+            row.handle_label.setStyleSheet(
+                f'font-size: 12px; font-weight: 600; color: {tokens.TEXT_SECONDARY}; font-style: italic;'
+            )
+            row.status_pill.setText('Posted ✓')
+            row.status_pill.setStyleSheet(self._status_pill_style(tokens.SUCCESS))
+            cb.setToolTip(
+                self._locked.get(account_id)
+                or 'Already posted successfully — click to include it in this retry anyway.'
+            )
+        elif account_id in self._format_restricted:
             row.name_label.setStyleSheet(
                 f'font-size: 13px; font-weight: bold; color: {tokens.TEXT_MUTED};'
                 ' font-style: italic;'

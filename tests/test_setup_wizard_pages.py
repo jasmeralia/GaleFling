@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from PyQt6.QtWidgets import QLabel
+
 from src.gui.setup_wizard import (
     _META_PROVIDER_DEFS,
     BlueskySetupPage,
@@ -82,6 +84,15 @@ def test_credential_import_page_prefills_notification_email(qtbot):
     qtbot.addWidget(page)
 
     assert page._notification_email_edit.text() == 'rin@example.com'
+
+
+def test_credential_import_page_describes_scheduled_failure_email(qtbot):
+    page = CredentialImportPage(_DummyAuthManager(), _DummyConfigManager())
+    qtbot.addWidget(page)
+
+    label_text = ' '.join(label.text() for label in page.findChildren(QLabel))
+    assert 'scheduled post fails to send' in label_text
+    assert 'scheduling is not available yet' not in label_text
 
 
 def test_credential_import_page_validate_saves_notification_email(qtbot):

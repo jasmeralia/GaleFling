@@ -28,6 +28,16 @@ def composer(qtbot, monkeypatch):
     return comp
 
 
+def test_schedule_and_emoji_buttons_are_30px_and_schedule_emits(composer, qtbot):
+    with qtbot.waitSignal(composer.schedule_requested):
+        composer._schedule_button.click()
+
+    assert composer._schedule_button.iconSize().width() == 30
+    assert composer._schedule_button.iconSize().height() == 30
+    assert composer._emoji_button.iconSize().width() == 30
+    assert composer._emoji_button.iconSize().height() == 30
+
+
 class TestTextWarning:
     def test_no_warning_without_text(self, composer):
         """No warning shown when text is empty."""

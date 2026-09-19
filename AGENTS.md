@@ -51,7 +51,6 @@ On `master` pushes, the release workflow calls `release_info.py` to compute the 
 
 ## Release Checklist
 
-> **Sync notice:** This checklist is duplicated in `CLAUDE.md`. Any changes must be made in **both** files.
 1. Run `make lint` and confirm success.
 2. Run `make test-cov` and confirm success.
 3. Before any **minor** version bump (`Y` in `X.Y.Z`), confirm with the user first.
@@ -169,3 +168,24 @@ galefling/
 - `docs/testing/RELEASE_TESTING.md` — recommended manual pre-release testing scenarios
 - `docs/testing/FUNCTIONAL_TESTING.md` — functional test setup, credentials, and troubleshooting
 - `tools/windows-vm/README.md` — Windows 11 libvirt test-VM setup and lifecycle
+
+## Debug Workflow
+
+Use the debug slash commands for iterative debugging across sessions.
+
+Available commands:
+- `/triage_logs` — analyze the newest app log and form hypotheses
+- `/triage_crash` — analyze the newest crash log and form hypotheses
+- `/save_debug` — persist current debug state to `debug_state.md`
+- `/resume_debug` — resume from `debug_state.md` after a session reset or `/clear`
+- `/clean_debug` — compact `debug_state.md` without losing live reasoning state
+
+Rules:
+- `debug_state.md` is the single source of truth across debug sessions.
+- Do not rely on long-lived chat history for iterative debugging.
+- After a failed run, use `/triage_logs` unless the user reports a crash.
+- After a crash, use `/triage_crash`.
+- After triage, use `/save_debug` to persist the current issue state.
+- After a session reset or `/clear`, use `/resume_debug`.
+- If `debug_state.md` becomes noisy or bloated, use `/clean_debug`.
+

@@ -1,6 +1,6 @@
 atproto>=0.0.72
-boto3>=1.43.92
-emoji>=2.15.0
+boto3>=1.43.97
+emoji>=2.16.0
 ffmpeg-python>=0.2.0
 imageio-ffmpeg>=0.6.0
 keyring>=25.7.0

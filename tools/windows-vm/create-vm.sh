@@ -164,7 +164,6 @@ sudo virt-install \
     --channel spicevmc \
     --channel type=unix,target.type=virtio,target.name=org.qemu.guest_agent.0 \
     --controller usb,model=qemu-xhci \
-    --autostart \
     --noautoconsole
 
 # Microsoft's retail ISO requires a keypress before its UEFI bootloader starts.

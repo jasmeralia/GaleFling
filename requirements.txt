@@ -1,5 +1,5 @@
 atproto>=0.0.72
-boto3>=1.43.102
+boto3>=1.43.107
 emoji>=2.16.0
 ffmpeg-python>=0.2.0
 imageio-ffmpeg>=0.6.0
@@ -8,6 +8,6 @@ packaging>=26.3
 Pillow>=12.3.0
 PyQt6>=6.11.0
 PyQt6-WebEngine>=6.11.0
-python-dotenv>=1.2.3
+python-dotenv>=1.2.4
 requests>=2.34.2
 tweepy>=4.17.0

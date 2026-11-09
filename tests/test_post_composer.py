@@ -1,5 +1,6 @@
 """Tests for PostComposer text warning, character counters, and multi-attachment."""
 
+import dataclasses
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -8,7 +9,7 @@ import pytest
 
 from src.core.video_processor import VideoInfo
 from src.gui.post_composer import PostComposer
-from src.utils.constants import MAX_MEDIA_ATTACHMENTS
+from src.utils.constants import MAX_MEDIA_ATTACHMENTS, PLATFORM_SPECS_MAP
 
 
 @pytest.fixture
@@ -102,6 +103,63 @@ class TestTextWarning:
         """FetLife text-only posts should not show the media text warning."""
         composer.set_platform_state(selected=['fetlife_1'], enabled=['fetlife_1'])
         composer.set_text('Hello world')
+        assert composer._text_warning.isHidden()
+
+    def test_warning_for_platform_that_drops_text_with_media(self, composer, monkeypatch, tmp_path):
+        """A text-capable platform that ignores text alongside media is named once."""
+        monkeypatch.setitem(
+            PLATFORM_SPECS_MAP,
+            'fetlife',
+            dataclasses.replace(PLATFORM_SPECS_MAP['fetlife'], supports_text_with_media=False),
+        )
+        media = tmp_path / 'photo.jpg'
+        media.write_bytes(b'jpg')
+        composer.set_media_paths([media])
+        # Two accounts on the same platform must not repeat the platform name.
+        composer.set_account_platform_map({'fetlife_1': 'fetlife', 'fetlife_2': 'fetlife'})
+        composer.set_platform_state(
+            selected=['fetlife_1', 'fetlife_2'], enabled=['fetlife_1', 'fetlife_2']
+        )
+        composer.set_text('Hello world')
+
+        assert not composer._text_warning.isHidden()
+        warning = composer._text_warning.text()
+        assert warning.count('FetLife') == 1
+        assert 'FetLife does not support text when media is attached' in warning
+
+    def test_warning_pluralises_for_multiple_platforms_dropping_text_with_media(
+        self, composer, monkeypatch, tmp_path
+    ):
+        """Several platforms dropping text with media use the plural verb."""
+        for platform_id in ('fetlife', 'twitter'):
+            monkeypatch.setitem(
+                PLATFORM_SPECS_MAP,
+                platform_id,
+                dataclasses.replace(
+                    PLATFORM_SPECS_MAP[platform_id], supports_text_with_media=False
+                ),
+            )
+        media = tmp_path / 'photo.jpg'
+        media.write_bytes(b'jpg')
+        composer.set_media_paths([media])
+        composer.set_platform_state(
+            selected=['fetlife_1', 'twitter_1'], enabled=['fetlife_1', 'twitter_1']
+        )
+        composer.set_text('Hello world')
+
+        assert not composer._text_warning.isHidden()
+        assert 'do not support text when media is attached' in composer._text_warning.text()
+
+    def test_no_warning_for_text_dropping_platform_without_media(self, composer, monkeypatch):
+        """The text-with-media warning only applies once media is attached."""
+        monkeypatch.setitem(
+            PLATFORM_SPECS_MAP,
+            'fetlife',
+            dataclasses.replace(PLATFORM_SPECS_MAP['fetlife'], supports_text_with_media=False),
+        )
+        composer.set_platform_state(selected=['fetlife_1'], enabled=['fetlife_1'])
+        composer.set_text('Hello world')
+
         assert composer._text_warning.isHidden()
 
 

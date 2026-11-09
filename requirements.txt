@@ -6,8 +6,12 @@ imageio-ffmpeg>=0.7.0
 keyring>=25.7.0
 packaging>=26.3
 Pillow>=13.0.0
+# PyQt6 6.12.0 ships .pyi stubs that mypy cannot parse ('/' parameter must appear
+# before '*' parameter); remove these caps when fixed upstream. PyQt6-WebEngine 6.140+
+# requires PyQt6 >= 6.12, so it is capped with it. Dependabot ignores both (see
+# .github/dependabot.yml).
 PyQt6>=6.11.0,<6.12.0
-PyQt6-WebEngine>=6.11.0
+PyQt6-WebEngine>=6.11.0,<6.12.0
 python-dotenv>=1.2.4
 requests>=2.34.2
 tweepy>=4.17.0

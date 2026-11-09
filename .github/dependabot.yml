@@ -8,6 +8,14 @@ updates:
     time: '09:00'
     timezone: America/Los_Angeles
   open-pull-requests-limit: 5
+  ignore:
+  # PyQt6 6.12.0 stubs are unparseable by mypy; see requirements.txt.
+  - dependency-name: PyQt6
+    versions:
+    - '>=6.12.0'
+  - dependency-name: PyQt6-WebEngine
+    versions:
+    - '>=6.12.0'
   groups:
     python-dependencies:
       patterns:

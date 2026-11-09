@@ -502,9 +502,12 @@ class PostComposer(QWidget):
                 has_no_text_platform = True
                 if specs.platform_name not in no_text_names:
                     no_text_names.append(specs.platform_name)
-            elif self._media_paths and not specs.supports_text_with_media:
-                if specs.platform_name not in no_text_with_media_names:
-                    no_text_with_media_names.append(specs.platform_name)
+            elif (
+                self._media_paths
+                and not specs.supports_text_with_media
+                and specs.platform_name not in no_text_with_media_names
+            ):
+                no_text_with_media_names.append(specs.platform_name)
             if specs.max_text_length is not None:
                 active_platforms[platform_id] = (specs.platform_name, specs.max_text_length)
 

@@ -1,5 +1,5 @@
-atproto>=0.0.74
-boto3>=1.44.2
+atproto>=0.0.75
+boto3>=1.44.7
 emoji>=2.16.0
 ffmpeg-python>=0.2.0
 imageio-ffmpeg>=0.8.1
